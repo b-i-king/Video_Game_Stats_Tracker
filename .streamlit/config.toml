@@ -1,0 +1,9 @@
+[theme]
+base="dark"
+borderColor="#c8ac44"
+codeBackgroundColor="#4a4a4a"
+primaryColor="#d3d3d3"
+showWidgetBorder=false
+
+[theme.sidebar]
+showWidgetBorder=true
