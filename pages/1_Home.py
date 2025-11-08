@@ -1,8 +1,6 @@
 import streamlit as st
 
 # --- GOOGLE SITE VERIFICATION ---
-# Place this at the very top of your home page file.
-# Replace "YOUR_VERIFICATION_CODE_HERE" with the content string from Google.
 st.markdown(
     '<meta name="google-site-verification" content="lPYdHOgd3-kVW7mLpGyL4c7RJuTq_BVM1wJS_6eqnc8" />',
     unsafe_allow_html=True
