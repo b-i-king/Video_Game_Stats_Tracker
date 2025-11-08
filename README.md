@@ -10,11 +10,11 @@ This app uses:
 ---
 
 ## 🚀 Live Application
-👉 [Video Game Stats Entry](https://video-game-stats-tracker.streamlit.app/)
+🔗 [Video Game Stats Entry](https://video-game-stats-tracker.streamlit.app/)
 
 ---
 
-## 🏛 Application Architecture
+## 🏩 Application Architecture
 
 **Frontend (Streamlit):**
 - Python web app deployed on Streamlit Community Cloud.
@@ -46,7 +46,7 @@ This app uses:
 - 🔑 **Google Authentication** (with JWT + API Key security)
 - 🧩 **CRUD for Admins:**
   - Add/edit/delete players, games, and stats
-- 🧮 **Star Schema Design** for analytics efficiency
+- 🤮 **Star Schema Design** for analytics efficiency
 - ⚡ **Fast Backend Connections** with psycopg2 connection pooling
 - 🧠 **Smart UI:**
   - Hybrid inputs (dropdown + text)
@@ -55,7 +55,7 @@ This app uses:
 
 ---
 
-## 🏗 How to Run Locally
+## 🏷 How to Run Locally
 
 ### Prerequisites
 - Python 3.9+
@@ -140,6 +140,75 @@ streamlit run streamlit_app.py
 
 ---
 
+## 🧱 Project Structure & New Pages
+
+**`utils.py`** — Central utility module storing key functions, constants, and reusable variables for both backend and frontend logic.
+
+**Home Page** — A welcoming landing page that introduces users to the application, its purpose, and navigation links.
+
+**Stats Page** — Allows authenticated users to log, edit, and view video game statistics. Integrated with backend CRUD endpoints for dynamic updates.
+
+**Privacy Policy Page** — Provides details about user data handling and security, required for **Google OAuth verification**.
+
+**Terms of Service Page** — Outlines acceptable use, user responsibilities, and account management terms to comply with **Google API verification requirements**.
+
+---
+
+## 🧩 Entity Relationship Diagram (ERD)
+
+### Visual ER Diagram
+
+![Video Game Stats ER Diagram](VideoGameStats_ERD.png)
+
+### Mermaid Diagram (GitHub Rendered)
+
+```mermaid
+erDiagram
+    dim_users {
+        INT user_id PK
+        VARCHAR user_email
+        BOOLEAN is_trusted
+    }
+
+    dim_players {
+        INT player_id PK
+        VARCHAR player_name
+        INT user_id FK
+        TIMESTAMP created_at
+    }
+
+    dim_games {
+        INT game_id PK
+        VARCHAR game_name
+        VARCHAR game_series
+        VARCHAR game_genre
+        VARCHAR game_subgenre
+        TIMESTAMP created_at
+        TIMESTAMP last_played_at
+    }
+
+    fact_game_stats {
+        INT stat_id PK
+        INT game_id FK
+        INT player_id FK
+        VARCHAR stat_type
+        INTEGER stat_value
+        VARCHAR game_mode
+        INTEGER game_level
+        INTEGER win
+        INTEGER ranked
+        VARCHAR pre_match_rank_value
+        VARCHAR post_match_rank_value
+        TIMESTAMP played_at
+    }
+
+    dim_users ||--o{ dim_players : "has"
+    dim_players ||--o{ fact_game_stats : "records"
+    dim_games ||--o{ fact_game_stats : "includes"
+```
+
+---
+
 ## 🗂 File Summary
 
 - `README.md` → Project Overview & Setup
@@ -148,6 +217,6 @@ streamlit run streamlit_app.py
 
 ---
 
-👉 Don’t forget to check out my tutorials and live demos on YouTube:
+🔗 Don’t forget to check out my tutorials and live demos on YouTube:
 - [The BOL Guide](https://www.youtube.com/@TheBOLGuide)
 - [The BOL Broadcast](https://www.youtube.com/@TheBOLBroadcast)
