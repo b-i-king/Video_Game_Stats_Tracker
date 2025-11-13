@@ -40,8 +40,8 @@ Stores information about unique games.
 | Column Name | Data Type | Constraints | Description |
 |--------------|------------|-------------|--------------|
 | `game_id` | INT | IDENTITY(1, 1) PK | Primary Key. Unique, auto-incrementing ID for the game. |
-| `game_name` | VARCHAR(255) | NOT NULL, UNIQUE | The official name of the game (e.g., "Apex Legends"). |
-| `game_series` | VARCHAR(255) | NULL | The game's franchise (e.g., "Call of Duty"). |
+| `game_name` | VARCHAR(255) | NOT NULL, UNIQUE | The official name of the game franchise or standalone game (e.g., "Call of Duty"). |
+| `game_installment` | VARCHAR(255) | NULL | The game's installment (e.g., "Warzone, Black Ops 7"). |
 | `game_genre` | VARCHAR(255) | NULL | The primary genre (e.g., "Action", "RPG"). |
 | `game_subgenre` | VARCHAR(255) | NULL | The specific subgenre (e.g., "FPS", "Soulslike"). |
 | `created_at` | TIMESTAMP | DEFAULT GETDATE() | Timestamp of when the game was first added. |
@@ -55,7 +55,7 @@ This schema holds measurable events and numeric data.
 
 ### Table: `fact.fact_game_stats`
 
-Stores the results of a specific stat for a specific match. This is the central table for all analysis.
+Stores the results of a specific stat for a specific match. This is the central table for all analyses.
 
 | Column Name | Data Type | Constraints | Description |
 |--------------|------------|-------------|--------------|
