@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Stats</title>
+    <!-- Import Fira Code font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Transparent background for OBS */
+        body {
+            background-color: rgba(0, 0, 0, 0);
+            color: #ffffff; /* White text */
+            font-family: 'Fira Code', 'Arial', monospace; /* Use Fira Code */
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            margin: 0;
+            padding: 10px;
+        }
+        .stats-container {
+            display: flex;
+            flex-direction: column; 
+            align-items: flex-start; /* Aligns cards to the left */
+            gap: 15px;
+        }
+        /* New "Card" Style */
+        .stat-card {
+            background-color: rgba(0, 0, 0, 0.3);
+            border: 2px solid #555;
+            border-radius: 8px;
+            padding: 10px 15px;
+            text-align: center;
+            min-width: 120px;
+        }
+        .card-label {
+            font-size: 18px;
+            text-transform: uppercase;
+            color: #c8ac44; /* Gold color */
+            display: block;
+            margin-bottom: 5px;
+        }
+        .card-value {
+            font-size: 36px;
+            display: block;
+            line-height: 1;
+        }
+        #error-message {
+            color: #FF5555;
+            font-size: 14px;
+            display: none; /* Hidden by default */
+            margin-top: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 5px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    
+    <!-- Container for dynamic stat cards -->
+    <div class="stats-container" id="stats-container">
+        <!-- Cards will be dynamically generated here -->
+    </div>
+    <div id="error-message"></div>
+
+    <script>
+        // --- CONFIGURATION ---
+        // 1. Set your Render API URL (base path only)
+        //    (e.g., "https://my-stats-api.onrender.com/api/get_live_dashboard")
+        const API_URL = "https://video-game-stats-api.onrender.com/api/get_live_dashboard";
+        
+        // 2. Set polling interval (in milliseconds)
+        const REFRESH_INTERVAL_MS = 5000; // 5 seconds
+        // ---------------------
+
+        let fullApiUrl = ''; // Will be built dynamically
+
+        // Function to dynamically build the stats UI from URL parameters
+        function buildUIAndApiUrl() {
+            if (API_URL === "https://video-game-stats-api.onrender.com/api/get_live_dashboard") {
+                showError("ERROR: API_URL is a placeholder. Edit index.html and set your Render API URL.");
+                return false;
+            }
+
+            const params = new URLSearchParams(window.location.search);
+            const container = document.getElementById('stats-container');
+            container.innerHTML = ''; // Clear old cards
+            
+            const player_id = params.get('player_id');
+            const game_id = params.get('game_id');
+            const key = params.get('key');
+
+            if (!player_id || !game_id || !key) {
+                showError("Error: URL is missing player_id, game_id, or key.");
+                return false;
+            }
+
+            // --- Get user's timezone and add it to the API URL ---
+            const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            let apiUrl = `${API_URL}?player_id=${player_id}&game_id=${game_id}&key=${key}&tz=${encodeURIComponent(userTimezone)}`;
+
+            let statCount = 0;
+
+            for (let i = 1; i <= 3; i++) {
+                const statParam = params.get(`stat${i}`);
+                if (statParam) {
+                    const parts = statParam.split(',');
+                    if (parts.length === 2 && parts[0] && parts[1]) {
+                        const statType = parts[0];
+                        const aggFunc = parts[1].toUpperCase();
+
+                        statCount++;
+                        apiUrl += `&stat${i}=${statParam}`;
+                        
+                        const card = document.createElement('div');
+                        card.className = 'stat-card';
+                        
+                        const label = document.createElement('span');
+                        label.className = 'card-label';
+                        // The backend will send the final label, but we can set a temp one
+                        label.textContent = `${statType} (${aggFunc})`;
+                        label.id = `stat${i}-label`;
+                        
+                        const value = document.createElement('span');
+                        value.className = 'card-value';
+                        value.id = `stat${i}-value`;
+                        value.textContent = '...';
+                        
+                        card.appendChild(label);
+                        card.appendChild(value);
+                        container.appendChild(card);
+                    }
+                }
+            }
+
+            if (statCount === 0) {
+                showError("Error: URL has no stat parameters. (e.g., &stat1=Kills,SUM)");
+                return false;
+            }
+
+            fullApiUrl = apiUrl;
+            return true;
+        }
+
+        // Function to update the stat values on the page
+        function updateStats(data) {
+            for (let i = 1; i <= 3; i++) {
+                const statKey = `stat${i}`;
+                if (data[statKey]) {
+                    const labelEl = document.getElementById(`${statKey}-label`);
+                    const valueEl = document.getElementById(`${statKey}-value`);
+                    
+                    if (labelEl) {
+                        labelEl.textContent = data[statKey].label; // Set label from backend
+                    }
+                    if (valueEl) {
+                        // Show 0 if value is 0, otherwise show the value or "---" if null/undefined
+                        valueEl.textContent = data[statKey].value === 0 ? 0 : (data[statKey].value || '---');
+                    }
+                }
+            }
+        }
+
+        // Function to show errors
+        function showError(message) {
+            const errorEl = document.getElementById('error-message');
+            if (message) {
+                errorEl.textContent = message;
+                errorEl.style.display = 'block';
+            } else {
+                errorEl.textContent = '';
+                errorEl.style.display = 'none';
+            }
+        }
+
+        // Function to fetch data from the API
+        async function fetchStats() {
+            if (!fullApiUrl) {
+                console.log("API URL not built yet.");
+                return;
+            }
+
+            console.log("Fetching live stats from:", fullApiUrl);
+            try {
+                const response = await fetch(fullApiUrl, {
+                    method: 'GET',
+                    cache: 'no-cache'
+                });
+                
+                if (!response.ok) {
+                    let errorMsg = `HTTP Error: ${response.status} ${response.statusText}`;
+                    try {
+                        const errData = await response.json();
+                        errorMsg = `API Error: ${errData.error || 'Unknown'}`;
+                    } catch (e) {
+                        errorMsg = `HTTP Error: ${response.status}. Server returned non-JSON response.`;
+                    }
+                    console.error(errorMsg);
+                    showError(errorMsg);
+                    return;
+                }
+                
+                const data = await response.json();
+                updateStats(data);
+                showError(""); // Clear error on success
+
+            } catch (error) {
+                console.error("Failed to fetch stats:", error);
+                showError("Fetch Error: Failed to connect. Is the API running and CORS enabled on the backend?");
+            }
+        }
+
+        // --- Run the functions ---
+        if (buildUIAndApiUrl()) {
+            fetchStats();
+            setInterval(fetchStats, REFRESH_INTERVAL_MS);
+        }
+    </script>
+</body>

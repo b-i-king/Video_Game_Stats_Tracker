@@ -250,6 +250,24 @@ def get_game_installments(franchise_name):
     except requests.exceptions.RequestException as e: 
         st.error(f"Error fetching game installments for {franchise_name}: {e}"); return []
         
+def set_live_dashboard_state(player_id, game_id):
+    """Tells the backend which player/game is currently active."""
+    if not st.session_state.is_trusted_user: return
+    
+    auth_headers = get_auth_headers()
+    if not auth_headers:
+        st.error("Auth token missing, cannot set live state.")
+        return
+        
+    payload = {"player_id": player_id, "game_id": game_id}
+    
+    try:
+        response = requests.post(f"{FLASK_API_URL}/set_live_state", json=payload, headers=auth_headers)
+        response.raise_for_status()
+        print(f"Successfully set live state: Player {player_id}, Game {game_id}")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Could not set live dashboard state: {e}")
+        
 # --- Database Read Functions (Direct Connection - TRUSTED USERS ONLY) ---
 def get_db_conn_read_only():
     if not st.session_state.is_trusted_user:

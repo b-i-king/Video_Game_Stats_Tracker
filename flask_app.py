@@ -1,11 +1,14 @@
 import os
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
+from psycopg2 import sql
 from flask import Flask, request, jsonify
 from datetime import datetime, timedelta, timezone
 import jwt
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 # --- Environment Variable Check ---
 DB_URL = os.environ.get("DB_URL")
@@ -16,6 +19,7 @@ API_KEY = os.environ.get("API_KEY") # Still needed for login and add_trusted_use
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 TRUSTED_EMAILS_STR = os.environ.get("TRUSTED_EMAILS", "")
 TRUSTED_EMAILS_LIST = [email.strip() for email in TRUSTED_EMAILS_STR.split(',') if email.strip()]
+OBS_SECRET_KEY = os.environ.get("OBS_SECRET_KEY")
 
 if not all([DB_URL, DB_NAME, DB_USER, DB_PASSWORD, API_KEY, JWT_SECRET_KEY]):
     print("WARNING: One or more environment variables are not set. Using default values.")
@@ -104,6 +108,13 @@ def create_tables():
                 UNIQUE(player_name, user_id) 
             );
             
+            CREATE TABLE IF NOT EXISTS dim.dim_dashboard_state (
+                state_id INT PRIMARY KEY DEFAULT 1, -- Only one row
+                current_player_id INTEGER,
+                current_game_id INTEGER,
+                updated_at TIMESTAMP DEFAULT GETDATE()
+            );
+            
             CREATE TABLE IF NOT EXISTS fact.fact_game_stats (
                 stat_id INT IDENTITY(1, 1) PRIMARY KEY,
                 game_id INTEGER REFERENCES dim.dim_games(game_id),
@@ -119,6 +130,17 @@ def create_tables():
                 played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        
+        # Ensure the single row exists
+        cur.execute("SELECT 1 FROM dim.dim_dashboard_state WHERE state_id = 1;")
+        if not cur.fetchone():
+            # 2. If it doesn't exist, insert it
+            print("Initializing dashboard state row...")
+            cur.execute("INSERT INTO dim.dim_dashboard_state (state_id) VALUES (1);")
+            conn.commit()
+        else:
+            print("Dashboard state row already exists.")
+        
         conn.commit()
         print("Schema and tables created or already exist.")
     except (Exception, psycopg2.DatabaseError) as error:
@@ -892,6 +914,186 @@ def get_game_installments(franchise_name, user_email):
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error: {error}")
         return jsonify({"error": "An error occurred."}), 500
+    finally:
+        release_db_connection(conn)
+
+
+# --- ENDPOINT for Streamlit to set state ---       
+@app.route('/api/set_live_state', methods=['POST'])
+@requires_jwt_auth # Secured by admin's JWT
+def set_live_state(user_email):
+    """
+    Called by Streamlit to update the "current" game/player
+    for the OBS dashboard to read.
+    """
+    data = request.json
+    player_id = data.get('player_id')
+    game_id = data.get('game_id')
+
+    if not player_id or not game_id:
+        return jsonify({"error": "player_id and game_id are required"}), 400
+    
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Verify user is trusted (extra check)
+        cur.execute("SELECT 1 FROM dim.dim_users WHERE user_email = %s AND is_trusted = TRUE;", (user_email,))
+        if not cur.fetchone():
+            return jsonify({"error": "User not authorized"}), 403
+            
+        # Update the single row in the state table
+        cur.execute("""
+            UPDATE dim.dim_dashboard_state
+            SET current_player_id = %s,
+                current_game_id = %s,
+                updated_at = GETDATE()
+            WHERE state_id = 1;
+        """, (player_id, game_id))
+        conn.commit()
+        
+        return jsonify({"message": "Live state updated"}), 200
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error setting live state: {error}"); conn.rollback()
+        return jsonify({"error": f"An internal error occurred: {str(error)}"}), 500
+    finally:
+        release_db_connection(conn)
+
+# --- DYNAMIC OBS DASHBOARD ENDPOINT ---
+@app.route('/api/get_live_dashboard', methods=['GET'])
+def get_live_dashboard():
+    """
+    A public-but-secret endpoint for OBS.
+    Fetches stats for the *currently set* player/game for the day.
+    Falls back to most recent day's averages.
+    
+    Example URL:
+    .../api/get_live_dashboard?key=MY_SECRET&tz=America/New_York
+    """
+    # 1. Check for the secret key
+    key = request.args.get('key')
+    if key != OBS_SECRET_KEY:
+        return jsonify({"error": "Unauthorized. Invalid or missing key."}), 401
+
+    # 2. Get timezone
+    timezone_str = request.args.get('tz', 'UTC')
+    
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # 3. Get the current state
+        cur.execute("SELECT current_player_id, current_game_id FROM dim.dim_dashboard_state WHERE state_id = 1;")
+        state = cur.fetchone()
+        if not state or not state[0] or not state[1]:
+            return jsonify({"error": "No live game/player selected in the Streamlit app."}), 404
+        
+        player_id, game_id = state
+        
+        # 4. Get "today" in the user's timezone
+        try:
+            cur.execute("SELECT CAST(CONVERT_TIMEZONE(%s, GETDATE()) AS DATE)", (timezone_str,))
+            today_date = cur.fetchone()[0]
+        except (Exception, psycopg2.DatabaseError) as tz_error:
+            print(f"Timezone conversion error: {tz_error}. Defaulting to UTC.")
+            cur.execute("SELECT CAST(GETDATE() AS DATE)") # Fallback to UTC
+            today_date = cur.fetchone()[0]
+            timezone_str = 'UTC'
+
+        # 5. Find the Top 3 most frequent stat types for this game
+        cur.execute("""
+            SELECT stat_type, COUNT(*) as stat_count
+            FROM fact.fact_game_stats
+            WHERE game_id = %s
+            GROUP BY stat_type
+            ORDER BY stat_count DESC
+            LIMIT 3;
+        """, (game_id,))
+        top_stats = [row[0] for row in cur.fetchall()]
+        
+        if not top_stats:
+             return jsonify({"error": "No stats found for this game yet."}), 404
+
+        # 6. Check for stats *today*
+        cur.execute("""
+            SELECT 1 FROM fact.fact_game_stats
+            WHERE player_id = %s
+              AND game_id = %s
+              AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s
+            LIMIT 1;
+        """, (player_id, game_id, timezone_str, today_date))
+        stats_today_exist = cur.fetchone()
+
+        results = {}
+        query_date = today_date
+        label_suffix = "(TODAY)"
+        
+        # 7. If no stats today, find most recent day
+        if not stats_today_exist:
+            cur.execute("""
+                SELECT MAX(CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE))
+                FROM fact.fact_game_stats
+                WHERE player_id = %s
+                  AND game_id = %s
+                  AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) < %s;
+            """, (timezone_str, player_id, game_id, timezone_str, today_date))
+            most_recent_day = cur.fetchone()
+            if most_recent_day and most_recent_day[0]:
+                query_date = most_recent_day[0]
+                label_suffix = "(LAST AVG)"
+            else:
+                # No stats today OR any day before. Return defaults.
+                for i, stat_type in enumerate(top_stats, 1):
+                    results[f'stat{i}'] = {"label": f"{stat_type} (N/A)", "value": "---"}
+                return jsonify(results), 200
+
+        # 8. Build & Execute queries for the determined date
+        for i, stat_type in enumerate(top_stats, 1):
+            value = 0
+            agg_func_str = "SUM" if "Kills" in stat_type or "Score" in stat_type else "AVG" # Default logic
+            
+            # Special logic for Wins
+            if stat_type.upper() == 'WINS':
+                agg_func_str = "SUM"
+                label = f"WINS {label_suffix}"
+                query = sql.SQL("""
+                    SELECT COUNT(DISTINCT played_at)
+                    FROM fact.fact_game_stats
+                    WHERE player_id = %s AND game_id = %s AND win = 1
+                      AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s;
+                """)
+                cur.execute(query, (player_id, game_id, timezone_str, query_date))
+            else:
+                # Fallback/default logic
+                if not stats_today_exist:
+                    agg_func_str = "AVG" # Always AVG for "last recent day"
+                
+                label = f"{stat_type} {label_suffix}"
+                agg_function = sql.Identifier(agg_func_str)
+                query = sql.SQL("""
+                    SELECT {agg_func}(stat_value)
+                    FROM fact.fact_game_stats
+                    WHERE player_id = %s AND game_id = %s AND stat_type = %s
+                      AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s;
+                """).format(agg_func=agg_function)
+                cur.execute(query, (player_id, game_id, stat_type, timezone_str, query_date))
+
+            result = cur.fetchone()
+            if result and result[0] is not None:
+                if agg_func_str in ['AVG', 'MEDIAN']:
+                    value = round(float(result[0]), 2)
+                else:
+                    value = int(result[0])
+            
+            results[f'stat{i}'] = {"label": label, "value": value}
+
+        return jsonify(results), 200
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error fetching live dashboard stats: {error}")
+        if conn: conn.rollback()
+        return jsonify({"error": f"An error occurred fetching live stats: {str(error)}"}), 500
     finally:
         release_db_connection(conn)
 

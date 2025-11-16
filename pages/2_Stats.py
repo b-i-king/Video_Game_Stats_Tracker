@@ -9,7 +9,7 @@ from utils import (
     add_stat_input, delete_stat_input, update_genre_state,
     update_guest_genre_state_callback, get_recent_stats_for_display, 
     clear_edit_cache, clear_delete_cache,
-    get_game_franchises, get_game_installments
+    get_game_franchises, get_game_installments, set_live_dashboard_state
 )
 
 # --- Page Guard ---
@@ -172,7 +172,7 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
             new_franchise_input = st.text_input("New Game Name (Franchise) *", help="e.g., Call of Duty, Elden Ring, Final Fantasy")
             final_game_franchise = new_franchise_input.strip() if new_franchise_input.strip() else None
             
-            # --- NEW LOGIC: Allow skipping installment ---
+            # --- Allow skipping installment ---
             new_installment_name_input = st.text_input("New Game Installment (Optional)", help="e.g., Black Ops 7. Leave BLANK if this is a standalone game.")
             final_game_installment = new_installment_name_input.strip() if new_installment_name_input.strip() else None
             
@@ -257,6 +257,12 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
         else:
             final_game_name = final_game_franchise
             final_game_series, final_game_genre, final_game_subgenre = None, None, None
+        
+        # --- Set Live State Button ---
+        if selected_game_id and player_id:
+            if st.button("Set as Live Game for OBS", key="set_live_game"):
+                set_live_dashboard_state(player_id, selected_game_id)
+                st.success(f"OBS Dashboard set to: {st.session_state.player_name} @ {selected_installment_name}")
         
         # --- Stat Type Guidance ---
         if not is_new_installment_mode and selected_game_id:
