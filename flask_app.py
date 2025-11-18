@@ -11,25 +11,15 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Environment Variable Check ---
-# DB_URL = os.environ.get("DB_URL")
-# DB_NAME = os.environ.get("DB_NAME")
-# DB_USER = os.environ.get("DB_USER")
-# DB_PASSWORD = os.environ.get("DB_PASSWORD")
-# API_KEY = os.environ.get("API_KEY") # Still needed for login and add_trusted_user
-# JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
-# TRUSTED_EMAILS_STR = os.environ.get("TRUSTED_EMAILS", "")
-# TRUSTED_EMAILS_LIST = [email.strip() for email in TRUSTED_EMAILS_STR.split(',') if email.strip()]
-# OBS_SECRET_KEY = os.environ.get("OBS_SECRET_KEY")
-
-DB_URL = "bol.671703419022.us-west-1.redshift-serverless.amazonaws.com"
-DB_NAME = "game_stats_tracker"
-DB_USER = "admin"
-DB_PASSWORD = "King1993"
-API_KEY = "your_secret_api_key_here"
-JWT_SECRET_KEY = "sume_random_secret_key"
-TRUSTED_EMAILS_LIST = ["bking2415@gmail.com"]
-OBS_SECRET_KEY = "your_obs_secret_key_here"
-
+DB_URL = os.environ.get("DB_URL")
+DB_NAME = os.environ.get("DB_NAME")
+DB_USER = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
+API_KEY = os.environ.get("API_KEY") # Still needed for login and add_trusted_user
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+TRUSTED_EMAILS_STR = os.environ.get("TRUSTED_EMAILS", "")
+TRUSTED_EMAILS_LIST = [email.strip() for email in TRUSTED_EMAILS_STR.split(',') if email.strip()]
+OBS_SECRET_KEY = os.environ.get("OBS_SECRET_KEY")
 
 if not all([DB_URL, DB_NAME, DB_USER, DB_PASSWORD, API_KEY, JWT_SECRET_KEY]):
     print("WARNING: One or more environment variables are not set. Using default values.")
