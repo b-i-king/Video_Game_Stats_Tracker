@@ -46,7 +46,7 @@ This app uses:
 - 🔑 **Google Authentication** (with JWT + API Key security)
 - 🧩 **CRUD for Admins:**
   - Add/edit/delete players, games, and stats
-- 🤮 **Star Schema Design** for analytics efficiency
+- 💫 **Star Schema Design** for analytics efficiency
 - ⚡ **Fast Backend Connections** with psycopg2 connection pooling
 - 🧠 **Smart UI:**
   - Hybrid inputs (dropdown + text)
