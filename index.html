@@ -12,63 +12,111 @@
         /* Transparent background for OBS */
         body {
             background-color: rgba(0, 0, 0, 0);
-            color: #ffffff; /* White text */
-            font-family: 'Fira Code', 'Arial', monospace; /* Use Fira Code */
+            color: #000000; /* Black text */
+            font-family: 'Fira Code', 'Arial', monospace;
             font-weight: 700;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
             margin: 0;
             padding: 10px;
         }
+        
+        /* Container for title and cards */
+        .dashboard-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* Center everything */
+            gap: 10px;
+        }
+        
+        /* Title styling (TODAY or PAST) */
+        .time-period-title {
+            font-size: 32px;
+            font-weight: 700;
+            color: #FFFFFF; /* White */
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.9);
+            text-transform: uppercase;
+            margin-bottom: 5px;
+            letter-spacing: 2px;
+            text-align: center; /* Center the text */
+        }
+        
         .stats-container {
             display: flex;
             flex-direction: column; 
-            align-items: flex-start; /* Aligns cards to the left */
-            gap: 15px;
+            align-items: center; /* Center cards */
+            gap: 12px;
         }
-        /* New "Card" Style */
+        
+        /* Square white card with black shadow */
         .stat-card {
-            background-color: rgba(0, 0, 0, 0.3);
-            border: 2px solid #555;
+            background-color: #FFFFFF; /* White background */
+            border: 2px solid #000000; /* Black border */
             border-radius: 8px;
-            padding: 10px 15px;
+            padding: 12px;
             text-align: center;
-            min-width: 120px;
+            width: 80px; /* Fixed width */
+            height: 70px; /* Fixed height */
+            box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.8); /* Black shadow */
+            display: flex;
+            flex-direction: column;
+            justify-content: center; /* Vertically center content */
+            align-items: center; /* Horizontally center content */
+            gap: 8px;
         }
+        
         .card-label {
-            font-size: 18px;
+            font-size: 16px;
             text-transform: uppercase;
-            color: #c8ac44; /* Gold color */
+            color: #000000; /* Black label */
             display: block;
-            margin-bottom: 5px;
+            font-weight: 700;
+            line-height: 1.2;
+            word-wrap: break-word; /* Wrap long words */
+            width: 100%; /* Fill container width */
+            max-width: 100%;
         }
+        
         .card-value {
-            font-size: 36px;
+            font-size: 48px;
+            color: #000000; /* Black value */
             display: block;
             line-height: 1;
+            font-weight: 700;
         }
+        
         #error-message {
-            color: #FF5555;
+            color: #FF0000;
             font-size: 14px;
-            display: none; /* Hidden by default */
+            display: none;
             margin-top: 10px;
-            background-color: rgba(0, 0, 0, 0.5);
-            padding: 5px;
+            background-color: rgba(255, 255, 255, 0.9);
+            color: #000000;
+            padding: 8px;
             border-radius: 4px;
+            border: 2px solid #FF0000;
         }
     </style>
 </head>
 <body>
     
-    <!-- Container for dynamic stat cards -->
-    <div class="stats-container" id="stats-container">
-        <!-- Cards will be dynamically generated here -->
+    <!-- Dashboard wrapper -->
+    <div class="dashboard-wrapper">
+        <!-- Title (TODAY or PAST) -->
+        <div class="time-period-title" id="time-period-title">...</div>
+        
+        <!-- Container for dynamic stat cards -->
+        <div class="stats-container" id="stats-container">
+            <!-- Cards will be dynamically generated here -->
+        </div>
     </div>
+    
     <div id="error-message"></div>
 
     <script>
         // --- CONFIGURATION ---
         // 1. Set your Render API URL (base path only)
-        //    (e.g., "https://my-stats-api.onrender.com/api/get_live_dashboard")
+        // Example: const API_URL = "https://yourdomain.com/api/get_live_dashboard";
+        // Example for local testing: Uncomment the line below
+        // const API_URL = "http://127.0.0.1:5000/api/get_live_dashboard
         const API_URL = "https://video-game-stats-api.onrender.com/api/get_live_dashboard";
         
         // 2. Set polling interval (in milliseconds)
@@ -77,87 +125,80 @@
 
         let fullApiUrl = ''; // Will be built dynamically
 
-        // Function to dynamically build the stats UI from URL parameters
+        // Function to dynamically build the stats UI
         function buildUIAndApiUrl() {
-            if (API_URL === "https://video-game-stats-api.onrender.com/api/get_live_dashboard") {
-                showError("ERROR: API_URL is a placeholder. Edit index.html and set your Render API URL.");
+            /* if (API_URL.includes("video-game-stats-api.onrender.com")) {
+                showError("ERROR: API_URL is a placeholder. Edit index.html and set your API URL.");
                 return false;
-            }
+            } */
 
             const params = new URLSearchParams(window.location.search);
             const container = document.getElementById('stats-container');
             container.innerHTML = ''; // Clear old cards
             
-            const player_id = params.get('player_id');
-            const game_id = params.get('game_id');
             const key = params.get('key');
+            const tz = params.get('tz') || 'UTC';
 
-            if (!player_id || !game_id || !key) {
-                showError("Error: URL is missing player_id, game_id, or key.");
+            if (!key) {
+                showError("Error: URL is missing key parameter.");
                 return false;
             }
 
-            // --- Get user's timezone and add it to the API URL ---
-            const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            let apiUrl = `${API_URL}?player_id=${player_id}&game_id=${game_id}&key=${key}&tz=${encodeURIComponent(userTimezone)}`;
+            // Build API URL - backend now handles stat selection automatically
+            fullApiUrl = `${API_URL}?key=${key}&tz=${tz}`;
 
-            let statCount = 0;
-
+            // Create placeholder cards (will be populated by API response)
             for (let i = 1; i <= 3; i++) {
-                const statParam = params.get(`stat${i}`);
-                if (statParam) {
-                    const parts = statParam.split(',');
-                    if (parts.length === 2 && parts[0] && parts[1]) {
-                        const statType = parts[0];
-                        const aggFunc = parts[1].toUpperCase();
-
-                        statCount++;
-                        apiUrl += `&stat${i}=${statParam}`;
-                        
-                        const card = document.createElement('div');
-                        card.className = 'stat-card';
-                        
-                        const label = document.createElement('span');
-                        label.className = 'card-label';
-                        // The backend will send the final label, but we can set a temp one
-                        label.textContent = `${statType} (${aggFunc})`;
-                        label.id = `stat${i}-label`;
-                        
-                        const value = document.createElement('span');
-                        value.className = 'card-value';
-                        value.id = `stat${i}-value`;
-                        value.textContent = '...';
-                        
-                        card.appendChild(label);
-                        card.appendChild(value);
-                        container.appendChild(card);
-                    }
-                }
+                const card = document.createElement('div');
+                card.className = 'stat-card';
+                card.id = `stat${i}-card`;
+                card.style.display = 'none'; // Hidden until data arrives
+                
+                const label = document.createElement('span');
+                label.className = 'card-label';
+                label.id = `stat${i}-label`;
+                label.textContent = '...';
+                
+                const value = document.createElement('span');
+                value.className = 'card-value';
+                value.id = `stat${i}-value`;
+                value.textContent = '...';
+                
+                card.appendChild(label);
+                card.appendChild(value);
+                container.appendChild(card);
             }
 
-            if (statCount === 0) {
-                showError("Error: URL has no stat parameters. (e.g., &stat1=Kills,SUM)");
-                return false;
-            }
-
-            fullApiUrl = apiUrl;
             return true;
         }
 
         // Function to update the stat values on the page
         function updateStats(data) {
+            // Update the time period title (TODAY or PAST)
+            const titleElement = document.getElementById('time-period-title');
+            if (data.time_period) {
+                titleElement.textContent = data.time_period;
+                titleElement.style.display = 'block';
+            }
+            
+            // Update stat cards
             for (let i = 1; i <= 3; i++) {
                 const statKey = `stat${i}`;
                 if (data[statKey]) {
-                    const labelEl = document.getElementById(`${statKey}-label`);
-                    const valueEl = document.getElementById(`${statKey}-value`);
+                    const card = document.getElementById(`${statKey}-card`);
+                    const label = document.getElementById(`${statKey}-label`);
+                    const value = document.getElementById(`${statKey}-value`);
                     
-                    if (labelEl) {
-                        labelEl.textContent = data[statKey].label; // Set label from backend
+                    if (card && label && value) {
+                        card.style.display = 'block'; // Show card
+                        label.textContent = data[statKey].label || '---';
+                        value.textContent = data[statKey].value === 0 ? 0 : (data[statKey].value || '---');
                     }
-                    if (valueEl) {
-                        // Show 0 if value is 0, otherwise show the value or "---" if null/undefined
-                        valueEl.textContent = data[statKey].value === 0 ? 0 : (data[statKey].value || '---');
+                } else {
+                    // Hide cards that don't have data
+                    const card = document.getElementById(`${statKey}-card`);
+                    if (card) {
+                        card.style.display = 'none';
                     }
                 }
             }
@@ -208,7 +249,7 @@
 
             } catch (error) {
                 console.error("Failed to fetch stats:", error);
-                showError("Fetch Error: Failed to connect. Is the API running and CORS enabled on the backend?");
+                showError("Fetch Error: Failed to connect. Is the API running and CORS enabled?");
             }
         }
 
@@ -219,3 +260,4 @@
         }
     </script>
 </body>
+</html>

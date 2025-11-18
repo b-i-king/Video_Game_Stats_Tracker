@@ -2,7 +2,7 @@ import os
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 from psycopg2 import sql
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from datetime import datetime, timedelta, timezone
 import jwt
 from flask_cors import CORS
@@ -11,15 +11,25 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Environment Variable Check ---
-DB_URL = os.environ.get("DB_URL")
-DB_NAME = os.environ.get("DB_NAME")
-DB_USER = os.environ.get("DB_USER")
-DB_PASSWORD = os.environ.get("DB_PASSWORD")
-API_KEY = os.environ.get("API_KEY") # Still needed for login and add_trusted_user
-JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
-TRUSTED_EMAILS_STR = os.environ.get("TRUSTED_EMAILS", "")
-TRUSTED_EMAILS_LIST = [email.strip() for email in TRUSTED_EMAILS_STR.split(',') if email.strip()]
-OBS_SECRET_KEY = os.environ.get("OBS_SECRET_KEY")
+# DB_URL = os.environ.get("DB_URL")
+# DB_NAME = os.environ.get("DB_NAME")
+# DB_USER = os.environ.get("DB_USER")
+# DB_PASSWORD = os.environ.get("DB_PASSWORD")
+# API_KEY = os.environ.get("API_KEY") # Still needed for login and add_trusted_user
+# JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+# TRUSTED_EMAILS_STR = os.environ.get("TRUSTED_EMAILS", "")
+# TRUSTED_EMAILS_LIST = [email.strip() for email in TRUSTED_EMAILS_STR.split(',') if email.strip()]
+# OBS_SECRET_KEY = os.environ.get("OBS_SECRET_KEY")
+
+DB_URL = "bol.671703419022.us-west-1.redshift-serverless.amazonaws.com"
+DB_NAME = "game_stats_tracker"
+DB_USER = "admin"
+DB_PASSWORD = "King1993"
+API_KEY = "your_secret_api_key_here"
+JWT_SECRET_KEY = "sume_random_secret_key"
+TRUSTED_EMAILS_LIST = ["bking2415@gmail.com"]
+OBS_SECRET_KEY = "your_obs_secret_key_here"
+
 
 if not all([DB_URL, DB_NAME, DB_USER, DB_PASSWORD, API_KEY, JWT_SECRET_KEY]):
     print("WARNING: One or more environment variables are not set. Using default values.")
@@ -968,8 +978,14 @@ def get_live_dashboard():
     Fetches stats for the *currently set* player/game for the day.
     Falls back to most recent day's averages.
     
+    Special logic:
+    - If game has win tracking (win column has non-NULL values), returns:
+      * Wins (SUM of win=1 by distinct played_at)
+      * Top 2 relevant stats (highest non-zero AVG, ascending order)
+    - Otherwise returns top 3 relevant stats
+    
     Example URL:
-    .../api/get_live_dashboard?key=MY_SECRET&tz=America/New_York
+    .../api/get_live_dashboard?key=OBS_SECRET_KEY&tz=America/New_York
     """
     # 1. Check for the secret key
     key = request.args.get('key')
@@ -998,25 +1014,68 @@ def get_live_dashboard():
             today_date = cur.fetchone()[0]
         except (Exception, psycopg2.DatabaseError) as tz_error:
             print(f"Timezone conversion error: {tz_error}. Defaulting to UTC.")
-            cur.execute("SELECT CAST(GETDATE() AS DATE)") # Fallback to UTC
+            cur.execute("SELECT CAST(GETDATE() AS DATE)")
             today_date = cur.fetchone()[0]
             timezone_str = 'UTC'
 
-        # 5. Find the Top 3 most frequent stat types for this game
+        # 5. Check if game has win tracking (any non-NULL win values)
         cur.execute("""
-            SELECT stat_type, COUNT(*) as stat_count
+            SELECT COUNT(*) 
             FROM fact.fact_game_stats
-            WHERE game_id = %s
-            GROUP BY stat_type
-            ORDER BY stat_count DESC
-            LIMIT 3;
+            WHERE game_id = %s AND win IS NOT NULL
+            LIMIT 1;
         """, (game_id,))
-        top_stats = [row[0] for row in cur.fetchall()]
-        
-        if not top_stats:
-             return jsonify({"error": "No stats found for this game yet."}), 404
+        has_win_tracking = cur.fetchone()[0] > 0
 
-        # 6. Check for stats *today*
+        # 6. Determine top stats based on win tracking
+        top_stats = []
+        include_wins = False
+        
+        if has_win_tracking:
+            # Get top 2 relevant stats (highest non-zero AVG, ascending)
+            cur.execute("""
+                SELECT stat_type, AVG(stat_value) as avg_value
+                FROM fact.fact_game_stats
+                WHERE game_id = %s 
+                  AND stat_type IS NOT NULL 
+                  AND stat_type != ''
+                  AND stat_value > 0
+                GROUP BY stat_type
+                HAVING AVG(stat_value) > 0
+                ORDER BY avg_value ASC
+                LIMIT 2;
+            """, (game_id,))
+            top_stats = [row[0] for row in cur.fetchall()]
+            include_wins = True
+            print(f"Win tracking enabled. Top 2 relevant stats: {top_stats}")
+        else:
+            # Get top 3 relevant stats (highest non-zero AVG, ascending)
+            cur.execute("""
+                SELECT stat_type, AVG(stat_value) as avg_value
+                FROM fact.fact_game_stats
+                WHERE game_id = %s 
+                  AND stat_type IS NOT NULL 
+                  AND stat_type != ''
+                  AND stat_value > 0
+                GROUP BY stat_type
+                HAVING AVG(stat_value) > 0
+                ORDER BY avg_value ASC
+                LIMIT 3;
+            """, (game_id,))
+            top_stats = [row[0] for row in cur.fetchall()]
+            print(f"No win tracking. Top 3 relevant stats: {top_stats}")
+        
+        # Handle brand new games with no stats yet
+        if not top_stats and not include_wins:
+            print(f"No stats found for game {game_id}. Returning placeholder values.")
+            return jsonify({
+                "stat1": {"label": "STAT 1", "value": 0},
+                "stat2": {"label": "STAT 2", "value": 0},
+                "stat3": {"label": "STAT 3", "value": 0},
+                "time_period": "NEW GAME"
+            }), 200
+
+        # 7. Check for stats *today*
         cur.execute("""
             SELECT 1 FROM fact.fact_game_stats
             WHERE player_id = %s
@@ -1028,9 +1087,9 @@ def get_live_dashboard():
 
         results = {}
         query_date = today_date
-        label_suffix = "(TODAY)"
+        time_period = "TODAY"  # Changed from label_suffix
         
-        # 7. If no stats today, find most recent day
+        # 8. If no stats today, find most recent day
         if not stats_today_exist:
             cur.execute("""
                 SELECT MAX(CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE))
@@ -1042,53 +1101,107 @@ def get_live_dashboard():
             most_recent_day = cur.fetchone()
             if most_recent_day and most_recent_day[0]:
                 query_date = most_recent_day[0]
-                label_suffix = "(LAST AVG)"
+                time_period = "PAST"  # Changed from label_suffix
             else:
                 # No stats today OR any day before. Return defaults.
-                for i, stat_type in enumerate(top_stats, 1):
-                    results[f'stat{i}'] = {"label": f"{stat_type} (N/A)", "value": "---"}
+                stat_index = 1
+                if include_wins:
+                    results['stat1'] = {"label": "WINS", "value": "---"}
+                    stat_index = 2
+                for i, stat_type in enumerate(top_stats, stat_index):
+                    abbrev = abbreviate_stat(stat_type)
+                    results[f'stat{i}'] = {"label": f"{abbrev}", "value": "---"}
+                results['time_period'] = "N/A"  # Add time period to response
                 return jsonify(results), 200
 
-        # 8. Build & Execute queries for the determined date
-        for i, stat_type in enumerate(top_stats, 1):
-            value = 0
-            agg_func_str = "SUM" if "Kills" in stat_type or "Score" in stat_type else "AVG" # Default logic
-            
-            # Special logic for Wins
-            if stat_type.upper() == 'WINS':
-                agg_func_str = "SUM"
-                label = f"WINS {label_suffix}"
-                query = sql.SQL("""
+        # 9. Helper function to abbreviate stat labels
+        def abbreviate_stat(stat_name):
+            """Abbreviate stat name to 4 letters + 's'"""
+            if not stat_name:
+                return "XXXX"
+            # Remove common words and get first 4 chars
+            clean = stat_name.replace("Total", "").replace("Average", "").strip()
+            if len(clean) > 8:
+                abbrev = clean[:4].upper() + "S"
+            else:
+                abbrev = clean.upper()
+            return f"{abbrev}"
+
+        # 10. Build & Execute queries for the determined date
+        stat_index = 1
+        
+        # Handle WINS if win tracking exists
+        if include_wins:
+            win_count = 0
+            if stats_today_exist:
+                # Today's wins: Count distinct played_at where win=1
+                cur.execute("""
                     SELECT COUNT(DISTINCT played_at)
                     FROM fact.fact_game_stats
-                    WHERE player_id = %s AND game_id = %s AND win = 1
+                    WHERE player_id = %s 
+                      AND game_id = %s 
+                      AND win = 1
                       AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s;
-                """)
-                cur.execute(query, (player_id, game_id, timezone_str, query_date))
+                """, (player_id, game_id, timezone_str, query_date))
             else:
-                # Fallback/default logic
-                if not stats_today_exist:
-                    agg_func_str = "AVG" # Always AVG for "last recent day"
-                
-                label = f"{stat_type} {label_suffix}"
-                agg_function = sql.Identifier(agg_func_str)
+                # Last day average: AVG of wins per day
+                cur.execute("""
+                    SELECT AVG(daily_wins)
+                    FROM (
+                        SELECT CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date,
+                               COUNT(DISTINCT played_at) as daily_wins
+                        FROM fact.fact_game_stats
+                        WHERE player_id = %s 
+                          AND game_id = %s 
+                          AND win = 1
+                          AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s
+                        GROUP BY CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE)
+                    ) daily_win_counts;
+                """, (timezone_str, player_id, game_id, timezone_str, query_date, timezone_str))
+            
+            result = cur.fetchone()
+            if result and result[0] is not None:
+                win_count = int(round(float(result[0])))
+            
+            results['stat1'] = {"label": "WINS", "value": win_count}
+            stat_index = 2
+
+        # Handle other stats
+        for i, stat_type in enumerate(top_stats, stat_index):
+            value = 0
+            abbrev = abbreviate_stat(stat_type)
+            
+            # Use AVG for last day, SUM for today (or AVG if it makes more sense)
+            if stats_today_exist:
+                # For today, use SUM
                 query = sql.SQL("""
-                    SELECT {agg_func}(stat_value)
+                    SELECT SUM(stat_value)
                     FROM fact.fact_game_stats
                     WHERE player_id = %s AND game_id = %s AND stat_type = %s
                       AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s;
-                """).format(agg_func=agg_function)
+                """)
+                cur.execute(query, (player_id, game_id, stat_type, timezone_str, query_date))
+            else:
+                # For last day, use AVG
+                query = sql.SQL("""
+                    SELECT AVG(stat_value)
+                    FROM fact.fact_game_stats
+                    WHERE player_id = %s AND game_id = %s AND stat_type = %s
+                      AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s;
+                """)
                 cur.execute(query, (player_id, game_id, stat_type, timezone_str, query_date))
 
             result = cur.fetchone()
             if result and result[0] is not None:
-                if agg_func_str in ['AVG', 'MEDIAN']:
-                    value = round(float(result[0]), 2)
-                else:
+                if stats_today_exist:
                     value = int(result[0])
+                else:
+                    value = round(float(result[0]))  # Round to whole number for cleaner look
             
-            results[f'stat{i}'] = {"label": label, "value": value}
+            results[f'stat{i}'] = {"label": f"{abbrev}", "value": value}
 
+        # Add time_period to response
+        results['time_period'] = time_period
         return jsonify(results), 200
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error fetching live dashboard stats: {error}")
@@ -1096,6 +1209,16 @@ def get_live_dashboard():
         return jsonify({"error": f"An error occurred fetching live stats: {str(error)}"}), 500
     finally:
         release_db_connection(conn)
+        
+@app.route('/dashboard')
+def serve_dashboard():
+    """
+    Serve the OBS dashboard HTML page
+    
+    Example URL:
+    .../dashboard?key=OBS_SECRET_KEY&tz=America/New_York
+    """
+    return send_file('index.html') 
 
 # Health check endpoint
 @app.route('/health', methods=['GET'])

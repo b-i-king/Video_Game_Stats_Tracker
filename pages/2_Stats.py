@@ -260,7 +260,7 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
         
         # --- Set Live State Button ---
         if selected_game_id and player_id:
-            if st.button("Set as Live Game for OBS", key="set_live_game"):
+            if st.button("Set as Live Game for OBS", key="set_live_game", width="stretch"):
                 set_live_dashboard_state(player_id, selected_game_id)
                 st.success(f"OBS Dashboard set to: {st.session_state.player_name} @ {selected_installment_name}")
         
@@ -529,7 +529,7 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         
                         if selected_entry_edit_text:
                             selected_row = recent_stats_df_edit[recent_stats_df_edit['display_text'] == selected_entry_edit_text].iloc[0]
-                            stat_id_to_edit = int(selected_row['stat_id']) 
+                            stat_id_to_edit = int(selected_row['stat_id'])  # type: ignore
                             if not st.session_state.stat_edit_confirmed:
                                 if st.button("Confirm Edit Selection", key="confirm_edit_button_stat"): st.session_state.stat_edit_confirmed = True; st.rerun()
                             if st.session_state.stat_edit_confirmed:
