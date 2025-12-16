@@ -10,7 +10,7 @@ This app uses:
 ---
 
 ## 🚀 Live Application
-🔗 [Video Game Stats Entry](https://video-game-stats-tracker.streamlit.app/)
+🔗 [Video Game Stats Entry](https://video-game-stats-tracking.streamlit.app/)
 
 ---
 
