@@ -49,12 +49,11 @@
         /* Square white card with black shadow */
         .stat-card {
             background-color: #FFFFFF; /* White background */
-            border: 2px solid #000000; /* Black border */
             border-radius: 8px;
             padding: 12px;
             text-align: center;
             width: 80px; /* Fixed width */
-            height: 70px; /* Fixed height */
+            height: 70px; /* Fixed height = square */
             box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.8); /* Black shadow */
             display: flex;
             flex-direction: column;
@@ -94,6 +93,89 @@
             border-radius: 4px;
             border: 2px solid #FF0000;
         }
+        
+        /* ESPN-style Stat Ticker */
+        .ticker-wrapper {
+            position: fixed; /* Fixed to viewport */
+            bottom: 0; /* Stick to bottom of screen */
+            left: 0;
+            right: 0;
+            width: 100vw; /* Full viewport width */
+            background-color: #000000; 
+            border-radius: 4px;
+            padding: 10px 0;
+            box-shadow: 0 -4px 8px rgba(0, 0, 0, 0.8); /* Shadow on top only */
+            z-index: 1000; /* Ensure it's on top */
+        }
+        
+        .ticker-container {
+            display: flex;
+            white-space: nowrap;
+            animation: scroll-left 60s linear infinite;
+        }
+        
+        @keyframes scroll-left {
+            0% {
+                transform: translateX(100%);
+            }
+            100% {
+                transform: translateX(-100%);
+            }
+        }
+        
+        .ticker-item {
+            display: inline-block;
+            padding: 0 30px;
+            font-size: 16px;
+            color: #FFFFFF;
+            font-weight: 400;
+        }
+        
+        .ticker-separator {
+            display: inline-block;
+            color: #FFD700; /* Gold separator */
+            font-weight: 700;
+            padding: 0 10px;
+        }
+
+        /* Responsive font sizing for different resolutions */
+        @media (min-width: 1920px) {
+            /* 1080p and above */
+            .ticker-item {
+                font-size: 20px;
+                padding: 0 50px;
+            }
+        }
+        
+        @media (min-width: 2560px) {
+            /* 2K (1440p) and above */
+            .ticker-item {
+                font-size: 24px;
+                padding: 0 60px;
+            }
+        }
+        
+        @media (min-width: 3840px) {
+            /* 4K and above */
+            .ticker-item {
+                font-size: 32px;
+                padding: 0 80px;
+            }
+            .ticker-wrapper {
+                padding: 15px 0;
+            }
+        }
+        
+        @media (min-width: 7680px) {
+            /* 8K */
+            .ticker-item {
+                font-size: 48px;
+                padding: 0 120px;
+            }
+            .ticker-wrapper {
+                padding: 20px 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -107,6 +189,13 @@
         <div class="stats-container" id="stats-container">
             <!-- Cards will be dynamically generated here -->
         </div>
+        
+        <!-- ESPN-style stat ticker -->
+        <div class="ticker-wrapper" id="ticker-wrapper" style="display: none;">
+            <div class="ticker-container" id="ticker-container">
+                <!-- Facts will be dynamically inserted here -->
+            </div>
+        </div>
     </div>
     
     <div id="error-message"></div>
@@ -116,21 +205,28 @@
         // 1. Set your Render API URL (base path only)
         // Example: const API_URL = "https://yourdomain.com/api/get_live_dashboard";
         // Example for local testing: Uncomment the line below
-        // const API_URL = "http://127.0.0.1:5000/api/get_live_dashboard
-        const API_URL = "https://video-game-stats-api.onrender.com/api/get_live_dashboard";
+        const API_URL = "http://127.0.0.1:5000/api/get_live_dashboard";
+        const TICKER_API_URL = "http://127.0.0.1:5000/api/get_stat_ticker";
+        // Production example:
+        // const API_URL = "https://video-game-stats-api.onrender.com/api/get_live_dashboard";
+        // const TICKER_API_URL = "https://video-game-stats-api.onrender.com/api/get_stat_ticker";
         
         // 2. Set polling interval (in milliseconds)
         const REFRESH_INTERVAL_MS = 5000; // 5 seconds
+        const TICKER_REFRESH_INTERVAL_MS = 30000; // 30 seconds (ticker updates less frequently)
         // ---------------------
 
         let fullApiUrl = ''; // Will be built dynamically
+        let fullTickerApiUrl = '';
+        let tickerFacts = [];
 
         // Function to dynamically build the stats UI
         function buildUIAndApiUrl() {
-            /* if (API_URL.includes("video-game-stats-api.onrender.com")) {
-                showError("ERROR: API_URL is a placeholder. Edit index.html and set your API URL.");
+            // Check if API_URL is still the placeholder
+            if (API_URL.includes("your-flask-api.onrender.com")) {
+                showError("ERROR: API_URL is a placeholder. Edit dashboard.html and set your API URL.");
                 return false;
-            } */
+            }
 
             const params = new URLSearchParams(window.location.search);
             const container = document.getElementById('stats-container');
@@ -144,8 +240,9 @@
                 return false;
             }
 
-            // Build API URL - backend now handles stat selection automatically
+            // Build API URLs
             fullApiUrl = `${API_URL}?key=${key}&tz=${tz}`;
+            fullTickerApiUrl = `${TICKER_API_URL}?key=${key}&tz=${tz}`;
 
             // Create placeholder cards (will be populated by API response)
             for (let i = 1; i <= 3; i++) {
@@ -253,10 +350,68 @@
             }
         }
 
+        // Function to fetch ticker data
+        async function fetchTickerData() {
+            if (!fullTickerApiUrl) {
+                console.log("Ticker API URL not built yet.");
+                return;
+            }
+
+            console.log("Fetching ticker data from:", fullTickerApiUrl);
+            try {
+                const response = await fetch(fullTickerApiUrl, {
+                    method: 'GET',
+                    cache: 'no-cache'
+                });
+                
+                if (!response.ok) {
+                    console.error(`Ticker API Error: ${response.status}`);
+                    return;
+                }
+                
+                const data = await response.json();
+                if (data.facts && data.facts.length > 0) {
+                    updateTicker(data.facts);
+                }
+
+            } catch (error) {
+                console.error("Failed to fetch ticker data:", error);
+            }
+        }
+
+        // Function to update the ticker
+        function updateTicker(facts) {
+            const tickerContainer = document.getElementById('ticker-container');
+            const tickerWrapper = document.getElementById('ticker-wrapper');
+            
+            if (facts.length === 0) {
+                tickerWrapper.style.display = 'none';
+                return;
+            }
+            
+            // Shuffle facts for randomization
+            const shuffledFacts = facts.sort(() => Math.random() - 0.5);
+            
+            // Build ticker HTML
+            let tickerHTML = '';
+            shuffledFacts.forEach((fact, index) => {
+                tickerHTML += `<span class="ticker-item">${fact}</span>`;
+                if (index < shuffledFacts.length - 1) {
+                    tickerHTML += '<span class="ticker-separator">●</span>';
+                }
+            });
+            
+            // Duplicate content for seamless loop
+            tickerContainer.innerHTML = tickerHTML + tickerHTML;
+            tickerWrapper.style.display = 'block';
+        }
+
         // --- Run the functions ---
         if (buildUIAndApiUrl()) {
             fetchStats();
+            fetchTickerData(); // Initial ticker load
             setInterval(fetchStats, REFRESH_INTERVAL_MS);
+            setInterval(fetchTickerData, TICKER_REFRESH_INTERVAL_MS); // Ticker updates every 30 seconds
         }
     </script>
 </body>

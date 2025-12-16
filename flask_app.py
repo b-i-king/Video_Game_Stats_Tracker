@@ -6,6 +6,10 @@ from flask import Flask, request, jsonify, send_file
 from datetime import datetime, timedelta, timezone
 import jwt
 from flask_cors import CORS
+import atexit
+from chart_utils import generate_bar_chart, generate_line_chart, get_stat_history_from_db
+from gcs_utils import upload_chart_to_gcs
+from ifttt_utils import trigger_ifttt_post, generate_post_caption
 
 app = Flask(__name__)
 CORS(app)
@@ -28,28 +32,65 @@ if not TRUSTED_EMAILS_LIST:
 
 # --- Database Connection Pool ---
 # Create the connection pool once when the app starts
-try:
-    print("Initializing database connection pool...")
-    db_pool = SimpleConnectionPool(
-        minconn=1,  # Minimum number of connections to keep open
-        maxconn=10, # Maximum number of connections
-        host=DB_URL,
-        database=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        port=5439, # Default Redshift port
-        connect_timeout=10
-    )
-    print("Database connection pool initialized successfully.")
-except (Exception, psycopg2.Error) as error:
-    print(f"FATAL ERROR: Failed to initialize database connection pool: {error}")
-    db_pool = None # Set to None to indicate failure
+# Global pool variable
+db_pool = None
+
+def initialize_db_pool():
+    """Initialize the database connection pool (called once)."""
+    global db_pool
+    
+    # Don't reinitialize if pool already exists
+    if db_pool is not None:
+        print("Database pool already initialized, skipping...")
+        return db_pool
+    
+    try:
+        print("Initializing database connection pool...")
+        db_pool = SimpleConnectionPool(
+            minconn=1,      # Keep low for development
+            maxconn=10,     # Reasonable limit
+            host=DB_URL,
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            port=5439,
+            connect_timeout=10,
+            sslmode='require'
+        )
+        print("✅ Database connection pool initialized successfully.")
+        
+        # Register cleanup on exit
+        atexit.register(close_db_pool)
+        
+        return db_pool
+    except (Exception, psycopg2.Error) as error:
+        print(f"❌ FATAL ERROR: Failed to initialize database connection pool: {error}")
+        db_pool = None
+        return None
+
+def close_db_pool():
+    """Close all connections in the pool."""
+    global db_pool
+    if db_pool:
+        try:
+            print("Closing database connection pool...")
+            db_pool.closeall()
+            print("✅ Database pool closed.")
+        except Exception as e:
+            print(f"⚠️ Error closing pool: {e}")
+        finally:
+            db_pool = None
 
 def get_db_connection():
     """Gets a connection from the pool."""
+    global db_pool
+    
+    # Initialize pool if it doesn't exist
+    if db_pool is None:
+        initialize_db_pool()
+    
     if db_pool:
         try:
-            # print("Getting connection from pool...")
             return db_pool.getconn()
         except (Exception, psycopg2.Error) as error:
             print(f"Error getting connection from pool: {error}")
@@ -60,8 +101,8 @@ def get_db_connection():
 
 def release_db_connection(conn):
     """Returns a connection to the pool."""
+    global db_pool
     if db_pool and conn:
-        # print("Returning connection to pool...")
         db_pool.putconn(conn)
         
 def create_tables():
@@ -452,10 +493,90 @@ def add_stats(user_email):
             ))
             successful_inserts += 1
         if successful_inserts > 0:
-             conn.commit()
-             return jsonify({"message": f"Stats successfully added ({successful_inserts} records)!"}), 201
+            conn.commit()
+            print(f"✅ {successful_inserts} stats inserted successfully")
+            
+            # --- SOCIAL MEDIA INTEGRATION ---
+            try:
+                # Count total games played for this player/game
+                cur.execute("""
+                    SELECT COUNT(DISTINCT played_at) as games_played
+                    FROM fact.fact_game_stats
+                    WHERE player_id = %s AND game_id = %s;
+                """, (player_id, game_id))
+                games_played = cur.fetchone()[0]
+                
+                print(f"📊 Generating chart for social media (Games played: {games_played})...")
+                
+                # Get top 3 stat types for this game
+                cur.execute("""
+                    SELECT stat_type, AVG(stat_value) as avg_value
+                    FROM fact.fact_game_stats
+                    WHERE game_id = %s AND stat_type IS NOT NULL
+                    GROUP BY stat_type
+                    HAVING AVG(stat_value) > 0
+                    ORDER BY avg_value ASC
+                    LIMIT 3;
+                """, (game_id,))
+                top_stats = [row[0] for row in cur.fetchall()]
+                
+                if games_played == 1:
+                    # Generate BAR CHART (first game)
+                    # Get current stats for bar chart
+                    stat_data = {}
+                    for i, stat_type in enumerate(top_stats[:3], 1):
+                        cur.execute("""
+                            SELECT stat_value FROM fact.fact_game_stats
+                            WHERE player_id = %s AND game_id = %s AND stat_type = %s
+                            ORDER BY played_at DESC LIMIT 1;
+                        """, (player_id, game_id, stat_type))
+                        result = cur.fetchone()
+                        stat_data[f'stat{i}'] = {
+                            'label': stat_type,
+                            'value': result[0] if result else 0
+                        }
+                    
+                    image_buffer = generate_bar_chart(stat_data, player_name, game_name, game_installment)
+                    chart_type = 'bar'
+                    
+                elif games_played > 1:
+                    # Generate LINE CHART (multiple games)
+                    stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats)
+                    image_buffer = generate_line_chart(stat_history, player_name, game_name, game_installment)
+                    chart_type = 'line'
+                
+                # Upload to Google Cloud Storage
+                public_url = upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type)
+                
+                if public_url:
+                    # Generate caption
+                    caption = generate_post_caption(
+                        player_name, 
+                        game_name, 
+                        game_installment, 
+                        stat_data if games_played == 1 else stat_history,
+                        games_played
+                    )
+                    
+                    # Trigger IFTTT webhook
+                    social_platform = os.environ.get('SOCIAL_MEDIA_PLATFORM', 'twitter')  # 'twitter', 'instagram', or 'both'
+                    success = trigger_ifttt_post(public_url, caption, social_platform)
+                    
+                    if success:
+                        print(f"✅ Social media post triggered successfully!")
+                    else:
+                        print(f"⚠️ Social media post failed, but stats were saved")
+                else:
+                    print(f"⚠️ Failed to upload chart, but stats were saved")
+                    
+            except Exception as social_error:
+                # Don't fail the entire request if social media posting fails
+                print(f"⚠️ Social media integration error (stats still saved): {social_error}")
+            
+            return jsonify({"message": f"Stats successfully added ({successful_inserts} records)!"}), 201
+
         else:
-             return jsonify({"error": "No valid stats provided to insert."}), 400
+            return jsonify({"error": "No valid stats provided to insert."}), 400
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error: {error}"); conn.rollback()
         return jsonify({"error": f"An internal error occurred: {str(error)}"}), 500
@@ -1208,7 +1329,218 @@ def serve_dashboard():
     Example URL:
     .../dashboard?key=OBS_SECRET_KEY&tz=America/New_York
     """
-    return send_file('index.html') 
+    return send_file('index.html')
+
+# --- Game Stat Ticker --- 
+@app.route('/api/get_stat_ticker', methods=['GET'])
+def get_stat_ticker():
+    """
+    Returns educational stat facts for the ticker based on games played.
+    Tiers:
+    - 1-2 games: Basic facts (best performance, high scores)
+    - 3-30 games: + Descriptive stats (mean, median, mode, min, max, range)
+    - 30+ games: + Advanced stats (percentile, std dev, variance)
+    """
+    key = request.args.get('key')
+    if key != OBS_SECRET_KEY:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    timezone_str = request.args.get('tz', 'UTC')
+    
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Get current player/game
+        cur.execute("SELECT current_player_id, current_game_id FROM dim.dim_dashboard_state WHERE state_id = 1;")
+        state = cur.fetchone()
+        if not state or not state[0] or not state[1]:
+            return jsonify({"error": "No live game/player selected"}), 404
+        
+        player_id, game_id = state
+        
+        # Get player and game names
+        cur.execute("SELECT player_name FROM dim.dim_players WHERE player_id = %s;", (player_id,))
+        player_name = cur.fetchone()[0]
+        
+        cur.execute("SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = %s;", (game_id,))
+        game_info = cur.fetchone()
+        game_name = game_info[0]
+        game_installment = game_info[1] if game_info[1] else ""
+        full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
+        
+        # Count distinct games played (sessions)
+        cur.execute("""
+            SELECT COUNT(DISTINCT played_at) as games_played
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s;
+        """, (player_id, game_id))
+        games_played = cur.fetchone()[0]
+        
+        if games_played == 0:
+            return jsonify({"facts": ["No stats recorded yet. Start playing to see educational stats!"], "games_played": 0}), 200
+        
+        # Get all stat types for this game
+        cur.execute("""
+            SELECT DISTINCT stat_type
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s AND stat_type IS NOT NULL;
+        """, (player_id, game_id))
+        stat_types = [row[0] for row in cur.fetchall()]
+        
+        # Generate facts based on tier
+        facts = []
+        
+        # TIER 1: Basic Facts (1-2 games)
+        if games_played >= 1:
+            facts.extend(generate_basic_facts(cur, player_id, game_id, player_name, full_game_name, stat_types, timezone_str))
+        
+        # TIER 2: Descriptive Stats (3-30 games)
+        if games_played >= 3:
+            facts.extend(generate_descriptive_stats(cur, player_id, game_id, player_name, full_game_name, stat_types))
+        
+        # TIER 3: Advanced Stats (30+ games)
+        if games_played > 30:
+            facts.extend(generate_advanced_stats(cur, player_id, game_id, player_name, full_game_name, stat_types))
+        
+        return jsonify({"facts": facts, "games_played": games_played}), 200
+        
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error fetching stat ticker: {error}")
+        if conn: conn.rollback()
+        return jsonify({"error": str(error)}), 500
+    finally:
+        release_db_connection(conn)
+
+
+def generate_basic_facts(cur, player_id, game_id, player_name, game_name, stat_types, timezone_str):
+    """Generate basic facts: best performances, high scores"""
+    facts = []
+    
+    for stat_type in stat_types[:3]:  # Limit to top 3 stat types
+        # Best performance for this stat
+        cur.execute("""
+            SELECT stat_value, CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s AND stat_type = %s
+            ORDER BY stat_value DESC
+            LIMIT 1;
+        """, (timezone_str, player_id, game_id, stat_type))
+        result = cur.fetchone()
+        
+        if result:
+            best_value, best_date = result
+            date_str = best_date.strftime('%B %d, %Y')
+            facts.append(f"{player_name}'s best {stat_type} in {game_name} was {best_value} on {date_str}.")
+    
+    # High score across all stats
+    cur.execute("""
+        SELECT stat_type, MAX(stat_value) as high_score
+        FROM fact.fact_game_stats
+        WHERE player_id = %s AND game_id = %s
+        GROUP BY stat_type
+        ORDER BY high_score DESC
+        LIMIT 1;
+    """, (player_id, game_id))
+    result = cur.fetchone()
+    
+    if result:
+        stat_type, high_score = result
+        facts.append(f"The highest {stat_type} recorded for {game_name} is {high_score}.")
+    
+    return facts
+
+
+def generate_descriptive_stats(cur, player_id, game_id, player_name, game_name, stat_types):
+    """Generate descriptive statistics: mean, median, mode, min, max, range"""
+    facts = []
+    
+    for stat_type in stat_types[:2]:  # Top 2 stats
+        # Get all values for calculations
+        cur.execute("""
+            SELECT stat_value
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s AND stat_type = %s
+            ORDER BY stat_value;
+        """, (player_id, game_id, stat_type))
+        values = [row[0] for row in cur.fetchall()]
+        
+        if not values:
+            continue
+        
+        # Calculate stats
+        mean_val = round(sum(values) / len(values), 1)
+        median_val = values[len(values) // 2] if len(values) % 2 == 1 else round((values[len(values)//2 - 1] + values[len(values)//2]) / 2, 1)
+        min_val = min(values)
+        max_val = max(values)
+        range_val = max_val - min_val
+        
+        # Mode (most common value)
+        from collections import Counter
+        value_counts = Counter(values)
+        mode_val = value_counts.most_common(1)[0][0]
+        mode_count = value_counts.most_common(1)[0][1]
+        
+        # Generate fact sentences
+        facts.append(f"On average, {player_name} gets {mean_val} {stat_type} per game in {game_name}.")
+        facts.append(f"The median {stat_type} for {player_name} in {game_name} is {median_val}.")
+        
+        if mode_count > 1:
+            facts.append(f"{player_name} most frequently scores {mode_val} {stat_type} in {game_name}.")
+        
+        facts.append(f"{player_name}'s {stat_type} in {game_name} ranges from {min_val} (minimum) to {max_val} (maximum).")
+        facts.append(f"The range of {stat_type} scores in {game_name} is {range_val}.")
+    
+    return facts
+
+
+def generate_advanced_stats(cur, player_id, game_id, player_name, game_name, stat_types):
+    """Generate advanced statistics: percentile, standard deviation, variance"""
+    facts = []
+    
+    for stat_type in stat_types[:2]:  # Top 2 stats
+        # Get all values
+        cur.execute("""
+            SELECT stat_value
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s AND stat_type = %s
+            ORDER BY stat_value;
+        """, (player_id, game_id, stat_type))
+        values = [row[0] for row in cur.fetchall()]
+        
+        if len(values) < 2:
+            continue
+        
+        # Calculate advanced stats
+        mean_val = sum(values) / len(values)
+        
+        # Variance and Standard Deviation
+        variance = sum((x - mean_val) ** 2 for x in values) / len(values)
+        std_dev = round(variance ** 0.5, 2)
+        variance_rounded = round(variance, 2)
+        
+        # Percentiles (25th, 50th, 75th)
+        def percentile(data, p):
+            n = len(data)
+            k = (n - 1) * p
+            f = int(k)
+            c = k - f
+            if f + 1 < n:
+                return data[f] + c * (data[f + 1] - data[f])
+            return data[f]
+        
+        p25 = round(percentile(values, 0.25), 1)
+        p50 = round(percentile(values, 0.50), 1)
+        p75 = round(percentile(values, 0.75), 1)
+        
+        # Generate fact sentences
+        facts.append(f"The standard deviation of {stat_type} in {game_name} is {std_dev}, showing {'high' if std_dev > mean_val * 0.3 else 'low'} variability in performance.")
+        facts.append(f"The variance of {player_name}'s {stat_type} in {game_name} is {variance_rounded}.")
+        facts.append(f"25% of {player_name}'s games have {stat_type} below {p25}, while 75% are below {p75}.")
+        facts.append(f"The median (50th percentile) {stat_type} is {p50} for {player_name} in {game_name}.")
+    
+    return facts
 
 # Health check endpoint
 @app.route('/health', methods=['GET'])
@@ -1232,6 +1564,30 @@ def db_health_check():
     finally:
         if conn: release_db_connection(conn)
 
+def test_ssl_connection():
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT ssl_is_used();")
+            ssl_status = cur.fetchone()
+            print(f"✅ SSL Connection Status: {ssl_status}")
+            cur.close()
+        except Exception as e:
+            print(f"⚠️ Could not verify SSL status: {e}")
+        finally:
+            release_db_connection(conn)
+
 if __name__ == '__main__':
+     # Initialize pool once
+    initialize_db_pool()
+    
+    # Create tables
     create_tables()
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+
+    # test_ssl_connection()
+    app.run(debug=True, 
+            host='0.0.0.0', 
+            port=int(os.environ.get("PORT", 5000)),
+            use_reloader=False  # ← Disable auto-reloader in development
+            )
