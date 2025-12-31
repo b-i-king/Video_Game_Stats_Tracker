@@ -156,7 +156,7 @@ streamlit run streamlit_app.py
 
 ## 🧩 Entity Relationship Diagram (ERD)
 
-### Mermaid Diagram (GitHub Rendered)
+### Mermaid Diagram
 
 ```mermaid
 erDiagram
