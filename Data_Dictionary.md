@@ -49,6 +49,22 @@ Stores information about unique games.
 
 ---
 
+
+### Table: `dim.dim_dashboard_state`
+Stores the current "live" state for the dashboard/OBS integration. This is a singleton table (typically contains only one row with `state_id = 1`) that tracks which player and game are currently selected for live display.
+
+| Column Name | Data Type | Constraints | Description |
+|--------------|------------|-------------|--------------|
+| `state_id` | INTEGER | NOT NULL PK | Primary Key. Typically set to 1 for the singleton row. |
+| `current_player_id` | INTEGER | NULL, FK | Foreign Key. Links to `dim.dim_players(player_id)`. The currently selected "live" player for dashboard display. |
+| `current_game_id` | INTEGER | NULL, FK | Foreign Key. Links to `dim.dim_games(game_id)`. The currently selected "live" game for dashboard display. |
+| `updated_at` | TIMESTAMP | NULL | Timestamp of when the live state was last updated (e.g., when "Set as Live Game for OBS" button was clicked). |
+
+**Usage Note:** This table is queried to determine which player/game combination should be displayed on the live dashboard or OBS overlay. Users set the live state via the Streamlit interface using the "Set as Live Game for OBS" button.
+
+---
+
+
 ## Schema: `fact` (Fact Table)
 
 This schema holds measurable events and numeric data.
