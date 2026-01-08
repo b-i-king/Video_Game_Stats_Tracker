@@ -2,9 +2,11 @@
 Chart generation utilities for social media posts
 Creates high-quality bar/line charts from gaming stats
 
-Supports multiple sizes:
-- Twitter: 1200x630 (landscape)
-- Instagram: 1080x1080 (square)
+Features:
+- Horizontal bar charts (easier to read left-to-right)
+- Direct line labels (no legend clutter)
+- Holiday-themed color palettes
+- Multi-platform support (Twitter 1200x630, Instagram 1080x1080)
 """
 
 import matplotlib.pyplot as plt
@@ -13,6 +15,7 @@ import seaborn as sns
 from datetime import datetime
 import io
 import os
+from holiday_themes import get_themed_colors
 
 # Set style for professional-looking charts
 sns.set_style("darkgrid")
@@ -43,7 +46,9 @@ plt.rcParams['font.size'] = 12
 
 def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter'):
     """
-    Generate a bar chart for first-time game stats (1 game played).
+    Generate a HORIZONTAL bar chart for first-time game stats.
+    Horizontal layout improves readability (left-to-right reading).
+    Bars are AUTOMATICALLY SORTED from largest to smallest (top to bottom).
     
     Args:
         stat_data: dict with keys 'stat1', 'stat2', 'stat3'
@@ -56,46 +61,64 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     Returns:
         BytesIO object containing PNG image
     """
-    # Extract data
-    labels = [stat_data.get(f'stat{i}', {}).get('label', f'Stat {i}') 
-              for i in range(1, 4)]
-    values = [stat_data.get(f'stat{i}', {}).get('value', 0) 
-              for i in range(1, 4)]
+     # Extract data
+    stats = []
+    for i in range(1, 4):
+        label = stat_data.get(f'stat{i}', {}).get('label', f'Stat {i}')
+        value = stat_data.get(f'stat{i}', {}).get('value', 0)
+        stats.append({'label': label, 'value': value})
     
-    # Determine figure size based on platform
+    # SORT by value (largest to smallest)
+    stats.sort(key=lambda x: x['value'], reverse=True)# Extract data
+    
+    # Extract sorted labels and values
+    labels = [s['label'] for s in stats]
+    values = [s['value'] for s in stats]
+    
+    # REVERSE for matplotlib (barh plots bottom-to-top, we want largest on top)
+    labels.reverse()
+    values.reverse()
+ 
+    # Get holiday-themed colors
+    theme = get_themed_colors()
+    colors = theme['colors']
+    
+    # Determine figure size
     if size == 'instagram':
-        fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)  # 1080x1080
+        fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)
         title_fontsize = 20
         value_fontsize = 16
         label_fontsize = 16
-    else:  # twitter (default)
-        fig, ax = plt.subplots(figsize=(12, 6.3), dpi=100)  # 1200x630
+    else:  # twitter
+        fig, ax = plt.subplots(figsize=(12, 6.3), dpi=100)
         title_fontsize = 18
         value_fontsize = 14
         label_fontsize = 14
     
-    # Color palette (gaming-themed)
-    colors = ['#00ff41', '#00d4ff', '#ff00ff']  # Neon green, cyan, magenta
+    # Create HORIZONTAL bar chart (barh instead of bar)
+    bars = ax.barh(labels, values, color=colors, edgecolor='white', linewidth=2)
     
-    # Create bar chart
-    bars = ax.bar(labels, values, color=colors, edgecolor='white', linewidth=2)
-    
-    # Add value labels on top of bars
+    # Add value labels at the end of bars (right side)
     for bar, value in zip(bars, values):
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height,
-                f'{value:,.0f}' if isinstance(value, (int, float)) else str(value),
-                ha='center', va='bottom', fontsize=value_fontsize, fontweight='bold', color='white')
+        width = bar.get_width()
+        ax.text(width, bar.get_y() + bar.get_height()/2.,
+                f' {value:,.0f}' if isinstance(value, (int, float)) else f' {str(value)}',
+                ha='left', va='center', fontsize=value_fontsize, fontweight='bold', color='white')
     
     # Styling
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
-    ax.set_title(f"{player_name}'s First Game Stats\n{full_game_name}", 
-                 fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
-    ax.set_ylabel('Value', fontsize=label_fontsize, fontweight='bold')
-    ax.set_xlabel('Stats', fontsize=label_fontsize, fontweight='bold')
+    title_text = f"{player_name}'s First Game Stats\n{full_game_name}"
     
-    # Grid
-    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    # Add theme indicator if holiday
+    if theme['holiday']:
+        title_text += f"\n{theme['theme_name']}"
+    
+    ax.set_title(title_text, fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
+    ax.set_xlabel('Value', fontsize=label_fontsize, fontweight='bold')
+    ax.set_ylabel('Stats', fontsize=label_fontsize, fontweight='bold')
+    
+    # Grid (vertical for horizontal bars)
+    ax.grid(axis='x', alpha=0.3, linestyle='--')
     ax.set_axisbelow(True)
     
     # Remove top and right spines
@@ -109,12 +132,8 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     fig.text(0.99, 0.01, timestamp, ha='right', va='bottom', 
              fontsize=10, color='gray', style='italic')
     
-    # Add multi-platform branding (bottom left, single line)
-    # Format: YT & Twitch: TheBOLBroadcast
-    # Colors: Red "YT" + White "&" + Purple "Twitch" + White ": TheBOLBroadcast"
+    # Add multi-platform branding (single line)
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
-    
-    # Position for text elements
     x_start = 0.01
     y_pos = 0.01
     
@@ -168,21 +187,26 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     """
     dates = stat_history.get('dates', [])
     
-    # Determine figure size based on platform
+   # Get holiday-themed colors
+    theme = get_themed_colors()
+    colors = theme['colors']
+    
+    # Determine figure size
     if size == 'instagram':
-        fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)  # 1080x1080
+        fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)
         title_fontsize = 20
         label_fontsize = 16
-        legend_fontsize = 14
-    else:  # twitter (default)
-        fig, ax = plt.subplots(figsize=(12, 6.3), dpi=100)  # 1200x630
+        direct_label_fontsize = 13
+    else:  # twitter
+        fig, ax = plt.subplots(figsize=(12, 6.3), dpi=100)
         title_fontsize = 18
         label_fontsize = 14
-        legend_fontsize = 12
+        direct_label_fontsize = 12
     
-    # Color palette
-    colors = ['#00ff41', '#00d4ff', '#ff00ff']
     markers = ['o', 's', 'D']  # Circle, square, diamond
+    
+    # Store line end positions for direct labeling
+    line_end_positions = []
     
     # Plot each stat
     for i in range(1, 4):
@@ -192,19 +216,33 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
             values = stat_history[stat_key].get('values', [])
             
             if values:
-                ax.plot(dates, values, 
+                line, = ax.plot(dates, values, 
                        color=colors[i-1], 
                        marker=markers[i-1], 
                        linewidth=3, 
                        markersize=8,
-                       label=label,
+                       label=label,  # Still set for internal use
                        markeredgecolor='white',
                        markeredgewidth=1.5)
+                
+                # Store final position for direct label
+                if len(dates) > 0 and len(values) > 0:
+                    line_end_positions.append({
+                        'x': dates[-1],
+                        'y': values[-1],
+                        'label': label,
+                        'color': colors[i-1]
+                    })
     
     # Styling
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
-    ax.set_title(f"{player_name}'s Performance Trend\n{full_game_name}", 
-                 fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
+    title_text = f"{player_name}'s Performance Trend\n{full_game_name}"
+    
+    # Add theme indicator if holiday
+    if theme['holiday']:
+        title_text += f"\n{theme['theme_name']}"
+    
+    ax.set_title(title_text, fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
     ax.set_ylabel('Value', fontsize=label_fontsize, fontweight='bold')
     ax.set_xlabel('Date', fontsize=label_fontsize, fontweight='bold')
     
@@ -213,9 +251,34 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
     
-    # Legend
-    ax.legend(loc='upper left', framealpha=0.9, facecolor='#2d2d2d', 
-              edgecolor='white', fontsize=legend_fontsize)
+    # Add direct labels at end of lines (instead of legend)
+    if line_end_positions:
+        # Get axis limits to position labels
+        x_range = ax.get_xlim()
+        y_range = ax.get_ylim()
+        
+        # Sort by y-position to avoid overlaps
+        line_end_positions.sort(key=lambda x: x['y'])
+        
+        # Add text labels at line ends
+        for pos in line_end_positions:
+            # Position label slightly to the right of last point
+            label_x = pos['x']
+            label_y = pos['y']
+            
+            ax.annotate(pos['label'], 
+                       xy=(label_x, label_y),
+                       xytext=(10, 0),  # 10 points to the right
+                       textcoords='offset points',
+                       fontsize=direct_label_fontsize,
+                       fontweight='bold',
+                       color=pos['color'],
+                       va='center',
+                       bbox=dict(boxstyle='round,pad=0.3', 
+                                facecolor='#2d2d2d', 
+                                edgecolor=pos['color'],
+                                linewidth=2,
+                                alpha=0.9))
     
     # Grid
     ax.grid(alpha=0.3, linestyle='--')
@@ -227,16 +290,17 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     ax.spines['left'].set_color('white')
     ax.spines['bottom'].set_color('white')
     
+    # Extend x-axis slightly to make room for labels
+    x_min, x_max = ax.get_xlim()
+    ax.set_xlim(x_min, x_max + (x_max - x_min) * 0.15)
+    
     # Add timestamp
     timestamp = datetime.now().strftime('%B %d, %Y')
     fig.text(0.99, 0.01, timestamp, ha='right', va='bottom', 
              fontsize=10, color='gray', style='italic')
     
-    # Add multi-platform branding (bottom left, single line)
-    # Format: YT & Twitch: TheBOLBroadcast
+    # Add multi-platform branding
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
-    
-    # Position for text elements
     x_start = 0.01
     y_pos = 0.01
     
