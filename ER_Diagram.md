@@ -5,14 +5,12 @@ erDiagram
         VARCHAR user_email
         BOOLEAN is_trusted
     }
-
     dim_players {
         INT player_id PK
         VARCHAR player_name
         INT user_id FK
         TIMESTAMP created_at
     }
-
     dim_games {
         INT game_id PK
         VARCHAR game_name
@@ -22,7 +20,12 @@ erDiagram
         TIMESTAMP created_at
         TIMESTAMP last_played_at
     }
-
+    dim_dashboard_state {
+        INT state_id PK
+        INT current_player_id FK
+        INT current_game_id FK
+        TIMESTAMP updated_at
+    }
     fact_game_stats {
         INT stat_id PK
         INT game_id FK
@@ -37,8 +40,9 @@ erDiagram
         VARCHAR post_match_rank_value
         TIMESTAMP played_at
     }
-
     dim_users ||--o{ dim_players : "has"
     dim_players ||--o{ fact_game_stats : "records"
     dim_games ||--o{ fact_game_stats : "includes"
+    dim_players ||--o| dim_dashboard_state : "is_live_as"
+    dim_games ||--o| dim_dashboard_state : "is_live_as"
 ```
