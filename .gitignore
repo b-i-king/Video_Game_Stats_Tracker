@@ -18430,3 +18430,4 @@ __pycache__/chart_utils.cpython-312.pyc
 __pycache__/gcs_utils.cpython-312.pyc
 __pycache__/ifttt_utils.cpython-312.pyc
 __pycache__/holiday_themes.cpython-312.pyc
+test_charts.py
