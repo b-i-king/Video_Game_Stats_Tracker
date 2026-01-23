@@ -109,8 +109,8 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
     title_text = f"{player_name}'s First Game Stats\n{full_game_name}"
     
-    # Add theme indicator if holiday
-    if theme['holiday']:
+     # Add theme indicator ONLY if today is EXACT holiday date
+    if theme['show_in_title']:
         title_text += f"\n{theme['theme_name']}"
     
     ax.set_title(title_text, fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
@@ -167,16 +167,11 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
 
 def generate_line_chart(stat_history, player_name, game_name, game_installment=None, size='twitter'):
     """
-    Generate a line chart for multi-game stats (2+ games played).
+    Generate a line chart with DIRECT LABELS (no legend).
+    Labels are placed at the end of each line for clarity.
     
     Args:
-        stat_history: dict with structure:
-            {
-                'dates': [datetime objects],
-                'stat1': {'label': str, 'values': [list of values]},
-                'stat2': {'label': str, 'values': [list of values]},
-                'stat3': {'label': str, 'values': [list of values]}
-            }
+        stat_history: dict with dates and stat values
         player_name: str
         game_name: str
         game_installment: str (optional)
@@ -187,7 +182,7 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     """
     dates = stat_history.get('dates', [])
     
-   # Get holiday-themed colors
+    # Get holiday-themed colors
     theme = get_themed_colors()
     colors = theme['colors']
     
@@ -238,8 +233,8 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
     title_text = f"{player_name}'s Performance Trend\n{full_game_name}"
     
-    # Add theme indicator if holiday
-    if theme['holiday']:
+    # Add theme indicator ONLY if today is EXACT holiday date
+    if theme['show_in_title']:
         title_text += f"\n{theme['theme_name']}"
     
     ax.set_title(title_text, fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
@@ -335,16 +330,7 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
 def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_str='UTC'):
     """
     Fetch historical data for line chart from database.
-    
-    Args:
-        cur: Database cursor
-        player_id: int
-        game_id: int
-        top_stat_types: list of str (stat type names)
-        timezone_str: str (timezone for date conversion)
-    
-    Returns:
-        dict with structure for generate_line_chart
+    (Same as before - no changes needed)
     """
     from datetime import datetime
     
@@ -376,7 +362,6 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
         
         values = []
         for date in dates:
-            # Get average for this stat on this date
             cur.execute("""
                 SELECT AVG(stat_value)
                 FROM fact.fact_game_stats
@@ -391,5 +376,3 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
             values.append(avg_value)
         
         stat_history[stat_key]['values'] = values
-    
-    return stat_history

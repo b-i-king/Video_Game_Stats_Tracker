@@ -398,6 +398,7 @@ def add_stats(user_email):
     game_subgenre = data.get('game_subgenre')
     player_name = data.get('player_name')
     stats = data.get('stats')
+    is_live = data.get('is_live', False)
     conn = None
 
     # This is a sample of the data that's expected
@@ -555,7 +556,8 @@ def add_stats(user_email):
                         game_name, 
                         game_installment, 
                         stat_data if games_played == 1 else stat_history,
-                        games_played
+                        games_played,
+                        is_live
                     )
                     
                     # Trigger IFTTT webhook

@@ -63,7 +63,7 @@ def trigger_ifttt_post(image_url, caption, platform='twitter'):
         return False
 
 
-def generate_post_caption(player_name, game_name, game_installment, stat_data, games_played):
+def generate_post_caption(player_name, game_name, game_installment, stat_data, games_played, is_live=False):
     """
     Generate engaging caption for social media post.
     
@@ -73,6 +73,7 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
         game_installment: str or None
         stat_data: dict with stat1, stat2, stat3
         games_played: int
+        is_live: bool (True if user is currently live streaming)
     
     Returns:
         str: Caption text
@@ -85,23 +86,42 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
     
     if games_played == 1:
         # First game caption
-        caption = (
-            f"🎮 First game on {full_game_name}! 🎮\n\n"
-            f"🔥 {stat1_label}: {stat1_value}\n\n"
-            f"#{game_name.replace(' ', '')} #Gaming #Stats #Broadcast"
-        )
+        if is_live:
+            caption = (
+                f"🔴 LIVE NOW! 🔴\n\n"
+                f"🎮 First game on {full_game_name}! 🎮\n\n"
+                f"🔥 {stat1_label}: {stat1_value}\n\n"
+                f"Watch live: twitch.tv/{os.environ.get('TWITCH_HANDLE', 'YourHandle')}\n\n"
+                f"#{game_name.replace(' ', '')} #Live #TheBroadcast #Gaming #LiveStream"
+            )
+        else:
+            caption = (
+                f"🎮 First game on {full_game_name}! 🎮\n\n"
+                f"🔥 {stat1_label}: {stat1_value}\n\n"
+                f"#{game_name.replace(' ', '')} #Gaming #Stats"
+            )
     else:
         # Multi-game caption
-        caption = (
-            f"📊 {full_game_name} Progress Report! 📊\n\n"
-            f"Games Played: {games_played}\n"
-            f"🔥 Latest {stat1_label}: {stat1_value}\n\n"
-            f"#{game_name.replace(' ', '')} #Gaming #Stats #GamingAnalytics #Broadcast"
-        )
+        if is_live:
+            caption = (
+                f"🔴 LIVE NOW! 🔴\n\n"
+                f"📊 {full_game_name} Progress Report! 📊\n\n"
+                f"Games Played: {games_played}\n"
+                f"🔥 Latest {stat1_label}: {stat1_value}\n\n"
+                f"Join the stream: twitch.tv/{os.environ.get('TWITCH_HANDLE', 'YourHandle')}\n\n"
+                f"#{game_name.replace(' ', '')} #Live #TheBroadcast #Gaming #GamingAnalytics"
+            )
+        else:
+            caption = (
+                f"📊 {full_game_name} Progress Report! 📊\n\n"
+                f"Games Played: {games_played}\n"
+                f"🔥 Latest {stat1_label}: {stat1_value}\n\n"
+                f"#{game_name.replace(' ', '')} #Gaming #Stats #GamingAnalytics"
+            )
     
-    # Add Twitch handle (customize this)
-    twitch_handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
-    caption += f"\n\n📺 Watch live: twitch.tv/{twitch_handle}"
+    # Add YouTube handle if offline (less cluttered when live)
+    if not is_live:
+        caption += f"\n\n📺 YouTube: youtube.com/@{os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')}"
     
     return caption
 

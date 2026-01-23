@@ -264,6 +264,35 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                 set_live_dashboard_state(player_id, selected_game_id)
                 st.success(f"OBS Dashboard set to: {st.session_state.player_name} @ {selected_installment_name}")
         
+        # --- Set Live Status Toggle ---        
+        st.markdown("---")
+    
+        # Initialize session state for live status if not exists
+        if 'is_live_streaming' not in st.session_state:
+            st.session_state.is_live_streaming = False
+        
+        # Live status toggle with visual indicator
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.subheader("🔴 Streaming Status")
+        with col2:
+            # Toggle button with visual feedback
+            is_live = st.toggle(
+                "Live Now", 
+                value=st.session_state.is_live_streaming,
+                key="live_toggle",
+                help="Enable this when you're LIVE streaming. Social media posts will include #Live #TheBroadcast"
+            )
+            st.session_state.is_live_streaming = is_live
+        
+        # Visual indicator
+        if st.session_state.is_live_streaming:
+            st.success("🔴 LIVE - Posts will include live stream links and hashtags")
+        else:
+            st.info("⚪ Offline - Posts will use standard format")
+        
+        st.markdown("---")
+        
         # --- Stat Type Guidance ---
         if not is_new_installment_mode and selected_game_id:
             stat_types_list = get_game_stat_types(selected_game_id)
@@ -375,7 +404,8 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                     payload = {"game_name": final_game_name, "game_series": final_game_series,
                                "game_genre": final_game_genre, "game_subgenre": final_game_subgenre,
                                "player_name": st.session_state.player_name, 
-                               "stats": stats_list # stats_list now contains the rank data
+                               "stats": stats_list, # stats_list now contains the rank data
+                               "is_live": st.session_state.is_live_streaming 
                                }
                     auth_headers = get_auth_headers()
                     if auth_headers:
