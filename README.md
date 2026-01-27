@@ -6,11 +6,52 @@ This app uses:
 - **Frontend:** Streamlit (Python)
 - **Backend:** Flask API
 - **Database:** AWS Redshift Serverless (star schema)
+- **Overlay Dashboard:** GitHub Pages (HTML/CSS/JS)
 
 ---
 
 ## 🚀 Live Application
 🔗 [Video Game Stats Entry](https://video-game-stats-tracking.streamlit.app/)
+🔗 [Live Overlay Dashboard](https://b-i-king.github.io/Video_Game_Stats_Tracker/index.html)
+
+---
+
+## 📸 Social Media Previews
+
+Get a glimpse of the application in action across different platforms:
+
+### Twitter Card Preview
+*Optimized for Twitter's large summary card (1200x630)*
+
+#### Bar Chart - Statistical Breakdown
+![Twitter Bar Chart](./assets/test_bar_twitter.png)
+
+#### Line Chart - Performance Over Time
+![Twitter Line Chart](./assets/test_line_twitter.png)
+
+
+### Instagram Post Preview
+*Optimized for Instagrams's post format (1080x1080)*
+
+#### Bar Chart - Statistical Breakdown
+![Instagram Bar Chart](./assets/test_bar_instagram.png)
+
+#### Line Chart - Performance Over Time
+![Instagram Line Chart](./assets/test_line_instagram.png)
+
+
+### Application Screenshot
+![App Screenshot](./assets/app_screenshot.png)
+*Main stats entry interface with Google OAuth*
+
+---
+
+## 🎥 Live Demo
+
+Watch the ESPN-style overlay in action during a live stream or recording:
+
+![OBS Overlay Demo](./assets/obs-overlay-demo.gif)
+*Real-time stats overlay updating during gameplay*
 
 ---
 
@@ -27,6 +68,11 @@ This app uses:
 
 **Database (AWS Redshift Serverless):**
 - Stores all analytical data in a **star schema** with `dim` and `fact` tables.
+
+**Overlay Dashboard (GitHub Pages):**
+- HTML/CSS/JS static site hosted via GitHub Pages.
+- Fetches real-time stats from Flask API.
+- Designed for OBS Browser Source integration.
 
 ---
 
@@ -55,6 +101,79 @@ This app uses:
 
 ---
 
+## 📺 OBS Streaming Overlay Setup
+
+### What is it?
+The overlay dashboard displays real-time game statistics in an ESPN-style format during live streams. It pulls data from your Flask API and updates automatically.
+
+### Step-by-Step Implementation
+
+#### 1. Get Your Overlay URL
+Your GitHub Pages overlay is hosted at:
+```
+https://[your-github-username].github.io/[repository-name]/index.html?key=YOUR_OBS_KEY
+```
+
+**Example:**
+```
+https://b-i-king.github.io/Video_Game_Stats_Tracker/index.html?key=abc123xyz789
+```
+
+> **⚠️ Important:** Replace `YOUR_OBS_KEY` with the actual OBS key from your Render environment variables. This key authenticates your overlay with the Flask API.
+
+#### 2. Add Browser Source in OBS
+
+1. **Open OBS Studio**
+2. **In Sources panel → Click `+` → Select `Browser`**
+3. **Configure the Browser Source:**
+   - **Name:** `Game Stats Overlay`
+   - **URL:** `https://[your-github-username].github.io/[repo-name]/index.html?key=YOUR_OBS_KEY`
+   - **Width:** `1920`
+   - **Height:** `1080`
+   - **FPS:** `30` (or match your stream FPS)
+   - ✅ **Check:** "Shutdown source when not visible" (saves resources)
+   - ✅ **Check:** "Refresh browser when scene becomes active"
+
+4. **Custom CSS (Optional):**
+   ```css
+   body { 
+     background-color: rgba(0, 0, 0, 0); 
+     margin: 0px auto; 
+     overflow: hidden; 
+   }
+   ```
+
+#### 3. Position and Resize
+
+- **Drag** the overlay to your desired position (typically bottom-third or corner)
+- **Right-click** → `Transform` → `Edit Transform` for precise positioning
+- Use **Alt + Drag** to crop specific sections if needed
+
+#### 4. Testing the Overlay
+
+- **Preview in OBS:** The overlay should appear over your game capture
+- **Check API Connection:** Open browser console (Right-click source → `Interact`)
+- **Verify Data Flow:** Stats should update when you log new games in Streamlit
+
+#### 5. Troubleshooting
+
+**Problem:** "Error: URL is missing key parameter"  
+**Solution:** Add `?key=YOUR_OBS_KEY` to the end of your GitHub Pages URL. Get the key from your Render environment variables.
+
+**Problem:** Overlay not showing  
+**Solution:** Check GitHub Pages deployment status and ensure `index.html` is in the correct directory
+
+**Problem:** Stats not updating  
+**Solution:** Verify Flask API is running at `https://video-game-stats-api.onrender.com` and check CORS settings. Ensure your OBS key matches the one in Render.
+
+**Problem:** Overlay looks blurry  
+**Solution:** Increase the width/height in Browser Source settings or check your base canvas resolution
+
+**Problem:** "Unauthorized" or "403 Forbidden" errors  
+**Solution:** Double-check that the OBS key in your URL matches exactly with the key stored in Render's environment variables
+
+---
+
 ## 🏷 How to Run Locally
 
 ### Prerequisites
@@ -75,6 +194,7 @@ Flask
 psycopg2-binary
 PyJWT
 gunicorn
+flask-cors
 
 # Install dependencies
 pip install -r requirements.txt
@@ -217,6 +337,16 @@ erDiagram
 
 ---
 
+## 🎓 Tutorials & Resources
+
 🔗 Don’t forget to check out my tutorials and live demos on YouTube:
 - [The BOL Guide](https://www.youtube.com/@TheBOLGuide)
 - [The BOL Broadcast](https://www.youtube.com/@TheBOLBroadcast)
+
+---
+
+## 📧 Contact
+
+For questions or support, reach out via:
+- GitHub Issues
+- YouTube comments on [The BOL Guide](https://www.youtube.com/@TheBOLGuide)
