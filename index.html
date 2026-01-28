@@ -205,11 +205,11 @@
         // 1. Set your Render API URL (base path only)
         // Example: const API_URL = "https://yourdomain.com/api/get_live_dashboard";
         // Example for local testing: Uncomment the line below
-        const API_URL = "http://127.0.0.1:5000/api/get_live_dashboard";
-        const TICKER_API_URL = "http://127.0.0.1:5000/api/get_stat_ticker";
+        // const API_URL = "http://127.0.0.1:5000/api/get_live_dashboard";
+        // cont TICKER_API_URL = "http://127.0.0.1:5000/api/get_stat_ticker";
         // Production example:
-        // const API_URL = "https://video-game-stats-api.onrender.com/api/get_live_dashboard";
-        // const TICKER_API_URL = "https://video-game-stats-api.onrender.com/api/get_stat_ticker";
+        const API_URL = "https://video-game-stats-api.onrender.com/api/get_live_dashboard";
+        const TICKER_API_URL = "https://video-game-stats-api.onrender.com/api/get_stat_ticker";
         
         // 2. Set polling interval (in milliseconds)
         const REFRESH_INTERVAL_MS = 5000; // 5 seconds
@@ -243,6 +243,9 @@
             // Build API URLs
             fullApiUrl = `${API_URL}?key=${key}&tz=${tz}`;
             fullTickerApiUrl = `${TICKER_API_URL}?key=${key}&tz=${tz}`;
+
+            console.log("🔗 Dashboard API URL:", fullApiUrl);
+            console.log("🔗 Ticker API URL:", fullTickerApiUrl);
 
             // Create placeholder cards (will be populated by API response)
             for (let i = 1; i <= 3; i++) {
