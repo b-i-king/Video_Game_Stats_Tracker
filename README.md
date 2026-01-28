@@ -52,6 +52,7 @@ Get a glimpse of the application in action across different platforms:
 Watch the ESPN-style overlay in action during a live stream or recording:
 
 ![OBS Overlay Demo](./assets/obs-overlay-demo.gif)
+
 *Real-time stats overlay updating during gameplay*
 
 ---
