@@ -12,6 +12,7 @@ This app uses:
 
 ## 🚀 Live Application
 🔗 [Video Game Stats Entry](https://video-game-stats-tracking.streamlit.app/)
+
 🔗 [Live Overlay Dashboard](https://b-i-king.github.io/Video_Game_Stats_Tracker/index.html)
 
 ---
