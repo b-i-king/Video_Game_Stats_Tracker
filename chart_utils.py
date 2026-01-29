@@ -7,6 +7,7 @@ Features:
 - Direct line labels (no legend clutter)
 - Holiday-themed color palettes
 - Multi-platform support (Twitter 1200x630, Instagram 1080x1080)
+- LOGARITHMIC SCALING for highly skewed data
 """
 
 import matplotlib.pyplot as plt
@@ -15,6 +16,7 @@ import seaborn as sns
 from datetime import datetime
 import io
 import os
+import numpy as np
 from holiday_themes import get_themed_colors
 
 # Set style for professional-looking charts
@@ -44,11 +46,48 @@ except:
 plt.rcParams['font.size'] = 12
 
 
+def should_use_log_scale(values):
+    """
+    Determine if logarithmic scaling should be used based on data distribution.
+    
+    Uses log scale when:
+    - Max value is 100x or more than the median non-zero value
+    - This indicates highly skewed data (e.g., [600, 2, 2, 1])
+    
+    Args:
+        values: list of numeric values
+    
+    Returns:
+        bool: True if log scale should be used
+    """
+    if not values or len(values) < 2:
+        return False
+    
+    # Filter out zeros for ratio calculation
+    non_zero_values = [v for v in values if v > 0]
+    
+    if not non_zero_values or len(non_zero_values) < 2:
+        return False
+    
+    max_val = max(non_zero_values)
+    median_val = sorted(non_zero_values)[len(non_zero_values) // 2]
+    
+    # Use log scale if max is 100x or more than median
+    ratio = max_val / median_val if median_val > 0 else 0
+    
+    if ratio >= 100:
+        print(f"📊 Using logarithmic scale (ratio: {ratio:.1f}x)")
+        return True
+    
+    return False
+
+
 def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter'):
     """
     Generate a HORIZONTAL bar chart for first-time game stats.
     Horizontal layout improves readability (left-to-right reading).
     Bars are AUTOMATICALLY SORTED from largest to smallest (top to bottom).
+    AUTOMATICALLY USES LOG SCALE when data is highly skewed (e.g., [600, 2, 1])
     
     Args:
         stat_data: dict with keys 'stat1', 'stat2', 'stat3'
@@ -61,7 +100,7 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     Returns:
         BytesIO object containing PNG image
     """
-     # Extract data
+    # Extract data
     stats = []
     for i in range(1, 4):
         label = stat_data.get(f'stat{i}', {}).get('label', f'Stat {i}')
@@ -69,7 +108,7 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
         stats.append({'label': label, 'value': value})
     
     # SORT by value (largest to smallest)
-    stats.sort(key=lambda x: x['value'], reverse=True)# Extract data
+    stats.sort(key=lambda x: x['value'], reverse=True)
     
     # Extract sorted labels and values
     labels = [s['label'] for s in stats]
@@ -78,6 +117,9 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     # REVERSE for matplotlib (barh plots bottom-to-top, we want largest on top)
     labels.reverse()
     values.reverse()
+    
+    # Determine if we should use log scale
+    use_log = should_use_log_scale(values)
  
     # Get holiday-themed colors
     theme = get_themed_colors()
@@ -96,25 +138,56 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
         label_fontsize = 14
     
     # Create HORIZONTAL bar chart (barh instead of bar)
-    bars = ax.barh(labels, values, color=colors, edgecolor='white', linewidth=2)
+    if use_log:
+        # Use logarithmic scale for x-axis
+        # Replace zeros with a small value for log scale (log(0) is undefined)
+        plot_values = [max(v, 0.1) for v in values]
+        bars = ax.barh(labels, plot_values, color=colors, edgecolor='white', linewidth=2)
+        ax.set_xscale('log')
+        
+        # Custom x-axis formatting for log scale
+        from matplotlib.ticker import FuncFormatter
+        def log_formatter(x, pos):
+            """Format log scale labels to show actual values"""
+            if x >= 1000:
+                return f'{int(x/1000)}k'
+            elif x >= 1:
+                return f'{int(x)}'
+            else:
+                return f'{x:.1f}'
+        
+        ax.xaxis.set_major_formatter(FuncFormatter(log_formatter))
+    else:
+        # Normal linear scale
+        bars = ax.barh(labels, values, color=colors, edgecolor='white', linewidth=2)
     
-    # Add value labels at the end of bars (right side)
-    for bar, value in zip(bars, values):
+    # Add value labels at the end of bars (right side) - ALWAYS show ACTUAL values
+    for bar, actual_value in zip(bars, values):
         width = bar.get_width()
+        
+        # Format the value text
+        if isinstance(actual_value, (int, float)):
+            if actual_value >= 1000:
+                value_text = f' {actual_value:,.0f}'  # Use commas for thousands
+            else:
+                value_text = f' {actual_value:.0f}'
+        else:
+            value_text = f' {str(actual_value)}'
+        
         ax.text(width, bar.get_y() + bar.get_height()/2.,
-                f' {value:,.0f}' if isinstance(value, (int, float)) else f' {str(value)}',
+                value_text,
                 ha='left', va='center', fontsize=value_fontsize, fontweight='bold', color='white')
     
     # Styling
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
     title_text = f"{player_name}'s First Game Stats\n{full_game_name}"
     
-     # Add theme indicator ONLY if today is EXACT holiday date
+    # Add theme indicator ONLY if today is EXACT holiday date
     if theme['show_in_title']:
         title_text += f"\n{theme['theme_name']}"
     
     ax.set_title(title_text, fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
-    ax.set_xlabel('Value', fontsize=label_fontsize, fontweight='bold')
+    ax.set_xlabel('Value' + (' (log scale)' if use_log else ''), fontsize=label_fontsize, fontweight='bold')
     ax.set_ylabel('Stats', fontsize=label_fontsize, fontweight='bold')
     
     # Grid (vertical for horizontal bars)
@@ -203,6 +276,17 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     # Store line end positions for direct labeling
     line_end_positions = []
     
+    # Collect all values to check if we need log scale
+    all_values = []
+    for i in range(1, 4):
+        stat_key = f'stat{i}'
+        if stat_key in stat_history and stat_history[stat_key]:
+            values = stat_history[stat_key].get('values', [])
+            all_values.extend(values)
+    
+    # Determine if we should use log scale
+    use_log = should_use_log_scale(all_values) if all_values else False
+    
     # Plot each stat
     for i in range(1, 4):
         stat_key = f'stat{i}'
@@ -211,7 +295,13 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
             values = stat_history[stat_key].get('values', [])
             
             if values:
-                line, = ax.plot(dates, values, 
+                # For log scale, replace zeros with small value
+                if use_log:
+                    plot_values = [max(v, 0.1) for v in values]
+                else:
+                    plot_values = values
+                
+                line, = ax.plot(dates, plot_values, 
                        color=colors[i-1], 
                        marker=markers[i-1], 
                        linewidth=3, 
@@ -220,14 +310,29 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
                        markeredgecolor='white',
                        markeredgewidth=1.5)
                 
-                # Store final position for direct label
+                # Store final position for direct label (use ACTUAL value, not log-transformed)
                 if len(dates) > 0 and len(values) > 0:
                     line_end_positions.append({
                         'x': dates[-1],
-                        'y': values[-1],
+                        'y': plot_values[-1],  # Use plot value for positioning
+                        'actual_y': values[-1],  # Store actual value for display
                         'label': label,
                         'color': colors[i-1]
                     })
+    
+    # Set log scale if needed
+    if use_log:
+        ax.set_yscale('log')
+        from matplotlib.ticker import FuncFormatter
+        def log_formatter(x, pos):
+            """Format log scale labels to show actual values"""
+            if x >= 1000:
+                return f'{int(x/1000)}k'
+            elif x >= 1:
+                return f'{int(x)}'
+            else:
+                return f'{x:.1f}'
+        ax.yaxis.set_major_formatter(FuncFormatter(log_formatter))
     
     # Styling
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
@@ -238,7 +343,7 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         title_text += f"\n{theme['theme_name']}"
     
     ax.set_title(title_text, fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
-    ax.set_ylabel('Value', fontsize=label_fontsize, fontweight='bold')
+    ax.set_ylabel('Value' + (' (log scale)' if use_log else ''), fontsize=label_fontsize, fontweight='bold')
     ax.set_xlabel('Date', fontsize=label_fontsize, fontweight='bold')
     
     # Format x-axis dates
@@ -255,13 +360,25 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         # Sort by y-position to avoid overlaps
         line_end_positions.sort(key=lambda x: x['y'])
         
-        # Add text labels at line ends
+        # Add text labels at line ends (show ACTUAL values, not log-transformed)
         for pos in line_end_positions:
             # Position label slightly to the right of last point
             label_x = pos['x']
             label_y = pos['y']
             
-            ax.annotate(pos['label'], 
+            # Format actual value for display
+            actual_val = pos['actual_y']
+            if isinstance(actual_val, (int, float)):
+                if actual_val >= 1000:
+                    value_display = f"{int(actual_val/1000)}k"
+                else:
+                    value_display = f"{actual_val:.1f}"
+            else:
+                value_display = str(actual_val)
+            
+            label_text = f"{pos['label']}: {value_display}"
+            
+            ax.annotate(label_text, 
                        xy=(label_x, label_y),
                        xytext=(10, 0),  # 10 points to the right
                        textcoords='offset points',
@@ -376,3 +493,5 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
             values.append(avg_value)
         
         stat_history[stat_key]['values'] = values
+    
+    return stat_history
