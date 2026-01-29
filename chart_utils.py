@@ -8,9 +8,13 @@ Features:
 - Holiday-themed color palettes
 - Multi-platform support (Twitter 1200x630, Instagram 1080x1080)
 - LOGARITHMIC SCALING for highly skewed data
+- Smart text positioning to prevent overflow
+- Abbreviated stat names for cleaner display
+- Year display in date labels for multi-year tracking
 """
 
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import matplotlib.dates as mdates
 import seaborn as sns
 from datetime import datetime
@@ -29,21 +33,135 @@ plt.rcParams['xtick.color'] = 'white'
 plt.rcParams['ytick.color'] = 'white'
 plt.rcParams['grid.color'] = '#404040'
 
-# Try to use Fira Code, fallback to monospace
-try:
-    import matplotlib.font_manager as fm
-    fira_code_fonts = [f for f in fm.findSystemFonts() if 'FiraCode' in f or 'Fira Code' in f]
-    if fira_code_fonts:
-        plt.rcParams['font.family'] = 'Fira Code'
-        print("✅ Using Fira Code font")
+# --- LOAD BUNDLED FIRA CODE FONTS ---
+def load_custom_fonts():
+    """Load Fira Code fonts from repository fonts directory"""
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    fonts_dir = os.path.join(script_dir, 'fonts')
+    
+    if os.path.exists(fonts_dir):
+        print(f"📁 Loading fonts from: {fonts_dir}")
+        
+        # Find all TTF files in fonts directory
+        font_files = [f for f in os.listdir(fonts_dir) if f.endswith('.ttf')]
+        
+        if font_files:
+            # Add each font to matplotlib
+            for font_file in font_files:
+                font_path = os.path.join(fonts_dir, font_file)
+                try:
+                    fm.fontManager.addfont(font_path)
+                    print(f"✅ Loaded font: {font_file}")
+                except Exception as e:
+                    print(f"⚠️ Failed to load {font_file}: {e}")
+            
+            # Rebuild font cache
+            print("🔄 Rebuilding font cache...")
+            
+            # Set Fira Code as default
+            plt.rcParams['font.family'] = 'Fira Code'
+            print("✅ Fira Code set as default font")
+            return True
+        else:
+            print("⚠️ No TTF files found in fonts directory")
     else:
-        plt.rcParams['font.family'] = 'monospace'  # Fallback
-        print("⚠️ Fira Code not found, using monospace. Install Fira Code for consistency with dashboard.")
-except:
+        print(f"⚠️ Fonts directory not found: {fonts_dir}")
+    
+    # Fallback to system fonts
+    print("ℹ️ Using system fonts as fallback")
+    try:
+        # Try system Fira Code
+        fira_code_fonts = [f for f in fm.findSystemFonts() 
+                          if 'FiraCode' in f or 'Fira Code' in f]
+        if fira_code_fonts:
+            plt.rcParams['font.family'] = 'Fira Code'
+            print("✅ Using system Fira Code font")
+            return True
+    except:
+        pass
+    
+    # Final fallback
     plt.rcParams['font.family'] = 'monospace'
-    print("⚠️ Using fallback monospace font")
+    print("ℹ️ Using monospace fallback font")
+    return False
+
+# Load fonts when module is imported
+load_custom_fonts()
 
 plt.rcParams['font.size'] = 12
+
+
+def abbreviate_stat(stat_name):
+    """
+    Abbreviate stat name for cleaner chart display.
+    
+    Rules (in order):
+    1. If multi-word (2+ words): Create acronym from first letter of each word
+       - "Damage Dealt" -> "DD"
+       - "Score Per Minute" -> "SPM"
+       - "Total Damage Dealt" -> "TDD"
+    2. If single word > 8 chars: Use first 4 letters + 'S'
+       - "Eliminations" -> "ELIMS"
+    3. Otherwise: Use full name uppercase
+       - "Kills" -> "KILLS"
+       - "K/D" -> "K/D" (already abbreviated)
+    
+    Examples:
+        "Damage Dealt" -> "DD"
+        "Score Per Minute" -> "SPM"
+        "Total Damage Dealt" -> "TDD"
+        "Eliminations" -> "ELIMS"
+        "Kills" -> "KILLS"
+        "Assists" -> "ASSISTS"
+        "K/D" -> "K/D"
+    """
+    if not stat_name:
+        return "XXXX"
+    
+    # Clean up the stat name
+    clean = stat_name.strip()
+    
+    # Split into words (handles spaces, dashes, underscores)
+    # Note: / is kept as-is (for K/D, E/R ratios)
+    words = clean.replace('-', ' ').replace('_', ' ').split()
+    
+    # RULE 1: Multi-word stats -> Acronym
+    if len(words) >= 2:
+        # Create acronym from first letter of each word
+        acronym = ''.join(word[0].upper() for word in words if word)
+        return acronym
+    
+    # At this point we have a single "word" (may contain /)
+    single_word = words[0] if words else clean
+    
+    # RULE 2: Single word > 8 chars -> First 4 + 'S'
+    if len(single_word) > 8:
+        abbrev = single_word[:4].upper() + "S"
+        return abbrev
+    
+    # RULE 3: Short single word -> Full name (uppercase, preserve special chars)
+    return single_word.upper()
+
+
+def format_large_number(value):
+    """
+    Format large numbers with abbreviations for display.
+    
+    Examples:
+        1500 -> "1.5k"
+        1000000 -> "1.0M"
+        50 -> "50"
+    """
+    if not isinstance(value, (int, float)):
+        return str(value)
+    
+    if value >= 1_000_000:
+        return f"{value/1_000_000:.1f}M"
+    elif value >= 1_000:
+        return f"{value/1_000:.1f}k"
+    else:
+        return f"{int(value)}"
 
 
 def should_use_log_scale(values):
@@ -82,12 +200,35 @@ def should_use_log_scale(values):
     return False
 
 
+def format_date_label(dates):
+    """
+    Determine appropriate date format based on date range.
+    Returns format string for matplotlib date formatter.
+    
+    - If span < 1 year: '%b %d' (Jan 15)
+    - If span >= 1 year: '%b %d, %Y' (Jan 15, 2026)
+    """
+    if not dates or len(dates) < 2:
+        return '%b %d'
+    
+    date_range = dates[-1] - dates[0]
+    
+    # If date range is more than 365 days, include year
+    if date_range.days >= 365:
+        return '%b %d, %Y'
+    else:
+        return '%b %d'
+
+
 def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter'):
     """
     Generate a HORIZONTAL bar chart for first-time game stats.
-    Horizontal layout improves readability (left-to-right reading).
-    Bars are AUTOMATICALLY SORTED from largest to smallest (top to bottom).
-    AUTOMATICALLY USES LOG SCALE when data is highly skewed (e.g., [600, 2, 1])
+    
+    NEW FEATURES:
+    - Abbreviated stat names (> 8 chars)
+    - Smart text positioning (inside bar for large values, outside for small)
+    - Removed "Stats" and "Value" axis labels
+    - Log scale for skewed data
     
     Args:
         stat_data: dict with keys 'stat1', 'stat2', 'stat3'
@@ -105,7 +246,15 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     for i in range(1, 4):
         label = stat_data.get(f'stat{i}', {}).get('label', f'Stat {i}')
         value = stat_data.get(f'stat{i}', {}).get('value', 0)
-        stats.append({'label': label, 'value': value})
+        
+        # Abbreviate long stat names
+        abbrev_label = abbreviate_stat(label)
+        
+        stats.append({
+            'label': abbrev_label,
+            'original_label': label,
+            'value': value
+        })
     
     # SORT by value (largest to smallest)
     stats.sort(key=lambda x: x['value'], reverse=True)
@@ -130,17 +279,16 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
         fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)
         title_fontsize = 20
         value_fontsize = 16
-        label_fontsize = 16
+        label_fontsize = 14
     else:  # twitter
         fig, ax = plt.subplots(figsize=(12, 6.3), dpi=100)
         title_fontsize = 18
         value_fontsize = 14
-        label_fontsize = 14
+        label_fontsize = 12
     
-    # Create HORIZONTAL bar chart (barh instead of bar)
+    # Create HORIZONTAL bar chart
     if use_log:
         # Use logarithmic scale for x-axis
-        # Replace zeros with a small value for log scale (log(0) is undefined)
         plot_values = [max(v, 0.1) for v in values]
         bars = ax.barh(labels, plot_values, color=colors, edgecolor='white', linewidth=2)
         ax.set_xscale('log')
@@ -161,22 +309,38 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
         # Normal linear scale
         bars = ax.barh(labels, values, color=colors, edgecolor='white', linewidth=2)
     
-    # Add value labels at the end of bars (right side) - ALWAYS show ACTUAL values
+    # Smart text positioning to prevent overflow
+    max_value = max(values) if values else 1
+    
     for bar, actual_value in zip(bars, values):
         width = bar.get_width()
         
         # Format the value text
-        if isinstance(actual_value, (int, float)):
-            if actual_value >= 1000:
-                value_text = f' {actual_value:,.0f}'  # Use commas for thousands
-            else:
-                value_text = f' {actual_value:.0f}'
-        else:
-            value_text = f' {str(actual_value)}'
+        value_text = format_large_number(actual_value)
         
-        ax.text(width, bar.get_y() + bar.get_height()/2.,
+        # Determine if text should be inside or outside bar
+        # If bar is > 15% of max width, put text inside (right-aligned)
+        # Otherwise, put text outside (left-aligned)
+        threshold = max_value * 0.15
+        
+        if actual_value > threshold:
+            # Place text INSIDE bar (right side, white text)
+            text_x = width * 0.95
+            text_color = 'white'
+            h_align = 'right'
+        else:
+            # Place text OUTSIDE bar (left of end, white text)
+            text_x = width
+            text_color = 'white'
+            h_align = 'left'
+            value_text = f' {value_text}'  # Add space before
+        
+        ax.text(text_x, bar.get_y() + bar.get_height()/2.,
                 value_text,
-                ha='left', va='center', fontsize=value_fontsize, fontweight='bold', color='white')
+                ha=h_align, va='center', 
+                fontsize=value_fontsize, 
+                fontweight='bold', 
+                color=text_color)
     
     # Styling
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
@@ -187,8 +351,10 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
         title_text += f"\n{theme['theme_name']}"
     
     ax.set_title(title_text, fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
-    ax.set_xlabel('Value' + (' (log scale)' if use_log else ''), fontsize=label_fontsize, fontweight='bold')
-    ax.set_ylabel('Stats', fontsize=label_fontsize, fontweight='bold')
+    
+    # REMOVED axis labels as requested (self-explanatory)
+    # ax.set_xlabel('Value', fontsize=label_fontsize, fontweight='bold')
+    # ax.set_ylabel('Stats', fontsize=label_fontsize, fontweight='bold')
     
     # Grid (vertical for horizontal bars)
     ax.grid(axis='x', alpha=0.3, linestyle='--')
@@ -199,6 +365,10 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_color('white')
     ax.spines['bottom'].set_color('white')
+    
+    # Extend x-axis slightly to accommodate outside text
+    if not use_log:
+        ax.set_xlim(0, max_value * 1.15)
     
     # Add timestamp
     timestamp = datetime.now().strftime('%B %d, %Y')
@@ -241,7 +411,12 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
 def generate_line_chart(stat_history, player_name, game_name, game_installment=None, size='twitter'):
     """
     Generate a line chart with DIRECT LABELS (no legend).
-    Labels are placed at the end of each line for clarity.
+    
+    NEW FEATURES:
+    - Abbreviated stat names in labels
+    - Year display if date range > 1 year
+    - Removed "Value" and "Date" axis labels
+    - Smart date formatting
     
     Args:
         stat_history: dict with dates and stat values
@@ -294,6 +469,9 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
             label = stat_history[stat_key].get('label', f'Stat {i}')
             values = stat_history[stat_key].get('values', [])
             
+            # Abbreviate stat name
+            abbrev_label = abbreviate_stat(label)
+            
             if values:
                 # For log scale, replace zeros with small value
                 if use_log:
@@ -306,17 +484,17 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
                        marker=markers[i-1], 
                        linewidth=3, 
                        markersize=8,
-                       label=label,  # Still set for internal use
+                       label=abbrev_label,
                        markeredgecolor='white',
                        markeredgewidth=1.5)
                 
-                # Store final position for direct label (use ACTUAL value, not log-transformed)
+                # Store final position for direct label
                 if len(dates) > 0 and len(values) > 0:
                     line_end_positions.append({
                         'x': dates[-1],
-                        'y': plot_values[-1],  # Use plot value for positioning
-                        'actual_y': values[-1],  # Store actual value for display
-                        'label': label,
+                        'y': plot_values[-1],
+                        'actual_y': values[-1],
+                        'label': abbrev_label,
                         'color': colors[i-1]
                     })
     
@@ -343,38 +521,30 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         title_text += f"\n{theme['theme_name']}"
     
     ax.set_title(title_text, fontsize=title_fontsize, fontweight='bold', color='white', pad=20)
-    ax.set_ylabel('Value' + (' (log scale)' if use_log else ''), fontsize=label_fontsize, fontweight='bold')
-    ax.set_xlabel('Date', fontsize=label_fontsize, fontweight='bold')
     
-    # Format x-axis dates
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    # REMOVED axis labels as requested (self-explanatory)
+    # ax.set_ylabel('Value', fontsize=label_fontsize, fontweight='bold')
+    # ax.set_xlabel('Date', fontsize=label_fontsize, fontweight='bold')
+    
+    # Format x-axis dates with year if needed
+    date_format = format_date_label(dates)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter(date_format))
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
     
     # Add direct labels at end of lines (instead of legend)
     if line_end_positions:
-        # Get axis limits to position labels
-        x_range = ax.get_xlim()
-        y_range = ax.get_ylim()
-        
         # Sort by y-position to avoid overlaps
         line_end_positions.sort(key=lambda x: x['y'])
         
-        # Add text labels at line ends (show ACTUAL values, not log-transformed)
+        # Add text labels at line ends (show ACTUAL values with abbreviation)
         for pos in line_end_positions:
-            # Position label slightly to the right of last point
             label_x = pos['x']
             label_y = pos['y']
             
             # Format actual value for display
             actual_val = pos['actual_y']
-            if isinstance(actual_val, (int, float)):
-                if actual_val >= 1000:
-                    value_display = f"{int(actual_val/1000)}k"
-                else:
-                    value_display = f"{actual_val:.1f}"
-            else:
-                value_display = str(actual_val)
+            value_display = format_large_number(actual_val)
             
             label_text = f"{pos['label']}: {value_display}"
             
@@ -420,15 +590,15 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     fig.text(x_start, y_pos, 'YT', ha='left', va='bottom',
              fontsize=10, color='#FF0000', fontweight='bold')
     
-    # " & " in white (positioned after "YT")
+    # " & " in white
     fig.text(x_start + 0.012, y_pos, ' & ', ha='left', va='bottom',
              fontsize=10, color='white', fontweight='normal')
     
-    # "Twitch" in purple (positioned after " & ")
+    # "Twitch" in purple
     fig.text(x_start + 0.029, y_pos, 'Twitch', ha='left', va='bottom',
              fontsize=10, color='#9146FF', fontweight='bold')
     
-    # ": TheBOLBroadcast" in white (positioned after "Twitch")
+    # Handle in white
     fig.text(x_start + 0.07, y_pos, f' : {handle}', ha='left', va='bottom',
              fontsize=10, color='white', fontweight='bold')
     
@@ -447,7 +617,6 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
 def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_str='UTC'):
     """
     Fetch historical data for line chart from database.
-    (Same as before - no changes needed)
     """
     from datetime import datetime
     
