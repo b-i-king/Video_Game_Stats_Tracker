@@ -30,6 +30,7 @@ import io
 import requests
 from chart_utils import abbreviate_stat, format_large_number, load_custom_fonts, should_use_log_scale
 from holiday_themes import get_themed_colors, is_exact_holiday
+from gcs_utils import upload_instagram_poster_to_gcs  # GCS backup integration
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import seaborn as sns
@@ -1037,6 +1038,26 @@ def main():
             stats, player_name, game_info['game_name'], 
             game_info.get('game_installment'), title, subtitle, use_holiday_theme
         )
+        
+        # BACKUP TO GCS (before posting to Instagram)
+        print(f"☁️ Backing up to Google Cloud Storage...")
+        try:
+            # Create a copy of the buffer for GCS (preserve original for Instagram)
+            gcs_buffer = io.BytesIO(image_buffer.getvalue())
+            
+            gcs_url = upload_instagram_poster_to_gcs(
+                gcs_buffer,
+                player_name,
+                game_info['game_name'],
+                post_type  # 'daily', 'recent', or 'historical'
+            )
+            
+            if gcs_url:
+                print(f"✅ Backed up to GCS: {gcs_url}")
+            else:
+                print(f"⚠️ GCS backup failed (continuing with Instagram post)")
+        except Exception as gcs_error:
+            print(f"⚠️ GCS backup error: {gcs_error} (continuing with Instagram post)")
         
         # Generate trendy caption
         caption = generate_trendy_caption(

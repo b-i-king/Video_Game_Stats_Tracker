@@ -27,7 +27,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install psycopg2-binary matplotlib seaborn requests numpy python-dateutil
       
-      - name: Run Instagram Poster V2
+      - name: Run Instagram Poster
         env:
           DB_URL: ${{ secrets.DB_URL }}
           DB_NAME: ${{ secrets.DB_NAME }}
@@ -36,7 +36,7 @@ jobs:
           INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
           INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
           TWITCH_HANDLE: ${{ secrets.TWITCH_HANDLE }}
-          TIMEZONE: America/Los_Angeles
+          TIMEZONE: ${{ secrets.TIMEZONE }}
         run: |
           python instagram_poster.py
       
