@@ -78,11 +78,16 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
     Returns:
         str: Caption text
     """
+    from holiday_themes import get_themed_colors
+    
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
     
     # Extract top stat for highlight
     stat1_label = stat_data.get('stat1', {}).get('label', 'Stat 1')
     stat1_value = stat_data.get('stat1', {}).get('value', 0)
+    
+    # Get theme info for hashtags
+    theme = get_themed_colors()
     
     if games_played == 1:
         # First game caption
@@ -92,14 +97,16 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
                 f"🎮 First game on {full_game_name}! 🎮\n\n"
                 f"🔥 {stat1_label}: {stat1_value}\n\n"
                 f"Watch live: twitch.tv/{os.environ.get('TWITCH_HANDLE', 'YourHandle')}\n\n"
-                f"#{game_name.replace(' ', '')} #Live #TheBroadcast #Gaming #LiveStream"
             )
+            # Add hashtags
+            hashtags = [f"#{game_name.replace(' ', '')}", '#Live', '#TheBroadcast', '#Gaming', '#LiveStream']
         else:
             caption = (
                 f"🎮 First game on {full_game_name}! 🎮\n\n"
                 f"🔥 {stat1_label}: {stat1_value}\n\n"
-                f"#{game_name.replace(' ', '')} #Gaming #Stats"
             )
+            # Add hashtags
+            hashtags = [f"#{game_name.replace(' ', '')}", '#Gaming', '#Stats']
     else:
         # Multi-game caption
         if is_live:
@@ -109,15 +116,24 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
                 f"Games Played: {games_played}\n"
                 f"🔥 Latest {stat1_label}: {stat1_value}\n\n"
                 f"Join the stream: twitch.tv/{os.environ.get('TWITCH_HANDLE', 'YourHandle')}\n\n"
-                f"#{game_name.replace(' ', '')} #Live #TheBroadcast #Gaming #GamingAnalytics"
             )
+            # Add hashtags
+            hashtags = [f"#{game_name.replace(' ', '')}", '#Live', '#TheBroadcast', '#Gaming', '#GamingAnalytics']
         else:
             caption = (
                 f"📊 {full_game_name} Progress Report! 📊\n\n"
                 f"Games Played: {games_played}\n"
                 f"🔥 Latest {stat1_label}: {stat1_value}\n\n"
-                f"#{game_name.replace(' ', '')} #Gaming #Stats #GamingAnalytics"
             )
+            # Add hashtags
+            hashtags = [f"#{game_name.replace(' ', '')}", '#Gaming', '#Stats', '#GamingAnalytics']
+    
+    # Add heritage/holiday hashtag if present
+    if theme.get('hashtag'):
+        hashtags.append(theme['hashtag'])
+    
+    # Add hashtags to caption
+    caption += ' '.join(hashtags)
     
     # Add YouTube handle if offline (less cluttered when live)
     if not is_live:

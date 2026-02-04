@@ -1544,6 +1544,253 @@ def generate_advanced_stats(cur, player_id, game_id, player_name, game_name, sta
     
     return facts
 
+"""
+Flask endpoint additions for Instagram posting
+"""
+
+@app.route('/api/post_instagram', methods=['POST'])
+@requires_api_key
+def api_post_instagram():
+    """
+    Manually trigger Instagram post
+    
+    POST /api/post_instagram
+    Headers: X-API-KEY
+    Body (optional): {
+        "player_id": 1,
+        "force_type": "daily" | "historical"  // optional
+    }
+    """
+    import sys
+    sys.path.append(os.path.dirname(__file__))
+    from instagram_poster import (
+        get_db_connection, get_player_info, check_games_on_date,
+        get_stats_for_date, detect_anomalies, get_historical_records_all_games,
+        create_instagram_portrait_chart, post_to_instagram, generate_trendy_caption
+    )
+    from datetime import datetime, timedelta
+    
+    conn = None
+    try:
+        # Parse request
+        data = request.get_json() or {}
+        player_id = data.get('player_id', 1)
+        force_type = data.get('force_type', None)  # 'daily', 'historical', or None
+        
+        # Connect to database
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database connection failed"}), 500
+        
+        cur = conn.cursor()
+        
+        # Get player info
+        player_name, game_id, game_name, game_installment = get_player_info(cur, player_id)
+        
+        if not player_name or not game_id:
+            return jsonify({"error": f"No player or game data found for player_id={player_id}"}), 404
+        
+        # Determine post content
+        today = datetime.now().date()
+        yesterday = today - timedelta(days=1)
+        timezone_str = os.environ.get("TIMEZONE", "America/Los_Angeles")
+        
+        post_type = None
+        stats = []
+        anomalies = []
+        date_str = ""
+        title = ""
+        subtitle = None
+        
+        # Force specific type if requested
+        if force_type == 'historical':
+            post_type = 'historical'
+            anomalies = get_historical_records_all_games(cur, player_id)
+            stats = [(record['stat'], record['value']) for record in anomalies[:3]]
+            title = "Historical Best Performances"
+            subtitle = "All-Time Records"
+        
+        elif force_type == 'daily':
+            if check_games_on_date(cur, player_id, today):
+                post_type = 'daily_stats'
+                stats = get_stats_for_date(cur, player_id, game_id, today)
+                anomalies = detect_anomalies(cur, player_id, game_id, today)
+                date_str = today.strftime('%A, %B %d')
+                title = "Today's Performance"
+                subtitle = date_str
+            else:
+                return jsonify({"error": "No games played today"}), 400
+        
+        # Default priority logic
+        else:
+            if check_games_on_date(cur, player_id, today):
+                post_type = 'daily_stats'
+                stats = get_stats_for_date(cur, player_id, game_id, today)
+                anomalies = detect_anomalies(cur, player_id, game_id, today)
+                date_str = today.strftime('%A, %B %d')
+                title = "Today's Performance"
+                subtitle = date_str
+            
+            elif check_games_on_date(cur, player_id, yesterday):
+                post_type = 'recent_stats'
+                stats = get_stats_for_date(cur, player_id, game_id, yesterday)
+                anomalies = detect_anomalies(cur, player_id, game_id, yesterday)
+                date_str = yesterday.strftime('%A, %B %d')
+                title = "Yesterday's Performance"
+                subtitle = date_str
+            
+            else:
+                post_type = 'historical'
+                anomalies = get_historical_records_all_games(cur, player_id, game_id)
+                stats = [(record['stat'], record['value']) for record in anomalies[:3]]
+                title = "Historical Best Performances"
+                subtitle = "All-Time Records"
+        
+        if not stats:
+            return jsonify({"error": "No stats available to post"}), 400
+        
+        # Create chart
+        image_buffer = create_instagram_portrait_chart(
+            stats, player_name, game_name, game_installment, title, subtitle
+        )
+        
+        # Generate caption
+        caption = generate_trendy_caption(post_type, stats, anomalies, player_name, game_name, date_str)
+        
+        # Post to Instagram
+        success = post_to_instagram(image_buffer, caption)
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "Posted to Instagram successfully",
+                "post_type": post_type,
+                "stats": stats,
+                "caption": caption[:200] + "..."
+            }), 200
+        else:
+            return jsonify({"error": "Failed to post to Instagram"}), 500
+    
+    except Exception as e:
+        print(f"Error in Instagram posting: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+    
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route('/api/preview_instagram', methods=['GET'])
+@requires_api_key
+def api_preview_instagram():
+    """
+    Preview what would be posted to Instagram without actually posting
+    
+    GET /api/preview_instagram?player_id=1
+    Headers: X-API-KEY
+    
+    Returns: JSON with post preview info and base64 encoded image
+    """
+    import sys
+    sys.path.append(os.path.dirname(__file__))
+    from instagram_poster import (
+        get_db_connection, get_player_info, check_games_on_date,
+        get_stats_for_date, detect_anomalies, get_historical_records_all_games,
+        create_instagram_portrait_chart, generate_trendy_caption
+    )
+    from datetime import datetime, timedelta
+    import base64
+    
+    conn = None
+    try:
+        player_id = request.args.get('player_id', 1, type=int)
+        
+        # Connect to database
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({"error": "Database connection failed"}), 500
+        
+        cur = conn.cursor()
+        
+        # Get player info
+        player_name, game_id, game_name, game_installment = get_player_info(cur, player_id)
+        
+        if not player_name or not game_id:
+            return jsonify({"error": f"No player or game data found for player_id={player_id}"}), 404
+        
+        # Determine post content
+        today = datetime.now().date()
+        yesterday = today - timedelta(days=1)
+        
+        post_type = None
+        stats = []
+        anomalies = []
+        date_str = ""
+        title = ""
+        subtitle = None
+        
+        if check_games_on_date(cur, player_id, today):
+            post_type = 'daily_stats'
+            stats = get_stats_for_date(cur, player_id, game_id, today)
+            anomalies = detect_anomalies(cur, player_id, game_id, today)
+            date_str = today.strftime('%A, %B %d')
+            title = "Today's Performance"
+            subtitle = date_str
+        
+        elif check_games_on_date(cur, player_id, yesterday):
+            post_type = 'recent_stats'
+            stats = get_stats_for_date(cur, player_id, game_id, yesterday)
+            anomalies = detect_anomalies(cur, player_id, game_id, yesterday)
+            date_str = yesterday.strftime('%A, %B %d')
+            title = "Yesterday's Performance"
+            subtitle = date_str
+        
+        else:
+            post_type = 'historical'
+            anomalies = get_historical_records_all_games(cur, player_id)
+            stats = [(record['stat'], record['value']) for record in anomalies[:3]]
+            title = "Historical Best Performances"
+            subtitle = "All-Time Records"
+        
+        if not stats:
+            return jsonify({"error": "No stats available"}), 400
+        
+        # Create chart
+        image_buffer = create_instagram_portrait_chart(
+            stats, player_name, game_name, game_installment, title, subtitle
+        )
+        
+        # Generate caption
+        caption = generate_trendy_caption(post_type, stats, anomalies, player_name, game_name, date_str)
+        
+        # Convert image to base64
+        image_base64 = base64.b64encode(image_buffer.getvalue()).decode('utf-8')
+        
+        return jsonify({
+            "post_type": post_type,
+            "player_name": player_name,
+            "game_name": game_name,
+            "stats": stats,
+            "anomalies": [a['description'] for a in anomalies] if anomalies else [],
+            "caption": caption,
+            "title": title,
+            "subtitle": subtitle,
+            "image_base64": image_base64,
+            "image_format": "png"
+        }), 200
+    
+    except Exception as e:
+        print(f"Error in Instagram preview: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+    
+    finally:
+        if conn:
+            conn.close()
+
 # Health check endpoint
 @app.route('/health', methods=['GET'])
 def health_check():

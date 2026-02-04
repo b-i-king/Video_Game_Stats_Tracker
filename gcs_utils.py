@@ -4,6 +4,7 @@ Organized folder structure:
 - twitter/YYYY/MM/  → Auto-posted charts (1200x630)
 - instagram/YYYY/MM/  → Weekly compilations (1080x1080)
 - instagram/games/GAME_NAME/  → Game-specific collections
+- instagram/posters/YYYY/MM/WEEK/  → Auto-posted Instagram portraits (1080x1440)
 """
 
 from google.cloud import storage
@@ -120,6 +121,203 @@ def upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type='bar', 
     except Exception as e:
         print(f"❌ Failed to upload to GCS: {e}")
         return None
+
+
+def upload_instagram_poster_to_gcs(image_buffer, player_name, game_name, post_type='daily'):
+    """
+    Upload Instagram portrait poster (1080x1440) to Google Cloud Storage.
+    Organized by year/month/week for easy searching and carousel compilation.
+    
+    Folder structure: instagram/posters/YYYY/MM/WEEK_X/
+    
+    Args:
+        image_buffer: BytesIO object containing PNG image (1080x1440)
+        player_name: str (sanitized for filename)
+        game_name: str (sanitized for filename)
+        post_type: str ('daily', 'recent', 'historical', 'multi_game')
+    
+    Returns:
+        str: Public URL of uploaded image, or None if failed
+    """
+    bucket_name = os.environ.get('GCS_BUCKET_NAME')
+    
+    if not bucket_name:
+        print("❌ GCS_BUCKET_NAME not set in environment variables")
+        return None
+    
+    client = get_gcs_client()
+    if not client:
+        return None
+    
+    try:
+        bucket = client.bucket(bucket_name)
+        
+        # Generate organized path with year/month/week
+        now = datetime.now()
+        year = now.strftime('%Y')
+        month = now.strftime('%m')
+        week_of_month = (now.day - 1) // 7 + 1  # Week 1-5 within month
+        timestamp = now.strftime('%Y%m%d_%H%M%S')
+        
+        safe_player = sanitize_filename(player_name)
+        safe_game = sanitize_filename(game_name)
+        
+        # Folder structure: instagram/posters/2026/02/week_1/
+        folder_path = f"instagram/posters/{year}/{month}/week_{week_of_month}"
+        
+        # Filename: player_game_posttype_timestamp.png
+        # Example: bol_call_of_duty_daily_20260203_210000.png
+        filename = f"{safe_player}_{safe_game}_{post_type}_{timestamp}.png"
+        
+        full_path = f"{folder_path}/{filename}"
+        
+        # Create blob and upload
+        blob = bucket.blob(full_path)
+        image_buffer.seek(0)  # Reset buffer position
+        blob.upload_from_file(image_buffer, content_type='image/png')
+        
+        # Make public
+        blob.make_public()
+        
+        public_url = blob.public_url
+        print(f"✅ Instagram poster uploaded: {full_path}")
+        print(f"   Type: {post_type}")
+        print(f"   Week: {week_of_month} of {month}/{year}")
+        print(f"   URL: {public_url}")
+        
+        return public_url
+        
+    except Exception as e:
+        print(f"❌ Failed to upload Instagram poster to GCS: {e}")
+        return None
+
+
+def list_instagram_posters_by_week(year, month, week_of_month):
+    """
+    List all Instagram portrait posters for a specific week within a month.
+    Useful for reviewing weekly posts or creating compilations.
+    
+    Args:
+        year: int (e.g., 2026)
+        month: int (1-12)
+        week_of_month: int (1-5, week within the month)
+    
+    Returns:
+        list of dicts with image info
+    """
+    bucket_name = os.environ.get('GCS_BUCKET_NAME')
+    client = get_gcs_client()
+    
+    if not client or not bucket_name:
+        return []
+    
+    try:
+        bucket = client.bucket(bucket_name)
+        
+        # Build prefix for specific week
+        month_str = f"{month:02d}"
+        prefix = f"instagram/posters/{year}/{month_str}/week_{week_of_month}/"
+        
+        blobs = bucket.list_blobs(prefix=prefix)
+        
+        week_posters = []
+        for blob in blobs:
+            week_posters.append({
+                'name': blob.name,
+                'url': blob.public_url,
+                'created': blob.time_created.replace(tzinfo=None),
+                'size_mb': round(blob.size / 1024 / 1024, 2),
+                'download_url': f"https://storage.googleapis.com/{bucket_name}/{blob.name}",
+                'post_type': extract_post_type_from_filename(blob.name)
+            })
+        
+        # Sort by creation date
+        week_posters.sort(key=lambda x: x['created'])
+        
+        print(f"📊 {year}-{month_str} Week {week_of_month}: Found {len(week_posters)} Instagram posters")
+        return week_posters
+        
+    except Exception as e:
+        print(f"❌ Failed to list weekly posters: {e}")
+        return []
+
+
+def list_instagram_posters_by_month(year, month):
+    """
+    List all Instagram portrait posters for an entire month (all weeks).
+    
+    Args:
+        year: int (e.g., 2026)
+        month: int (1-12)
+    
+    Returns:
+        dict with weeks as keys and lists of image info as values
+    """
+    bucket_name = os.environ.get('GCS_BUCKET_NAME')
+    client = get_gcs_client()
+    
+    if not client or not bucket_name:
+        return {}
+    
+    try:
+        bucket = client.bucket(bucket_name)
+        
+        # Build prefix for entire month
+        month_str = f"{month:02d}"
+        prefix = f"instagram/posters/{year}/{month_str}/"
+        
+        blobs = bucket.list_blobs(prefix=prefix)
+        
+        # Organize by week
+        month_posters = {}
+        for blob in blobs:
+            # Extract week number from path
+            # Path: instagram/posters/2026/02/week_1/filename.png
+            path_parts = blob.name.split('/')
+            if len(path_parts) >= 5 and 'week_' in path_parts[4]:
+                week_str = path_parts[4]  # e.g., "week_1"
+                
+                if week_str not in month_posters:
+                    month_posters[week_str] = []
+                
+                month_posters[week_str].append({
+                    'name': blob.name,
+                    'url': blob.public_url,
+                    'created': blob.time_created.replace(tzinfo=None),
+                    'size_mb': round(blob.size / 1024 / 1024, 2),
+                    'post_type': extract_post_type_from_filename(blob.name)
+                })
+        
+        # Sort each week by creation date
+        for week in month_posters:
+            month_posters[week].sort(key=lambda x: x['created'])
+        
+        total_posters = sum(len(posters) for posters in month_posters.values())
+        print(f"📊 {year}-{month_str}: Found {total_posters} posters across {len(month_posters)} weeks")
+        return month_posters
+        
+    except Exception as e:
+        print(f"❌ Failed to list monthly posters: {e}")
+        return {}
+
+
+def extract_post_type_from_filename(filename):
+    """
+    Extract post type from Instagram poster filename.
+    Example: bol_call_of_duty_daily_20260203_210000.png → 'daily'
+    """
+    try:
+        basename = os.path.basename(filename)
+        parts = basename.split('_')
+        # Format: player_game_posttype_timestamp.png
+        # Find the part before timestamp (which is YYYYMMDD_HHMMSS)
+        for i, part in enumerate(parts):
+            if part.isdigit() and len(part) == 8:  # Found timestamp date
+                if i > 0:
+                    return parts[i-1]  # Return the part before timestamp
+        return 'unknown'
+    except:
+        return 'unknown'
 
 
 def list_instagram_images_by_week(year, week_number):
