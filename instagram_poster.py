@@ -839,7 +839,7 @@ def post_to_instagram(image_buffer, caption):
         return False
     
     try:
-        upload_url = f"https://graph.instagram.com/v24.0/{INSTAGRAM_ACCOUNT_ID}/media"
+        upload_url = f"https://graph.facebook.com/v24.0/{INSTAGRAM_ACCOUNT_ID}/media"
         
         temp_path = "/tmp/instagram_post.png"
         with open(temp_path, 'wb') as f:
@@ -862,7 +862,7 @@ def post_to_instagram(image_buffer, caption):
             media_id = response_data['id']
             print(f"✅ Media container created: {media_id}")
         
-        publish_url = f"https://graph.instagram.com/v24.0/{INSTAGRAM_ACCOUNT_ID}/media_publish"
+        publish_url = f"https://graph.facebook.com/v24.0/{INSTAGRAM_ACCOUNT_ID}/media_publish"
         publish_data = {
             'creation_id': media_id,
             'access_token': INSTAGRAM_ACCESS_TOKEN
