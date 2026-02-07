@@ -25,24 +25,24 @@ Get a glimpse of the application in action across different platforms:
 *Optimized for Twitter's large summary card (1200x630)*
 
 #### Bar Chart - Statistical Breakdown
-![Twitter Bar Chart](./assets/test_bar_twitter.png)
+![Twitter Bar Chart](./assets/images/test_twitter_bar_chart_offline.png)
 
 #### Line Chart - Performance Over Time
-![Twitter Line Chart](./assets/test_line_twitter.png)
+![Twitter Line Chart](./assets/images/test_twitter_line_chart_offline.png)
 
 
 ### Instagram Post Preview
 *Optimized for Instagrams's post format (1080x1080)*
 
 #### Bar Chart - Statistical Breakdown
-![Instagram Bar Chart](./assets/test_bar_instagram.png)
+![Instagram Bar Chart](./assets/images/test_instagram_square_bar_chart.png)
 
 #### Line Chart - Performance Over Time
-![Instagram Line Chart](./assets/test_line_instagram.png)
+![Instagram Line Chart](./assets/images/test_instagram_square_line_chart.png)
 
 
 ### Application Screenshot
-![App Screenshot](./assets/app_screenshot.png)
+![App Screenshot](./assets/app/app_screenshot.png)
 *Main stats entry interface with Google OAuth*
 
 ---
@@ -51,7 +51,7 @@ Get a glimpse of the application in action across different platforms:
 
 Watch the ESPN-style overlay in action during a live stream or recording:
 
-![OBS Overlay Demo](./assets/obs-overlay-demo.gif)
+![OBS Overlay Demo](./assets/app/obs-overlay-demo.gif)
 
 *Real-time stats overlay updating during gameplay*
 

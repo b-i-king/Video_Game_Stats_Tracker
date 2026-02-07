@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from flask_cors import CORS
 import atexit
-from chart_utils import generate_bar_chart, generate_line_chart, get_stat_history_from_db
-from gcs_utils import upload_chart_to_gcs
-from ifttt_utils import trigger_ifttt_post, generate_post_caption
+from utils.chart_utils import generate_bar_chart, generate_line_chart, get_stat_history_from_db
+from utils.gcs_utils import upload_chart_to_gcs
+from utils.ifttt_utils import trigger_ifttt_post, generate_post_caption
 
 app = Flask(__name__)
 CORS(app)
@@ -48,13 +48,13 @@ def initialize_db_pool():
         print("Initializing database connection pool...")
         db_pool = SimpleConnectionPool(
             minconn=1,      # Keep low for development
-            maxconn=10,     # Reasonable limit
+            maxconn=3,     # Reasonable limit
             host=DB_URL,
             database=DB_NAME,
             user=DB_USER,
             password=DB_PASSWORD,
             port=5439,
-            connect_timeout=10,
+            connect_timeout=30,
             sslmode='require'
         )
         print("✅ Database connection pool initialized successfully.")

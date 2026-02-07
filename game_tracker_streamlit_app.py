@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd # Import pandas for session state
-from utils import (
+from utils.app_utils import (
     attempt_flask_login, 
     register_guest_user, 
     DB_URL, 
@@ -136,6 +136,7 @@ home_page = st.Page("pages/1_Home.py", title="Home", icon="🏠", default=True)
 stats_page = st.Page("pages/2_Stats.py", title="Video Games Stats Form", icon="🎮")
 privacy_page = st.Page("pages/3_Privacy_Policy.py", title="Privacy Policy", icon="📄")
 tos_page = st.Page("pages/4_Terms_of_Service.py", title="Terms of Service", icon="📜")
+dd_page = st.Page("pages/5_Data_Deletion.py", title="Data Deletion Instructions", icon="🗑️")
 
 # --- Sidebar & Navigation ---
 st.sidebar.title("Authentication")
@@ -152,14 +153,14 @@ if st.session_state.auth_mode in ('guest', 'login_failed'):
     # Navigation for Guests
     pg = st.navigation({
         "Main": [home_page],
-        "Legal": [privacy_page, tos_page]
+        "Legal": [privacy_page, tos_page, dd_page]
     })
 
 elif st.session_state.auth_mode == 'prompt_login':
     st.sidebar.warning("Waiting for Google login completion...")
     pg = st.navigation({
         "Main": [home_page],
-        "Legal": [privacy_page, tos_page]
+        "Legal": [privacy_page, tos_page, dd_page]
         })
 
 
@@ -176,7 +177,7 @@ elif st.session_state.auth_mode == 'logged_in':
         pg = st.navigation({
             "Main": [home_page],
             "Application": [stats_page],
-            "Legal": [privacy_page, tos_page]
+            "Legal": [privacy_page, tos_page, dd_page]
         })
 
     elif st.session_state.is_registered_guest:
@@ -186,7 +187,7 @@ elif st.session_state.auth_mode == 'logged_in':
         pg = st.navigation({
             "Main": [home_page],
             "Application": [stats_page], # Guest view of stats page
-            "Legal": [privacy_page, tos_page]
+            "Legal": [privacy_page, tos_page, dd_page]
         })
 
     else: 

@@ -22,7 +22,7 @@ from datetime import datetime
 import io
 import os
 import numpy as np
-from holiday_themes import get_themed_colors
+from utils.holiday_themes import get_themed_colors
 
 # Set style for professional-looking charts
 sns.set_style("darkgrid")

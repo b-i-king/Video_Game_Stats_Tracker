@@ -28,9 +28,10 @@ from datetime import datetime, timedelta
 import random
 import io
 import requests
-from chart_utils import abbreviate_stat, format_large_number, load_custom_fonts, should_use_log_scale
-from holiday_themes import get_themed_colors, is_exact_holiday
-from gcs_utils import upload_instagram_poster_to_gcs  # GCS backup integration
+from utils.chart_utils import abbreviate_stat, format_large_number, load_custom_fonts, should_use_log_scale
+from utils.holiday_themes import get_themed_colors, is_exact_holiday
+from utils.gcs_utils import upload_instagram_poster_to_gcs  # GCS backup integration
+from utils.game_handles_utils import get_game_handle, get_game_hashtags
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import seaborn as sns
@@ -64,113 +65,106 @@ plt.rcParams['grid.color'] = '#404040'
 plt.rcParams['font.family'] = 'Fira Code'  # Explicitly set Fira Code
 plt.rcParams['font.size'] = 18
 
-# Instagram game account handles (@ mentions)
-GAME_HANDLES = {
-    # --- Publishers & Studios ---
-    'ad hoc studio': '@theadhocstudio',
-    'electronic arts': '@ea',
-    'ea': '@ea',
-    'activision': '@activision',
-    'blizzard': '@blizzard_ent',
-    'ubisoft': '@ubisoft',
-    'bethesda': '@bethesda',
-    'rockstar games': '@rockstargames',
-    'nintendo': '@nintendoamerica',
-    'playstation': '@playstation',
-    'xbox': '@xbox',
-    'riot games': '@riotgames',
-    'epic games': '@epicgames',
-    'square enix': '@squareenix',
-    'capcom': '@capcom_unity',
-    'cd projekt red': '@cdprojektred',
-    'fromsoftware': '@fromsoftware_pr',
-    'valve': '@valvesoftware',
-    'bioware': '@bioware',
-    'naughty dog': '@naughty_dog',
-    'insomniac games': '@insomniacgames',
-    'bungie': '@bungie',
+# CONNECTION POOL - Global variable (initialized once)
+connection_pool = None
 
-    # --- Popular Franchises & Titles ---
-    'call of duty': '@callofduty',
-    'warzone': '@callofduty',
-    'apex legends': '@playapex',
-    'fortnite': '@fortnite',
-    'valorant': '@valorant',
-    'overwatch': '@playoverwatch',
-    'overwatch 2': '@playoverwatch',
-    'rocket league': '@rocketleague',
-    'fifa': '@easportsfifa',
-    'fc 24': '@easportsfc',
-    'fc 25': '@easportsfc',
-    'madden': '@eamaddennfl',
-    'nba 2k': '@nba2k',
-    'mlb the show': '@mlbtheshow',
-    'minecraft': '@minecraft',
-    'gta': '@rockstargames',
-    'grand theft auto': '@rockstargames',
-    'red dead': '@rockstargames',
-    'destiny': '@destinythegame',
-    'destiny 2': '@destinythegame',
-    'halo': '@halo',
-    'battlefield': '@battlefield',
-    'fallout': '@fallout',
-    'elder scrolls': '@elderscrolls',
-    'skyrim': '@elderscrolls',
-    'dark souls': '@darksouls',
-    'elden ring': '@eldenring',
-    'resident evil': '@residentevil',
-    'street fighter': '@streetfighter',
-    'mortal kombat': '@mortalkombat',
-    'tekken': '@tekken',
-    'league of legends': '@leagueoflegends',
-    'dota': '@dota2',
-    'counter-strike': '@counterstrike',
-    'csgo': '@counterstrike',
-    'cs2': '@counterstrike',
-    'rainbow six': '@rainbow6game',
-    'pubg': '@pubg',
-    'warframe': '@playwarframe',
-    'diablo': '@diablo',
-    'world of warcraft': '@warcraft',
-    'starcraft': '@starcraft',
-    'sims': '@thesims',
-    'animal crossing': '@animalcrossing',
-    'zelda': '@zelda',
-    'pokemon': '@pokemon',
-    'super smash bros': '@smashbrosus',
-    'mario kart': '@mariokart',
-    'splatoon': '@splatoon',
-    'god of war': '@santamonicastu',
-    'spider-man': '@insomniacgames',
-    'last of us': '@naughty_dog',
-    'uncharted': '@naughty_dog',
-    'horizon': '@guerrilla',
-    'ghost of tsushima': '@suckerpunchprod',
-    'final fantasy': '@finalfantasy',
-    'monster hunter': '@monsterhunter',
-    'dragon ball': '@dragonballgames',
-    'naruto': '@narutogames',
-    'one piece': '@onepiecegames',
-}
-
-
-def get_db_connection():
-    """Create database connection"""
+def create_connection_pool():
+    """
+    Create a connection pool for database connections.
+    Pool is created once and reused across the application.
+    
+    Benefits:
+    - Faster connections (reuses existing connections)
+    - Better resource management
+    - Automatic connection recycling
+    - Handles connection failures gracefully
+    """
+    global connection_pool
+    
+    if connection_pool is not None:
+        return connection_pool
+    
     try:
-        conn = psycopg2.connect(
+        connection_pool = psycopg2.pool.SimpleConnectionPool(
+            minconn=1,      # Keep low for development
+            maxconn=3,     # Reasonable limit
             host=DB_URL,
             database=DB_NAME,
             user=DB_USER,
             password=DB_PASSWORD,
             port=5439,
-            connect_timeout=10,
-            sslmode='require'
+            connect_timeout=30,
+            sslmode='require',
+            options="-c statement_timeout=300000"  # 5 min query timeout
         )
-        return conn
+        print("✅ Connection pool created")
+        return connection_pool
+        
     except Exception as e:
-        print(f"❌ Database connection failed: {e}")
+        print(f"❌ Failed to create connection pool: {e}")
         return None
 
+
+def get_db_connection():
+    """
+    Get a connection from the pool.
+    
+    Returns:
+        Connection object from pool, or None if failed
+    """
+    global connection_pool
+    
+    # Create pool if it doesn't exist
+    if connection_pool is None:
+        connection_pool = create_connection_pool()
+    
+    if connection_pool is None:
+        return None
+    
+    try:
+        conn = connection_pool.getconn()
+        if conn:
+            print("✅ Got connection from pool")
+            return conn
+        else:
+            print("❌ Failed to get connection from pool")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Connection pool error: {e}")
+        return None
+
+
+def release_db_connection(conn):
+    """
+    Release connection back to the pool.
+    
+    Args:
+        conn: Connection object to release
+    """
+    global connection_pool
+    
+    if connection_pool and conn:
+        try:
+            connection_pool.putconn(conn)
+            print("✅ Connection returned to pool")
+        except Exception as e:
+            print(f"⚠️ Failed to return connection to pool: {e}")
+
+
+def close_connection_pool():
+    """
+    Close all connections in the pool.
+    Call this when application is shutting down.
+    """
+    global connection_pool
+    
+    if connection_pool:
+        try:
+            connection_pool.closeall()
+            print("✅ Connection pool closed")
+        except Exception as e:
+            print(f"⚠️ Error closing connection pool: {e}")
 
 def get_posted_content_hash():
     """
@@ -387,41 +381,30 @@ def get_historical_records_all_games(cur, player_id, posted_hashes, limit=10):
     
     return selected
 
-
-def get_game_handle(game_name, game_installment=None):
-    """Get Instagram handle for game"""
-    search_name = game_name.lower()
-    
-    # Check direct matches first
-    if search_name in GAME_HANDLES:
-        return GAME_HANDLES[search_name]
-    
-    # Check if installment is in handles
-    if game_installment:
-        installment_lower = game_installment.lower()
-        if installment_lower in GAME_HANDLES:
-            return GAME_HANDLES[installment_lower]
-    
-    # Check partial matches
-    for key, handle in GAME_HANDLES.items():
-        if key in search_name or search_name in key:
-            return GAME_HANDLES[key]
-    
-    return None
-
-
-def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies=None):
+def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies):
     """
-    Generate trendy, concise Instagram captions with hashtags and game mentions.
-    Includes heritage month and holiday hashtags automatically.
+    Generate trendy caption with game-specific handle and hashtags.
+    Now uses game_handles_utils for centralized social media data.
+    
+    Args:
+        post_type: str ('daily', 'recent', 'historical')
+        stats: list of tuples [(stat_name, value), ...]
+        game_info: dict {'game_name': str, 'game_installment': str or None}
+        player_name: str
+        day_of_week: str
+        anomalies: list of dicts [{'description': str}, ...]
+    
+    Returns:
+        str: Caption text for Instagram
     """
-    from holiday_themes import get_themed_colors
+    from utils.holiday_themes import get_themed_colors
     
-    # Get theme info for hashtags
-    theme = get_themed_colors()
+    game_name = game_info['game_name']
+    game_installment = game_info.get('game_installment')
+    full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
     
-    # Get game handle
-    game_handle = get_game_handle(game_info.get('game_name'), game_info.get('game_installment'))
+    # Get game handle for Instagram
+    game_handle = get_game_handle(game_name, platform='instagram')
     
     # Determine hashtag based on day
     day_hashtags = {
@@ -436,211 +419,75 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     
     day_tag = day_hashtags.get(day_of_week, '#GamingUpdate')
     
-    # Build caption
-    caption_parts = []
-    
-    # Opening line (emoji + hook)
+    # Build the main caption content
     if post_type == 'daily':
-        caption_parts.append(f"📊 Stat of the Day {day_tag}")
+        emoji = "🔥"
+        hook = f"{emoji} Today's {full_game_name} Session {day_tag} {emoji}"
     elif post_type == 'recent':
-        caption_parts.append(f"📈 Yesterday's Session {day_tag}")
-    elif post_type == 'historical':
-        caption_parts.append(f"🏆 Record Book {day_tag}")
-    elif post_type == 'multi_game':
-        caption_parts.append(f"🎮 Multi-Game Grind {day_tag}")
+        emoji = "📊"
+        hook = f"{emoji} Yesterday's {full_game_name} Highlights {day_tag} {emoji}"
+    else:  # historical
+        emoji = "🏆"
+        hook = f"{emoji} {full_game_name} All-Time Records {day_tag} {emoji}"
     
-    caption_parts.append("")  # Empty line
+    caption_lines = [hook, ""]
     
-    # Game mention
-    game_name = game_info.get('game_name')
+    # Add top stats (limit to top 3 for brevity)
+    for stat_name, stat_value in stats[:3]:
+        caption_lines.append(f"• {stat_name}: {stat_value}")
+    
+    caption_lines.append("")
+    
+    # Add anomaly callouts if present
+    if anomalies:
+        if post_type in ['daily', 'recent']:
+            caption_lines.append("⚡ Notable:")
+            for anomaly in anomalies[:2]:  # Limit to 2 for brevity
+                caption_lines.append(f"• {anomaly['description']}")
+            caption_lines.append("")
+    
+    # Add game mention if available
     if game_handle:
-        caption_parts.append(f"🎯 {game_handle}")
-    else:
-        caption_parts.append(f"🎯 {game_name}")
+        caption_lines.append(f"Playing {game_handle}")
+        caption_lines.append("")
     
-    caption_parts.append("")  # Empty line
+    # Get game-specific hashtags for Instagram
+    game_hashtags = get_game_hashtags(game_name, platform='instagram')
     
-    # Stats (concise format)
-    if isinstance(stats[0], tuple):
-        # Simple tuple format
-        for stat, value in stats[:3]:
-            caption_parts.append(f"▪️ {stat}: {format_large_number(value)}")
-    else:
-        # Dict format (multi-game)
-        for item in stats[:3]:
-            game = item.get('game', game_name)
-            stat = item.get('stat')
-            value = item.get('value')
-            caption_parts.append(f"▪️ {game} - {stat}: {format_large_number(value)}")
+    # Build hashtag list
+    base_hashtags = ['#gaming', '#esports', '#casual', '#gamer', '#gamingcommunity']
     
-    # Anomaly/record callout
-    if anomalies and len(anomalies) > 0:
-        caption_parts.append("")
-        caption_parts.append(f"🔥 {anomalies[0]['description']}")
+    # Add day-specific hashtags for daily/recent posts
+    if post_type in ['daily', 'recent']:
+        if day_of_week in ['Monday', 'Wednesday', 'Friday']:
+            base_hashtags.append('#dailygamer')
     
-    caption_parts.append("")  # Empty line
+    # Combine with game-specific hashtags
+    all_hashtags = base_hashtags + game_hashtags
     
-    # Hashtags (game-specific + general)
-    hashtags = ['#gaming', '#esports', '#casual', '#gamer', '#gamingcommunity']
-    
-    # Add game-specific hashtags
-    game_name_lower = game_name.lower()
-
-    # --- Publishers & Studios ---
-    if 'ad hoc' in game_name_lower:
-        hashtags.extend(['#adhocstudio', '#gamedev'])
-    elif 'electronic arts' in game_name_lower or game_name_lower == 'ea':
-        hashtags.extend(['#ea', '#electronicarts'])
-    elif 'activision' in game_name_lower:
-        hashtags.extend(['#activision', '#callofduty'])
-    elif 'blizzard' in game_name_lower:
-        hashtags.extend(['#blizzard', '#overwatch'])
-    elif 'ubisoft' in game_name_lower:
-        hashtags.extend(['#ubisoft', '#assassinscreed'])
-    elif 'bethesda' in game_name_lower:
-        hashtags.extend(['#bethesda', '#fallout'])
-    elif 'rockstar' in game_name_lower:
-        hashtags.extend(['#rockstargames', '#gta'])
-    elif 'nintendo' in game_name_lower:
-        hashtags.extend(['#nintendo', '#nintendoswitch'])
-    elif 'playstation' in game_name_lower:
-        hashtags.extend(['#playstation', '#ps5'])
-    elif 'xbox' in game_name_lower:
-        hashtags.extend(['#xbox', '#xboxseriesx'])
-    elif 'riot games' in game_name_lower:
-        hashtags.extend(['#riotgames', '#leagueoflegends'])
-    elif 'epic games' in game_name_lower:
-        hashtags.extend(['#epicgames', '#fortnite'])
-    elif 'square enix' in game_name_lower:
-        hashtags.extend(['#squareenix', '#finalfantasy'])
-    elif 'capcom' in game_name_lower:
-        hashtags.extend(['#capcom', '#residentevil'])
-    elif 'cd projekt red' in game_name_lower:
-        hashtags.extend(['#cdprojektred', '#cyberpunk2077'])
-    elif 'fromsoftware' in game_name_lower:
-        hashtags.extend(['#fromsoftware', '#eldenring'])
-    elif 'valve' in game_name_lower:
-        hashtags.extend(['#valve', '#steam'])
-    elif 'bioware' in game_name_lower:
-        hashtags.extend(['#bioware', '#masseffect'])
-    elif 'naughty dog' in game_name_lower:
-        hashtags.extend(['#naughtydog', '#thelastofus'])
-    elif 'insomniac' in game_name_lower:
-        hashtags.extend(['#insomniacgames', '#spiderman'])
-    elif 'bungie' in game_name_lower:
-        hashtags.extend(['#bungie', '#destiny2'])
-
-    # --- Popular Franchises & Titles ---
-    elif 'call of duty' in game_name_lower or 'warzone' in game_name_lower:
-        hashtags.extend(['#callofduty', '#warzone', '#cod'])
-    elif 'apex' in game_name_lower:
-        hashtags.extend(['#apexlegends', '#playapex'])
-    elif 'fortnite' in game_name_lower:
-        hashtags.extend(['#fortnite', '#fortnitebr'])
-    elif 'valorant' in game_name_lower:
-        hashtags.extend(['#valorant', '#valorantclips'])
-    elif 'overwatch' in game_name_lower:
-        hashtags.extend(['#overwatch2', '#overwatch'])
-    elif 'rocket league' in game_name_lower:
-        hashtags.extend(['#rocketleague', '#rlcs'])
-    elif 'fifa' in game_name_lower or 'fc 24' in game_name_lower or 'fc 25' in game_name_lower:
-        hashtags.extend(['#eafc', '#easportsfc'])
-    elif 'madden' in game_name_lower:
-        hashtags.extend(['#madden', '#nfl'])
-    elif 'nba 2k' in game_name_lower:
-        hashtags.extend(['#nba2k', '#2k'])
-    elif 'mlb the show' in game_name_lower:
-        hashtags.extend(['#mlbtheshow', '#mlb'])
-    elif 'minecraft' in game_name_lower:
-        hashtags.extend(['#minecraft', '#minecraftbuilds'])
-    elif 'gta' in game_name_lower or 'grand theft auto' in game_name_lower:
-        hashtags.extend(['#gtav', '#gta6'])
-    elif 'red dead' in game_name_lower:
-        hashtags.extend(['#rdr2', '#reddeadredemption'])
-    elif 'destiny' in game_name_lower:
-        hashtags.extend(['#destiny2', '#destinythegame'])
-    elif 'halo' in game_name_lower:
-        hashtags.extend(['#haloinfinite', '#halo'])
-    elif 'battlefield' in game_name_lower:
-        hashtags.extend(['#battlefield', '#fps'])
-    elif 'fallout' in game_name_lower:
-        hashtags.extend(['#fallout', '#fallout4'])
-    elif 'elder scrolls' in game_name_lower or 'skyrim' in game_name_lower:
-        hashtags.extend(['#elderscrolls', '#skyrim'])
-    elif 'dark souls' in game_name_lower:
-        hashtags.extend(['#darksouls', '#fromsoftware'])
-    elif 'elden ring' in game_name_lower:
-        hashtags.extend(['#eldenring', '#fromsoftware'])
-    elif 'resident evil' in game_name_lower:
-        hashtags.extend(['#residentevil', '#capcom'])
-    elif 'street fighter' in game_name_lower:
-        hashtags.extend(['#streetfighter', '#sf6'])
-    elif 'mortal kombat' in game_name_lower:
-        hashtags.extend(['#mortalkombat', '#mk1'])
-    elif 'tekken' in game_name_lower:
-        hashtags.extend(['#tekken', '#tekken8'])
-    elif 'league of legends' in game_name_lower:
-        hashtags.extend(['#leagueoflegends', '#lol'])
-    elif 'dota' in game_name_lower:
-        hashtags.extend(['#dota2', '#dota'])
-    elif 'counter-strike' in game_name_lower or 'csgo' in game_name_lower or 'cs2' in game_name_lower:
-        hashtags.extend(['#cs2', '#counterstrike'])
-    elif 'rainbow six' in game_name_lower:
-        hashtags.extend(['#rainbow6', '#r6siege'])
-    elif 'pubg' in game_name_lower:
-        hashtags.extend(['#pubg', '#pubgmobile'])
-    elif 'warframe' in game_name_lower:
-        hashtags.extend(['#warframe', '#tenno'])
-    elif 'diablo' in game_name_lower:
-        hashtags.extend(['#diablo4', '#diablo'])
-    elif 'world of warcraft' in game_name_lower:
-        hashtags.extend(['#warcraft', '#worldofwarcraft'])
-    elif 'starcraft' in game_name_lower:
-        hashtags.extend(['#starcraft', '#starcraft2'])
-    elif 'sims' in game_name_lower:
-        hashtags.extend(['#thesims', '#sims4'])
-    elif 'animal crossing' in game_name_lower:
-        hashtags.extend(['#animalcrossing', '#acnh'])
-    elif 'zelda' in game_name_lower:
-        hashtags.extend(['#zelda', '#legendofzelda'])
-    elif 'pokemon' in game_name_lower:
-        hashtags.extend(['#pokemon', '#nintendo'])
-    elif 'super smash bros' in game_name_lower:
-        hashtags.extend(['#smashbros', '#supersmashbros'])
-    elif 'mario kart' in game_name_lower:
-        hashtags.extend(['#mariokart', '#nintendo'])
-    elif 'splatoon' in game_name_lower:
-        hashtags.extend(['#splatoon', '#splatoon3'])
-    elif 'god of war' in game_name_lower:
-        hashtags.extend(['#godofwar', '#ragnarok'])
-    elif 'spider-man' in game_name_lower:
-        hashtags.extend(['#spidermanps5', '#marvel'])
-    elif 'last of us' in game_name_lower:
-        hashtags.extend(['#thelastofus', '#tlou'])
-    elif 'uncharted' in game_name_lower:
-        hashtags.extend(['#uncharted', '#naughtydog'])
-    elif 'horizon' in game_name_lower:
-        hashtags.extend(['#horizonforbiddenwest', '#playstation'])
-    elif 'ghost of tsushima' in game_name_lower:
-        hashtags.extend(['#ghostoftsushima', '#suckerpunch'])
-    elif 'final fantasy' in game_name_lower:
-        hashtags.extend(['#finalfantasy', '#ff7r'])
-    elif 'monster hunter' in game_name_lower:
-        hashtags.extend(['#monsterhunter', '#mhwilds'])
-    elif 'dragon ball' in game_name_lower:
-        hashtags.extend(['#dragonball', '#dbz'])
-    elif 'naruto' in game_name_lower:
-        hashtags.extend(['#naruto', '#anime'])
-    elif 'one piece' in game_name_lower:
-        hashtags.extend(['#onepiece', '#anime'])
-    
-    # Add heritage/holiday hashtag if present
+    # Add holiday theme hashtag if present
+    theme = get_themed_colors()
     if theme.get('hashtag'):
-        hashtags.append(theme['hashtag'])
+        all_hashtags.append(theme['hashtag'])
     
-    caption_parts.append(' '.join(hashtags))
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_hashtags = []
+    for tag in all_hashtags:
+        tag_lower = tag.lower()
+        if tag_lower not in seen:
+            seen.add(tag_lower)
+            unique_hashtags.append(tag)
     
-    return '\n'.join(caption_parts)
+    # Add hashtags to caption
+    caption_lines.append(' '.join(unique_hashtags))
+    
+    # Add YouTube link
+    youtube_handle = os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')
+    caption_lines.append("")
+    caption_lines.append(f"📺 youtube.com/@{youtube_handle}")
+    
+    return '\n'.join(caption_lines)
 
 
 def create_instagram_portrait_chart(stats, player_name, game_name, game_installment, title, subtitle=None, use_holiday_theme=False):
@@ -888,7 +735,20 @@ def main():
     print(f"🚀 Instagram Auto-Poster FINAL Starting...")
     print(f"📅 Today: {datetime.now().strftime('%A, %B %d, %Y')}")
     
+    # Create connection pool
+    pool = create_connection_pool()
+    if not pool:
+        print("❌ Failed to create connection pool")
+        sys.exit(1)
+    
+    # Get connection from pool
     conn = get_db_connection()
+    if not conn:
+        print("❌ Failed to get database connection")
+        sys.exit(1)
+    
+    cur = conn.cursor()
+    
     if not conn:
         sys.exit(1)
     
@@ -1088,7 +948,10 @@ def main():
     
     finally:
         cur.close()
-        conn.close()
+        release_db_connection(conn)
+        
+        # Only close pool on final shutdown
+        close_connection_pool()
 
 
 if __name__ == "__main__":

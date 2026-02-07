@@ -18426,9 +18426,7 @@ __pycache__/utils.cpython-312.pyc
 .venv/Scripts/pyrsa-priv2pub.exe
 .venv/Scripts/pyrsa-sign.exe
 .venv/Scripts/pyrsa-verify.exe
-__pycache__/chart_utils.cpython-312.pyc
-__pycache__/gcs_utils.cpython-312.pyc
-__pycache__/ifttt_utils.cpython-312.pyc
-__pycache__/holiday_themes.cpython-312.pyc
 test_charts.py
 test_connections.py
+__pycache__
+__pycache__/instagram_poster.cpython-312.pyc
