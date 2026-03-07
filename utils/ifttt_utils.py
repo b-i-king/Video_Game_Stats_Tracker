@@ -210,7 +210,7 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
     # Only for Instagram (Twitter has character limits)
     if not is_live:
         youtube_handle = os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')
-        caption += f"\n📺 YouTube: youtube.com/@{youtube_handle}"
+        caption += f"\n📺  YouTube: {youtube_handle} | Link in bio"
     
     return caption
 

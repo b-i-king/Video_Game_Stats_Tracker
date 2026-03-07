@@ -844,6 +844,16 @@ GAME_SOCIAL_DATA = {
             'hashtags': ['#OnePiece', '#Anime']
         }
     },
+    'dispatch': {
+        'instagram': {
+            'handle': '@theadhocstudio',
+            'hashtags': ['#dispatch', '#adhocstudio']
+        },
+        'twitter': {
+            'handle': '@TheAdHocStudio',
+            'hashtags': ['#Dispatch', '#AdHocStudio']
+        }
+    },
 }
 
 

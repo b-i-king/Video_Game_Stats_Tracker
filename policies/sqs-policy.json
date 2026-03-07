@@ -1,0 +1,32 @@
+{
+  "Version": "2012-10-17",
+  "Id": "instagram-queue-policy",
+  "Statement": [
+    {
+      "Sid": "AllowLambdaAccess",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::671703419022:role/InstagramPosterLambdaRole"
+      },
+      "Action": [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+      ],
+      "Resource": "arn:aws:sqs:us-west-1:671703419022:instagram-post-queue"
+    },
+    {
+      "Sid": "DenyAllOthers",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "sqs:*",
+      "Resource": "arn:aws:sqs:us-west-1:671703419022:instagram-post-queue",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalArn": "arn:aws:iam::671703419022:role/InstagramPosterLambdaRole"
+        }
+      }
+    }
+  ]
+}
