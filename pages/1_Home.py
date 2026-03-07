@@ -1,5 +1,5 @@
 import streamlit as st
-from utils import YOUR_PRIVACY_POLICY_URL, YOUR_TERMS_OF_SERVICE_URL
+from utils.app_utils import YOUR_PRIVACY_POLICY_URL, YOUR_TERMS_OF_SERVICE_URL
 
 # --- GOOGLE SITE VERIFICATION ---
 st.markdown(
