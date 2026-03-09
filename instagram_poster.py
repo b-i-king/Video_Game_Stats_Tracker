@@ -570,7 +570,9 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
     - Uses Fira Code font (matches generate_bar_chart)
     - Sorts bars in descending order (largest at top)
     - Colored title (first theme color) and subtitle (second theme color)
-    - Consistent styling with generate_bar_chart
+    - Consistent styling with generate_bar_chart / chart_utils.py
+    - Log scale with nice_max and intermediate ticks for skewed data
+    - Dynamic KPI label fontsize based on character count
     - Holiday theme support (only if exact date)
 
     Args:
@@ -588,158 +590,237 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
     # Get colors (holiday theme only if exact date)
     if use_holiday_theme:
         theme = get_themed_colors()
-        colors = theme['colors'][:len(stats)]
         theme_name = theme['theme_name']
         print(f"🎉 Using holiday theme: {theme_name}")
     else:
-        theme = get_themed_colors()  # Get default theme for colors
-        colors = theme['colors'][:len(stats)]
+        theme = get_themed_colors()
         theme_name = None
+
+    all_colors = theme['colors']
+    num_stats = len(stats)
+    colors = all_colors[:max(num_stats, 1)]
 
     fig, ax = plt.subplots(figsize=(10.8, 14.4), dpi=100)
 
-    # SORT stats by value (descending) - MATCHES generate_bar_chart
-    sorted_stats = sorted(stats, key=lambda x: x[1], reverse=True)
-
-    # Extract data and abbreviate
-    stat_names = [abbreviate_stat(stat[0]) for stat in sorted_stats]
-    stat_values = [stat[1] for stat in sorted_stats]
-
-    # REVERSE for matplotlib (barh plots bottom-to-top, we want largest on top)
-    stat_names.reverse()
-    stat_values.reverse()
-
-    # Determine if we should use log scale
-    use_log = should_use_log_scale(stat_values)
-
-    # For log scale, replace zeros with small value for plotting
-    if use_log:
-        plot_values = [max(v, 0.1) for v in stat_values]
-    else:
-        plot_values = stat_values
-
-    # Create horizontal bar chart
-    bars = ax.barh(stat_names, plot_values, color=colors)
-
-    # Add value labels
-    max_val = max(plot_values) if plot_values else 1
-    value_fontsize = 18 # Matching Twitter chart value font size
-
-    for bar, actual_val in zip(bars, plot_values):
-        width = bar.get_width()
-        display_val = format_large_number(actual_val)
-
-        # Smart positioning: inside bar if large enough, outside if too small
-        if width > max_val * 0.15:
-            x_pos = width * 0.95
-            ha = 'right'
-            color = 'white'
-        else:
-            x_pos = width * 1.05
-            ha = 'left'
-            color = 'white'
-
-        ax.text(x_pos, bar.get_y() + bar.get_height()/2,
-               display_val,
-               ha=ha, va='center',
-               fontsize=value_fontsize, fontweight='bold', color=color)
-
-    # Title with COLORED text (title = first color, subtitle = second color)
+    # Compute name lines early — needed for secondary fontsize calculation
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
     player_game_line = f"{player_name} - {full_game_name}"
 
-    # Build title with color formatting
-    # Use first color for main title
-    title_color = colors[0] if len(colors) > 0 else 'white'
-    # Use second color for subtitle
-    subtitle_color = colors[1] if len(colors) > 1 else 'white'
-    # Use third color for holiday theme name (if applicable)
-    holiday_theme_color = colors[2] if len(colors) > 2 else 'white'
+    # --- FONT SIZES ---
+    # Portrait width = instagram square width (10.8"), so branding x-offsets are identical
+    branding_fontsize = 19
+    amp_offset = 0.025    # after "YT" (2 chars)
+    twitch_offset = 0.062 # after "YT & " (2+3 chars)
+    handle_offset = 0.134 # after "YT & Twitch" (2+3+6 chars)
+    branding_y_pos = 0.03
 
-    # Create the title (we'll manually add each line with different colors)
-    title_fontsize = 20  # Matching Twitter chart title size
-    y_position = 0.965  # Start near top
-    line_spacing = 0.028  # Space between lines
+    # 3-stat: compact 28pt (fills nicely with 3 bars)
+    # 1-stat / 2-stat: main title fills the figure width dynamically
+    if num_stats <= 2:
+        fig_width_pts = 10.8 * 72   # 777.6 pt — portrait same width as square
+        char_ratio = 0.60            # Fira Code monospace char width / fontsize ratio
+        fill = 0.88                  # target 88% of figure width
+        title_fontsize = max(36, min(int(fig_width_pts * fill / (len(title) * char_ratio)), 72))
+        secondary_fontsize = max(26, int(title_fontsize * 0.70))
+    else:
+        title_fontsize = 28
+        secondary_fontsize = 28
 
-    # Line 1: Main title (e.g., "Today's Performance") - FIRST COLOR
+    # Bar value labels
+    value_fontsize = 18 if num_stats == 3 else (22 if num_stats == 2 else 18)
+
+    # Portrait line spacing: same absolute size as the square chart
+    # Square uses 0.04 at 10.8"; portrait scales: 0.04 * (10.8/14.4) = 0.03
+    line_spacing = 0.03 * (title_fontsize / 26)
+    secondary_line_spacing = 0.03 * (secondary_fontsize / 26)
+
+    # --- CHART CONTENT ---
+    if num_stats == 1:
+        # KPI scoreboard
+        # Label tiers: anchor label_len<=6 → 100pt at 0.58 (ratio = 0.0058/pt)
+        # Value fontsize: dynamic by display value character count to fill screen width
+        ax.axis('off')
+        stat_name = abbreviate_stat(stats[0][0])
+        display_val = format_large_number(stats[0][1])
+
+        label_len = len(stat_name)
+        if label_len <= 4:
+            kpi_label_fontsize = 130
+            kpi_label_offset = 0.85   # 0.0065 * 130
+        elif label_len <= 6:
+            kpi_label_fontsize = 100
+            kpi_label_offset = 0.65   # anchor (ratio = 0.0065/pt)
+        elif label_len <= 8:
+            kpi_label_fontsize = 85
+            kpi_label_offset = 0.55   # 0.0065 * 85
+        else:
+            kpi_label_fontsize = 70
+            kpi_label_offset = 0.46   # 0.0065 * 70
+
+        # Scale value fontsize to fill close to screen width for 1–5 char values
+        val_len = len(display_val)
+        if val_len <= 2:
+            kpi_value_fontsize = 260
+        elif val_len <= 3:
+            kpi_value_fontsize = 220
+        elif val_len <= 4:
+            kpi_value_fontsize = 190
+        else:  # 5 chars e.g. "45.2k"
+            kpi_value_fontsize = 160
+
+        kpi_value_offset = 0.38
+
+        ax.text(0.5, kpi_label_offset, stat_name, ha='center', va='center',
+                fontsize=kpi_label_fontsize, fontweight='bold',
+                color='white', transform=ax.transAxes)
+        ax.text(0.5, kpi_value_offset, display_val, ha='center', va='center',
+                fontsize=kpi_value_fontsize, fontweight='bold',
+                color=colors[0], transform=ax.transAxes,
+                bbox=dict(boxstyle='square,pad=0.4', facecolor='#2d2d2d', edgecolor='none'))
+
+    else:
+        # SORT stats by value (descending) — largest at top
+        sorted_stats = sorted(stats, key=lambda x: x[1], reverse=True)
+        stat_names = [abbreviate_stat(stat[0]) for stat in sorted_stats]
+        stat_values = [stat[1] for stat in sorted_stats]
+        # REVERSE for matplotlib (barh plots bottom-to-top, we want largest on top)
+        stat_names.reverse()
+        stat_values.reverse()
+
+        use_log = should_use_log_scale(stat_values)
+        plot_values = [max(v, 0.1) for v in stat_values] if use_log else stat_values
+
+        bars = ax.barh(stat_names, plot_values, color=colors[:len(stat_names)])
+
+        # Log scale with nice_max and intermediate ticks (matches chart_utils)
+        if use_log:
+            ax.set_xscale('log')
+            from matplotlib.ticker import FuncFormatter, LogLocator
+            import math
+            def log_formatter(x, _):
+                if x >= 1000: return f'{int(x/1000)}k'
+                elif x >= 1: return f'{int(x)}'
+                else: return f'{x:.1f}'
+            max_val = max(plot_values)
+            magnitude = 10 ** math.floor(math.log10(max_val * 1.1))
+            normalized = (max_val * 1.1) / magnitude
+            if normalized <= 1: nice_max = 1 * magnitude
+            elif normalized <= 2: nice_max = 2 * magnitude
+            elif normalized <= 5: nice_max = 5 * magnitude
+            else: nice_max = 10 * magnitude
+            ax.set_xlim(left=ax.get_xlim()[0], right=nice_max)
+            ax.xaxis.set_major_locator(LogLocator(base=10, subs=[1, 2, 5]))
+            ax.xaxis.set_major_formatter(FuncFormatter(log_formatter))
+
+        xlim_min_val, xlim_max = ax.get_xlim()
+        for bar, actual_val in zip(bars, stat_values):
+            width = bar.get_width()
+            display_val = format_large_number(actual_val)
+            bar_center_y = bar.get_y() + bar.get_height() / 2
+            if use_log:
+                log_min = math.log10(max(xlim_min_val, 0.01))
+                log_max = math.log10(xlim_max)
+                log_bar_end = math.log10(max(width, 0.01))
+                bar_vis_frac = (log_bar_end - log_min) / (log_max - log_min)
+
+                if bar_vis_frac < 0.12:
+                    # Bar too short — place label to the right of the bar, centered
+                    ax.text(width * 1.15, bar_center_y,
+                            display_val, ha='left', va='center',
+                            fontsize=value_fontsize, fontweight='bold', color='white')
+                else:
+                    # Right-align label at the end of the bar
+                    ax.text(width * 0.95, bar_center_y,
+                            display_val, ha='right', va='center',
+                            fontsize=value_fontsize, fontweight='bold', color='white')
+            else:
+                if width < xlim_max * 0.10:
+                    # Bar too short — place label to the right of the bar, centered
+                    ax.text(width + xlim_max * 0.02, bar_center_y,
+                            display_val, ha='left', va='center',
+                            fontsize=value_fontsize, fontweight='bold', color='white')
+                else:
+                    # Right-align label at the end of the bar
+                    ax.text(width * 0.95, bar_center_y,
+                            display_val, ha='right', va='center',
+                            fontsize=value_fontsize, fontweight='bold', color='white')
+
+        ax.tick_params(axis='y', labelsize=value_fontsize)
+        ax.grid(axis='x', alpha=0.3, linestyle='--')
+        ax.set_axisbelow(True)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color('white')
+        ax.spines['bottom'].set_color('white')
+
+    # --- TITLE BLOCK ---
+    title_color = all_colors[0]
+    subtitle_color = all_colors[1] if len(all_colors) > 1 else 'white'
+    holiday_theme_color = all_colors[2] if len(all_colors) > 2 else 'white'
+    full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
+    player_game_line = f"{player_name} - {full_game_name}"
+
+    y_position = 0.97
+
+    # Line 1: main title ("Today's Performance", etc.) — FIRST COLOR
     fig.text(0.5, y_position, title, ha='center', va='top',
              fontsize=title_fontsize, fontweight='bold', color=title_color,
              transform=fig.transFigure)
     y_position -= line_spacing
 
-    # Line 2: Player + Game
+    # Line 2: player — game — WHITE (secondary fontsize)
     fig.text(0.5, y_position, player_game_line, ha='center', va='top',
-             fontsize=title_fontsize, fontweight='bold', color='white',
+             fontsize=secondary_fontsize, fontweight='bold', color='white',
              transform=fig.transFigure)
-    y_position -= line_spacing
+    y_position -= secondary_line_spacing
 
-    # Line 3: Subtitle (e.g., date) - SECOND COLOR
+    # Line 3: subtitle (date, "All-Time Bests", etc.) — SECOND COLOR (secondary fontsize)
     if subtitle:
         fig.text(0.5, y_position, subtitle, ha='center', va='top',
-                 fontsize=title_fontsize, fontweight='bold', color=subtitle_color,
+                 fontsize=secondary_fontsize, fontweight='bold', color=subtitle_color,
                  transform=fig.transFigure)
-        y_position -= line_spacing
+        y_position -= secondary_line_spacing
 
-    # Line 4: Heritage month or holiday theme name - THIRD COLOR
-    # Show if use_holiday_theme is True OR if theme has show_in_title set
+    # Line 4: heritage/holiday theme — THIRD COLOR (secondary fontsize)
     theme_to_display = None
     if use_holiday_theme and theme_name:
-        # Old behavior - exact holiday passed in
         theme_to_display = theme_name
-    else:
-        # Check if current date has heritage month or holiday to display
-        if theme.get('show_in_title'):
-            theme_to_display = theme['theme_name']
+    elif theme.get('show_in_title'):
+        theme_to_display = theme['theme_name']
 
     if theme_to_display:
         fig.text(0.5, y_position, theme_to_display, ha='center', va='top',
-                 fontsize=title_fontsize, fontweight='bold', color=holiday_theme_color,
+                 fontsize=secondary_fontsize, fontweight='bold', color=holiday_theme_color,
                  transform=fig.transFigure)
+        y_position -= secondary_line_spacing
 
-    # Grid and styling
-    ax.grid(axis='x', alpha=0.3, linestyle='--')
-    ax.set_axisbelow(True)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('white')
-    ax.spines['bottom'].set_color('white')
+    top_margin = y_position
 
-    # Timestamp
+    # --- BRANDING & TIMESTAMP ---
     timestamp = datetime.now().strftime('%B %d, %Y')
-    fig.text(0.99, 0.02, timestamp, ha='right', va='bottom',
-             fontsize=14, color='gray', style='italic')
+    fig.text(0.99, branding_y_pos, timestamp, ha='right', va='bottom',
+             fontsize=branding_fontsize, color='gray', style='italic')
 
-    # Branding
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
     x_start = 0.01
-    y_pos = 0.02
+    fig.text(x_start, branding_y_pos, 'YT', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='#FF0000', fontweight='bold')
+    fig.text(x_start + amp_offset, branding_y_pos, ' & ', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='white', fontweight='normal')
+    fig.text(x_start + twitch_offset, branding_y_pos, 'Twitch', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='#9146FF', fontweight='bold')
+    fig.text(x_start + handle_offset, branding_y_pos, f' : {handle}', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='white', fontweight='bold')
 
-    # "YT" in red
-    fig.text(x_start, y_pos, 'YT', ha='left', va='bottom',
-             fontsize=14, color='#FF0000', fontweight='bold')
-
-    # " & " in white
-    fig.text(x_start + 0.014, y_pos, ' & ', ha='left', va='bottom',
-             fontsize=14, color='white', fontweight='normal')
-
-    # "Twitch" in purple
-    fig.text(x_start + 0.038, y_pos, 'Twitch', ha='left', va='bottom',
-             fontsize=14, color='#9146FF', fontweight='bold')
-
-    # Handle in white
-    fig.text(x_start + 0.091, y_pos, f' : {handle}', ha='left', va='bottom',
-             fontsize=14, color='white', fontweight='bold')
-
-    # DYNAMIC tight_layout adjustment based on title lines
-    # Calculate top margin based on whether theme name is displayed
-    if theme_to_display:
-        # Theme name adds an extra line, need more top space
-        top_margin = 0.88  # Leave 12% for 4-line title
+    # --- TIGHT LAYOUT ---
+    # 2-stat: centered rect so bars don't dominate the tall canvas
+    # 1-stat KPI and 3-stat: use dynamic top_margin derived from title block
+    if num_stats == 2:
+        plt.tight_layout(rect=[0, 0.09, 1, 0.72])
+    elif num_stats == 1:
+        plt.tight_layout(rect=[0, 0.04, 1, top_margin])
     else:
-        # No theme name, standard 3-line title
-        top_margin = 0.9   # Leave 10% for 3-line title
-
-    plt.tight_layout(rect=[0, 0.04, 1, top_margin])
+        plt.tight_layout(rect=[0, 0.05, 1, top_margin])
 
     # Save to buffer
     buf = io.BytesIO()
@@ -849,10 +930,15 @@ def run_instagram_poster():
     posted_hashes = get_posted_content_hash()
     logger.info(f"📝 Previously posted content hashes: {len(posted_hashes)}")
 
-    # Determine post content
-    today = datetime.now().date()
+    # Determine post content using the configured timezone
+    try:
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        now_local = datetime.now()
+    today = now_local.date()
     yesterday = today - timedelta(days=1)
-    day_of_week = today.strftime('%A')
+    day_of_week = now_local.strftime('%A')
 
     # Check if today is exact holiday (for theme)
     exact_holiday = is_exact_holiday()
@@ -1047,10 +1133,15 @@ def run_instagram_poster_for_queue():
     posted_hashes = get_posted_content_hash()
     logger.info(f"📝 Previously posted content hashes: {len(posted_hashes)}")
 
-    # Determine post content
-    today = datetime.now().date()
+    # Determine post content using the configured timezone
+    try:
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        now_local = datetime.now()
+    today = now_local.date()
     yesterday = today - timedelta(days=1)
-    day_of_week = today.strftime('%A')
+    day_of_week = now_local.strftime('%A')
 
     # Check if today is exact holiday (for theme)
     exact_holiday = is_exact_holiday()

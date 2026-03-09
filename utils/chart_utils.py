@@ -106,7 +106,7 @@ def abbreviate_stat(stat_name):
        - "Eliminations" -> "ELIMS"
     3. Otherwise: Use full name uppercase
        - "Assists" -> "ASSISTS"
-       - "K/D" -> "K/D" (already abbreviated)
+       - "E/R" -> "E/R" (already abbreviated)
     
     Examples:
         "Damage Dealt" -> "DD"
@@ -226,6 +226,142 @@ def format_date_label(dates):
         return '%b %d'
 
 
+def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, theme):
+    """
+    Generate a KPI scoreboard visual for a single stat.
+    Shows the abbreviated stat name in large text with the value as a huge
+    centered number — used when a game tracks only one statistic.
+    """
+    colors = theme['colors']
+
+    if size == 'instagram':
+        fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)
+        title_fontsize = 36
+        kpi_value_fontsize = 140
+        # KPI offset is based on 140pt font size for 10.8-inch figure, scaled from 12pt baseline
+        kpi_value_offset = 0.38    # vertical offset for KPI value
+        branding_fontsize = 19
+        # Branding offsets for 19pt on 10.8-inch figure (0.0114/char)
+        amp_offset = 0.025    # after "YT" (2 chars)
+        twitch_offset = 0.062 # after "YT & " (2+3 chars)
+        handle_offset = 0.134 # after "YT & Twitch" (2+3+6 chars)
+    else:  # twitter - 1600x900
+        fig, ax = plt.subplots(figsize=(16, 9), dpi=100)
+        title_fontsize = 34
+        kpi_value_fontsize = 160
+        # KPI offset is based on 140pt font size for 10.8-inch figure, scaled from 12pt baseline
+        kpi_value_offset = 0.38    # vertical offset for KPI value
+        branding_fontsize = 18
+        # Branding offsets for 18pt on 16-inch figure (0.00729/char)
+        amp_offset = 0.016
+        twitch_offset = 0.040
+        handle_offset = 0.087
+
+    # Dynamic kpi_label_fontsize and kpi_label_offset based on character count.
+    # The grey box (value bbox) top edge is at a fixed position in axes coords.
+    # Each tier lowers the offset slightly as the font shrinks — but always
+    # stays safely above the box. Offsets derived from the largest-tier anchor.
+    label_len = len(stat['label'])
+    if size == 'instagram':
+        # Anchor: label_len<=6 → 72pt at 0.70 (ratio = 0.70/72 = 0.009722)
+        if label_len <= 4:
+            kpi_label_fontsize = 80
+            kpi_label_offset = 0.78   # 0.009722 * 80
+        elif label_len <= 6:
+            kpi_label_fontsize = 72
+            kpi_label_offset = 0.70   # anchor
+        elif label_len <= 8:
+            kpi_label_fontsize = 64
+            kpi_label_offset = 0.62   # 0.009722 * 64
+        else:
+            kpi_label_fontsize = 52
+            kpi_label_offset = 0.51   # 0.009722 * 52
+    else:
+        # Anchor: label_len<=6 → 80pt at 0.80 (ratio = 0.80/80 = 0.01)
+        if label_len <= 4:
+            kpi_label_fontsize = 90
+            kpi_label_offset = 0.90   # 0.01 * 90
+        elif label_len <= 6:
+            kpi_label_fontsize = 80
+            kpi_label_offset = 0.80   # anchor
+        elif label_len <= 8:
+            kpi_label_fontsize = 70
+            kpi_label_offset = 0.70   # 0.01 * 70
+        else:
+            kpi_label_fontsize = 60
+            kpi_label_offset = 0.60   # 0.01 * 60
+
+    ax.axis('off')
+
+    display_val = format_large_number(stat['value'])
+    kpi_color = colors[0]
+
+    # Stat label — shifted up and closer to the value bbox top edge
+    ax.text(0.5, kpi_label_offset, stat['label'],
+            ha='center', va='center',
+            fontsize=kpi_label_fontsize, fontweight='bold',
+            color='white', transform=ax.transAxes)
+
+    # Huge value in theme color with a grey panel background (same as axes facecolor)
+    ax.text(0.5, kpi_value_offset, display_val,
+            ha='center', va='center',
+            fontsize=kpi_value_fontsize, fontweight='bold',
+            color=kpi_color, transform=ax.transAxes,
+            bbox=dict(boxstyle='square,pad=0.4', facecolor='#2d2d2d', edgecolor='none'))
+
+    # Title (same structure as generate_bar_chart)
+    full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
+    y_position = 0.96
+    # Scale line spacing with font size relative to the 3-stat (18pt) baseline
+    line_spacing = 0.04 * (title_fontsize / 18)
+
+    fig.text(0.5, y_position, f"{player_name}'s First Game Stats", ha='center', va='top',
+             fontsize=title_fontsize, fontweight='bold', color='white',
+             transform=fig.transFigure)
+    y_position -= line_spacing
+
+    fig.text(0.5, y_position, full_game_name, ha='center', va='top',
+             fontsize=title_fontsize, fontweight='bold', color='white',
+             transform=fig.transFigure)
+    y_position -= line_spacing
+
+    if theme['show_in_title']:
+        theme_color = colors[2] if len(colors) > 2 else colors[0]
+        fig.text(0.5, y_position, theme['theme_name'], ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color=theme_color,
+                 transform=fig.transFigure)
+
+    # Timestamp
+    timestamp = datetime.now().strftime('%B %d, %Y')
+    fig.text(0.99, 0.03, timestamp, ha='right', va='bottom',
+             fontsize=branding_fontsize, color='gray', style='italic')
+
+    # Multi-platform branding
+    handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
+    x_start = 0.01
+    y_pos = 0.03
+    fig.text(x_start, y_pos, 'YT', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='#FF0000', fontweight='bold')
+    fig.text(x_start + amp_offset, y_pos, ' & ', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='white', fontweight='normal')
+    fig.text(x_start + twitch_offset, y_pos, 'Twitch', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='#9146FF', fontweight='bold')
+    fig.text(x_start + handle_offset, y_pos, f' : {handle}', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='white', fontweight='bold')
+
+    n_title_lines = 3 if theme['show_in_title'] else 2
+    top_margin = 0.96 - n_title_lines * line_spacing
+    plt.tight_layout(rect=[0, 0.05, 1, top_margin])
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                facecolor=fig.get_facecolor(), pad_inches=0.3)
+    buf.seek(0)
+    plt.close(fig)
+
+    return buf
+
+
 def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter'):
     """
     Generate a HORIZONTAL bar chart for first-time game stats.
@@ -278,26 +414,38 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     labels.reverse()
     values.reverse()
     
-    # Determine if we should use log scale
-    use_log = should_use_log_scale(values)
-    
-    # Get holiday-themed colors
+    # Count stats, get theme early, and branch for single-stat KPI visual
+    num_stats = len(stats)
     theme = get_themed_colors()
     colors = theme['colors']
-    
-    # Determine figure size - REDUCED HEIGHT for better spacing
+
+    if num_stats == 1:
+        return _generate_kpi_chart(stats[0], player_name, game_name, game_installment, size, theme)
+
+    # Determine if we should use log scale
+    use_log = should_use_log_scale(values)
+
+    # Fixed canvas sizes; bar area is controlled via tight_layout rect below
     if size == 'instagram':
-        # Reduced from 10.8 to 9.5 to give more room at bottom
-        fig, ax = plt.subplots(figsize=(10.8, 9.5), dpi=100)
-        title_fontsize = 20
-        label_fontsize = 16
-        value_fontsize = 14
-    else:  # twitter
-        # Reduced from 6.3 to 5.5 to give more room at bottom
-        fig, ax = plt.subplots(figsize=(12, 5.5), dpi=100)
-        title_fontsize = 18
-        label_fontsize = 14
-        value_fontsize = 12
+        fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)
+        title_fontsize = 26 if num_stats == 3 else 30
+        value_fontsize = 14 if num_stats == 3 else 16
+        branding_fontsize = 19
+        # Branding offsets for 19pt on 10.8-inch figure (0.0114/char)
+        amp_offset = 0.025
+        twitch_offset = 0.062
+        handle_offset = 0.134
+        branding_y_pos = 0.06 if num_stats == 2 else 0.03
+    else:  # twitter - 1600x900
+        fig, ax = plt.subplots(figsize=(16, 9), dpi=100)
+        title_fontsize = 26 if num_stats == 3 else 30
+        value_fontsize = 14 if num_stats == 3 else 16
+        branding_fontsize = 18
+        # Branding offsets for 18pt on 16-inch figure (0.00729/char)
+        amp_offset = 0.016
+        twitch_offset = 0.040
+        handle_offset = 0.087
+        branding_y_pos = 0.05 if num_stats == 2 else 0.03
     
     # For log scale, replace zeros with small value for plotting
     if use_log:
@@ -307,34 +455,11 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     
     # Create horizontal bar chart
     bars = ax.barh(labels, plot_values, color=colors[:len(labels)])
-    
-    # Add value labels - position depends on bar size
-    max_val = max(plot_values) if plot_values else 1
-    for i, (bar, actual_val) in enumerate(zip(bars, values)):
-        width = bar.get_width()
-        
-        # Format the value for display
-        display_val = format_large_number(actual_val)
-        
-        # Smart positioning: inside bar if large enough, outside if too small
-        if width > max_val * 0.15:  # Bar is large enough for inside label
-            x_pos = width * 0.95
-            ha = 'right'
-            color = 'white'
-        else:  # Bar too small, put label outside
-            x_pos = width * 1.05
-            ha = 'left'
-            color = 'white'
-        
-        ax.text(x_pos, bar.get_y() + bar.get_height()/2, 
-               display_val,
-               ha=ha, va='center',
-               fontsize=value_fontsize, fontweight='bold', color=color)
-    
-    # Set log scale if needed
+
+    # Apply log scale before label positioning so xlim reflects the log axis range
     if use_log:
         ax.set_xscale('log')
-        from matplotlib.ticker import FuncFormatter
+        from matplotlib.ticker import FuncFormatter, LogLocator
         def log_formatter(x, pos):
             """Format log scale labels to show actual values"""
             if x >= 1000:
@@ -344,34 +469,78 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
             else:
                 return f'{x:.1f}'
         ax.xaxis.set_major_formatter(FuncFormatter(log_formatter))
+        # Set xlim_max to a "nice" number above max_val so the axis extends past the data
+        max_val = max(plot_values)
+        import math
+        magnitude = 10 ** math.floor(math.log10(max_val * 1.1))
+        normalized = (max_val * 1.1) / magnitude
+        if normalized <= 1:
+            nice_max = 1 * magnitude
+        elif normalized <= 2:
+            nice_max = 2 * magnitude
+        elif normalized <= 5:
+            nice_max = 5 * magnitude
+        else:
+            nice_max = 10 * magnitude
+        ax.set_xlim(left=ax.get_xlim()[0], right=nice_max)
+        # Add intermediate ticks (1, 2, 5 × 10^n) so labels like 2k, 5k appear
+        ax.xaxis.set_major_locator(LogLocator(base=10, subs=[1, 2, 5]))
+        ax.xaxis.set_major_formatter(FuncFormatter(log_formatter))
+
+    # Add value labels - position depends on bar size relative to axis range
+    _, xlim_max = ax.get_xlim()
+    for i, (bar, actual_val) in enumerate(zip(bars, values)):
+        width = bar.get_width()
+        display_val = format_large_number(actual_val)
+
+        if use_log:
+            # Always place label just inside the right end of the bar
+            x_pos = width * 0.85
+            ha = 'right'
+        else:
+            if width > xlim_max * 0.15:
+                x_pos = min(width * 0.95, xlim_max * 0.95)
+                ha = 'right'
+            else:
+                x_pos = width + xlim_max * 0.02
+                ha = 'left'
+
+        ax.text(x_pos, bar.get_y() + bar.get_height()/2,
+               display_val,
+               ha=ha, va='center',
+               fontsize=value_fontsize, fontweight='bold', color='white')
+
+    # Match y-axis tick label font to bar value font
+    ax.tick_params(axis='y', labelsize=value_fontsize)
     
     # MANUAL TITLE with two-tone coloring
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
-    
+
     # Build title manually with fig.text for proper positioning
     y_position = 0.96  # Start near top
-    line_spacing = 0.04  # Space between lines
-    
+    # Scale line spacing with font size relative to the 3-stat (18pt) baseline
+    line_spacing = 0.04 * (title_fontsize / 18)
+
     # Line 1: "{Player}'s First Game Stats" - WHITE
     line1 = f"{player_name}'s First Game Stats"
     fig.text(0.5, y_position, line1, ha='center', va='top',
              fontsize=title_fontsize, fontweight='bold', color='white',
              transform=fig.transFigure)
     y_position -= line_spacing
-    
+
     # Line 2: "Game: Installment" - WHITE
     fig.text(0.5, y_position, full_game_name, ha='center', va='top',
              fontsize=title_fontsize, fontweight='bold', color='white',
              transform=fig.transFigure)
     y_position -= line_spacing
-    
+
     # Line 3 (OPTIONAL): Heritage month/holiday name - THIRD COLOR
     if theme['show_in_title']:
         theme_color = colors[2] if len(colors) > 2 else colors[0]
         fig.text(0.5, y_position, theme['theme_name'], ha='center', va='top',
                  fontsize=title_fontsize, fontweight='bold', color=theme_color,
                  transform=fig.transFigure)
-    
+
     # REMOVED axis labels (self-explanatory)
     # ax.set_xlabel('Value', fontsize=label_fontsize, fontweight='bold')
     # ax.set_ylabel('Stats', fontsize=label_fontsize, fontweight='bold')
@@ -379,57 +548,59 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     # Grid
     ax.grid(axis='x', alpha=0.3, linestyle='--')
     ax.set_axisbelow(True)
-    
+
     # Remove spines
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_color('white')
     ax.spines['bottom'].set_color('white')
-    
-    # Add timestamp - positioned higher to avoid overlap
+
+    # Add timestamp
     timestamp = datetime.now().strftime('%B %d, %Y')
-    fig.text(0.99, 0.03, timestamp, ha='right', va='bottom', 
-             fontsize=10, color='gray', style='italic')
-    
-    # Add multi-platform branding - positioned higher to avoid overlap
+    fig.text(0.99, branding_y_pos, timestamp, ha='right', va='bottom',
+             fontsize=branding_fontsize, color='gray', style='italic')
+
+    # Add multi-platform branding
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
     x_start = 0.01
-    y_pos = 0.03  # Changed from 0.01 to 0.03 for more spacing
-    
+
     # "YT" in red
-    fig.text(x_start, y_pos, 'YT', ha='left', va='bottom',
-             fontsize=10, color='#FF0000', fontweight='bold')
-    
+    fig.text(x_start, branding_y_pos, 'YT', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='#FF0000', fontweight='bold')
+
     # " & " in white
-    fig.text(x_start + 0.012, y_pos, ' & ', ha='left', va='bottom',
-             fontsize=10, color='white', fontweight='normal')
-    
+    fig.text(x_start + amp_offset, branding_y_pos, ' & ', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='white', fontweight='normal')
+
     # "Twitch" in purple
-    fig.text(x_start + 0.029, y_pos, 'Twitch', ha='left', va='bottom',
-             fontsize=10, color='#9146FF', fontweight='bold')
-    
+    fig.text(x_start + twitch_offset, branding_y_pos, 'Twitch', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='#9146FF', fontweight='bold')
+
     # Handle in white
-    fig.text(x_start + 0.07, y_pos, f' : {handle}', ha='left', va='bottom',
-             fontsize=10, color='white', fontweight='bold')
-    
-    # DYNAMIC tight_layout adjustment based on title lines
-    # Calculate top margin based on whether theme name is displayed
-    if theme['show_in_title']:
-        # Theme name adds an extra line, need more top space
-        top_margin = 0.84  # Leave 16% for 3-line title
+    fig.text(x_start + handle_offset, branding_y_pos, f' : {handle}', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='white', fontweight='bold')
+
+    # Compute top margin dynamically: 2 title lines normally, 3 with holiday theme
+    n_title_lines = 3 if theme['show_in_title'] else 2
+    top_margin = 0.96 - n_title_lines * line_spacing
+
+    # 2-stat: use a centered, slightly smaller rect so bars don't dominate the canvas.
+    # 3-stat: use full dynamic top_margin to fill available space.
+    if num_stats == 2:
+        if size == 'instagram':
+            plt.tight_layout(rect=[0, 0.15, 1, 0.72])
+        else:  # twitter
+            plt.tight_layout(rect=[0, 0.12, 1, 0.75])
     else:
-        # No theme name, standard 2-line title
-        top_margin = 0.88  # Leave 12% for 2-line title
-    
-    plt.tight_layout(rect=[0, 0.05, 1, top_margin])
-    
+        plt.tight_layout(rect=[0, 0.05, 1, top_margin])
+
     # Save to bytes
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
-                facecolor=fig.get_facecolor(), pad_inches=0.3)  # Added padding
+                facecolor=fig.get_facecolor(), pad_inches=0.3)
     buf.seek(0)
     plt.close(fig)
-    
+
     return buf
 
 
@@ -448,7 +619,7 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         player_name: name of the player
         game_name: name of the game
         game_installment: optional game installment/version
-        size: 'twitter' (1200x630) or 'instagram' (1080x1080)
+        size: 'twitter' (1600x900) or 'instagram' (1080x1080)
     
     Returns:
         BytesIO buffer containing the chart image
@@ -462,19 +633,31 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     theme = get_themed_colors()
     colors = theme['colors']
     
-    # Determine figure size - REDUCED HEIGHT for better spacing
+    # Count how many stat series are present
+    num_stats = sum(1 for i in range(1, 4)
+                    if f'stat{i}' in stat_history and stat_history[f'stat{i}'])
+
+    # Fixed canvas sizes matching generate_bar_chart
     if size == 'instagram':
-        # Reduced from 10.8 to 9.5 to give more room at bottom
-        fig, ax = plt.subplots(figsize=(10.8, 9.5), dpi=100)
+        fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)
         title_fontsize = 20
-        label_fontsize = 16
         direct_label_fontsize = 13
-    else:  # twitter
-        # Reduced from 6.3 to 5.5 to give more room at bottom
-        fig, ax = plt.subplots(figsize=(12, 5.5), dpi=100)
-        title_fontsize = 18
-        label_fontsize = 14
-        direct_label_fontsize = 12
+        branding_fontsize = 18
+        # Branding offsets for 18pt on 10.8-inch figure (0.0108/char)
+        amp_offset = 0.024
+        twitch_offset = 0.059
+        handle_offset = 0.127
+        branding_y_pos = 0.03
+    else:  # twitter - 1600x900
+        fig, ax = plt.subplots(figsize=(16, 9), dpi=100)
+        title_fontsize = 20
+        direct_label_fontsize = 14
+        branding_fontsize = 17
+        # Branding offsets for 17pt on 16-inch figure (0.00689/char)
+        amp_offset = 0.015
+        twitch_offset = 0.038
+        handle_offset = 0.082
+        branding_y_pos = 0.03
     
     markers = ['o', 's', 'D']  # Circle, square, diamond
     
@@ -531,7 +714,8 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     # Set log scale if needed
     if use_log:
         ax.set_yscale('log')
-        from matplotlib.ticker import FuncFormatter
+        from matplotlib.ticker import FuncFormatter, LogLocator
+        import math
         def log_formatter(x, pos):
             """Format log scale labels to show actual values"""
             if x >= 1000:
@@ -540,6 +724,22 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
                 return f'{int(x)}'
             else:
                 return f'{x:.1f}'
+        ax.yaxis.set_major_formatter(FuncFormatter(log_formatter))
+        # Extend y-axis to a nice number above the data max so the axis shows all values
+        max_val = max(all_values)
+        magnitude = 10 ** math.floor(math.log10(max_val * 1.1))
+        normalized = (max_val * 1.1) / magnitude
+        if normalized <= 1:
+            nice_max = 1 * magnitude
+        elif normalized <= 2:
+            nice_max = 2 * magnitude
+        elif normalized <= 5:
+            nice_max = 5 * magnitude
+        else:
+            nice_max = 10 * magnitude
+        ax.set_ylim(top=nice_max)
+        # Add intermediate ticks (1, 2, 5 × 10^n) so labels like 2k, 5k appear
+        ax.yaxis.set_major_locator(LogLocator(base=10, subs=[1, 2, 5]))
         ax.yaxis.set_major_formatter(FuncFormatter(log_formatter))
     
     # # Styling
@@ -550,15 +750,16 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     # if theme['show_in_title']:
     #     title_text += f"\n{theme['theme_name']}"
         
-     # MANUAL TITLE with two-tone coloring
+    # MANUAL TITLE with two-tone coloring
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
     
     # Build title manually with fig.text for proper positioning
     y_position = 0.96  # Start near top
-    line_spacing = 0.04  # Space between lines
-    
-    # Line 1: "{Player}'s First Game Stats" - WHITE
-    line1 = f"{player_name}'s First Game Stats"
+    # Scale line spacing with font size relative to the 3-stat (18pt) baseline
+    line_spacing = 0.04 * (title_fontsize / 18)
+
+    # Line 1: "{Player}'s  Performance Over Time" - WHITE
+    line1 = f"{player_name}'s Performance Over Time"
     fig.text(0.5, y_position, line1, ha='center', va='top',
              fontsize=title_fontsize, fontweight='bold', color='white',
              transform=fig.transFigure)
@@ -634,50 +835,45 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     x_min, x_max = ax.get_xlim()
     ax.set_xlim(x_min, x_max + (x_max - x_min) * 0.15)
     
-    # Add timestamp - positioned higher to avoid overlap
+    # Add timestamp
     timestamp = datetime.now().strftime('%B %d, %Y')
-    fig.text(0.99, 0.03, timestamp, ha='right', va='bottom', 
-             fontsize=10, color='gray', style='italic')
-    
-    # Add multi-platform branding - positioned higher to avoid overlap
+    fig.text(0.99, branding_y_pos, timestamp, ha='right', va='bottom',
+             fontsize=branding_fontsize, color='gray', style='italic')
+
+    # Add multi-platform branding
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
     x_start = 0.01
-    y_pos = 0.03  # Changed from 0.01 to 0.03 for more spacing
-    
+
     # "YT" in red
-    fig.text(x_start, y_pos, 'YT', ha='left', va='bottom',
-             fontsize=10, color='#FF0000', fontweight='bold')
-    
+    fig.text(x_start, branding_y_pos, 'YT', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='#FF0000', fontweight='bold')
+
     # " & " in white
-    fig.text(x_start + 0.012, y_pos, ' & ', ha='left', va='bottom',
-             fontsize=10, color='white', fontweight='normal')
-    
+    fig.text(x_start + amp_offset, branding_y_pos, ' & ', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='white', fontweight='normal')
+
     # "Twitch" in purple
-    fig.text(x_start + 0.029, y_pos, 'Twitch', ha='left', va='bottom',
-             fontsize=10, color='#9146FF', fontweight='bold')
-    
+    fig.text(x_start + twitch_offset, branding_y_pos, 'Twitch', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='#9146FF', fontweight='bold')
+
     # Handle in white
-    fig.text(x_start + 0.07, y_pos, f' : {handle}', ha='left', va='bottom',
-             fontsize=10, color='white', fontweight='bold')
-    
-    # DYNAMIC tight_layout adjustment based on title lines
-    # Calculate top margin based on whether theme name is displayed
-    if theme['show_in_title']:
-        # Theme name adds an extra line, need more top space
-        top_margin = 0.84  # Leave 16% for 3-line title
-    else:
-        # No theme name, standard 2-line title
-        top_margin = 0.88  # Leave 12% for 2-line title
-    
+    fig.text(x_start + handle_offset, branding_y_pos, f' : {handle}', ha='left', va='bottom',
+             fontsize=branding_fontsize, color='white', fontweight='bold')
+
+    # Compute top margin dynamically: 2 title lines normally, 3 with holiday theme
+    n_title_lines = 3 if theme['show_in_title'] else 2
+    top_margin = 0.96 - n_title_lines * line_spacing
+
     plt.tight_layout(rect=[0, 0.05, 1, top_margin])
-    
+
     # Save to bytes
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
-                facecolor=fig.get_facecolor(), pad_inches=0.3)  # Added padding
+                facecolor=fig.get_facecolor(), pad_inches=0.3)
     buf.seek(0)
     plt.close(fig)
-    
+
+
     return buf
 
 
