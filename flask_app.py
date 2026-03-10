@@ -536,40 +536,49 @@ def add_stats(user_email):
                             'label': stat_type,
                             'value': result[0] if result else 0
                         }
-                    
-                    image_buffer = generate_bar_chart(stat_data, player_name, game_name, game_installment)
+
+                    image_buffer_twitter = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='twitter')
+                    image_buffer_instagram = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='instagram')
                     chart_type = 'bar'
-                    
+
                 elif games_played > 1:
                     # Generate LINE CHART (multiple games)
                     stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats)
-                    image_buffer = generate_line_chart(stat_history, player_name, game_name, game_installment)
+                    image_buffer_twitter = generate_line_chart(stat_history, player_name, game_name, game_installment, size='twitter')
+                    image_buffer_instagram = generate_line_chart(stat_history, player_name, game_name, game_installment, size='instagram')
                     chart_type = 'line'
-                
-                # Upload to Google Cloud Storage
-                public_url = upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type)
-                
-                if public_url:
-                    # Generate caption
+
+                # Upload to GCS — Twitter (16:9, auto-post)
+                twitter_public_url = upload_chart_to_gcs(image_buffer_twitter, player_name, game_name, chart_type, platform='twitter')
+
+                # Upload to GCS — Instagram (1080x1080) organized by week AND by game
+                instagram_url_week = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='week')
+                instagram_url_game = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='game')
+
+                if twitter_public_url:
+                    # Generate caption — pass platform and is_live as keyword args
                     caption = generate_post_caption(
-                        player_name, 
-                        game_name, 
-                        game_installment, 
+                        player_name,
+                        game_name,
+                        game_installment,
                         stat_data if games_played == 1 else stat_history,
                         games_played,
-                        is_live
+                        platform='twitter',
+                        is_live=is_live
                     )
-                    
-                    # Trigger IFTTT webhook
-                    social_platform = os.environ.get('SOCIAL_MEDIA_PLATFORM', 'twitter')  # 'twitter', 'instagram', or 'both'
-                    success = trigger_ifttt_post(public_url, caption, social_platform)
-                    
+
+                    # Post only Twitter URL to Twitter via IFTTT
+                    success = trigger_ifttt_post(twitter_public_url, caption, 'twitter')
+
                     if success:
-                        print(f"✅ Social media post triggered successfully!")
+                        print(f"✅ Twitter post triggered successfully!")
                     else:
-                        print(f"⚠️ Social media post failed, but stats were saved")
+                        print(f"⚠️ Twitter post failed, but stats were saved")
                 else:
-                    print(f"⚠️ Failed to upload chart, but stats were saved")
+                    print(f"⚠️ Failed to upload Twitter chart, but stats were saved")
+
+                if not instagram_url_week and not instagram_url_game:
+                    print(f"⚠️ Failed to upload Instagram chart, but stats were saved")
                     
             except Exception as social_error:
                 # Don't fail the entire request if social media posting fails

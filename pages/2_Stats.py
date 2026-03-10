@@ -401,11 +401,12 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                 
                 if valid:
                     # Payload is built here, reading from state
-                    payload = {"game_name": final_game_name, "game_series": final_game_series,
+                    payload = {"game_name": final_game_name, "game_installment": final_game_installment,
+                               "game_series": final_game_series,
                                "game_genre": final_game_genre, "game_subgenre": final_game_subgenre,
-                               "player_name": st.session_state.player_name, 
-                               "stats": stats_list, # stats_list now contains the rank data
-                               "is_live": st.session_state.is_live_streaming 
+                               "player_name": st.session_state.player_name,
+                               "stats": stats_list,
+                               "is_live": st.session_state.is_live_streaming
                                }
                     auth_headers = get_auth_headers()
                     if auth_headers:

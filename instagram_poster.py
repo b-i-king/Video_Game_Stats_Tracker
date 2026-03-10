@@ -644,31 +644,72 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
         display_val = format_large_number(stats[0][1])
 
         label_len = len(stat_name)
-        if label_len <= 4:
-            kpi_label_fontsize = 130
-            kpi_label_offset = 0.85   # 0.0065 * 130
-        elif label_len <= 6:
-            kpi_label_fontsize = 100
-            kpi_label_offset = 0.65   # anchor (ratio = 0.0065/pt)
-        elif label_len <= 8:
-            kpi_label_fontsize = 85
-            kpi_label_offset = 0.55   # 0.0065 * 85
-        else:
-            kpi_label_fontsize = 70
-            kpi_label_offset = 0.46   # 0.0065 * 70
-
-        # Scale value fontsize to fill close to screen width for 1–5 char values
         val_len = len(display_val)
+
+        # Outer tier: val_len → value fontsize + value box height → drives label offset floor
+        # Inner tier: label_len → label fontsize (smaller font = floor at tier anchor)
+        # Confirmed anchor: val_len > 4, label_len <= 6 → offset 0.65
+        # Larger value font (smaller val_len) → box taller → label offset must rise
         if val_len <= 2:
             kpi_value_fontsize = 260
+            kpi_value_offset = 0.38
+            if label_len <= 4:
+                kpi_label_fontsize = 130
+                kpi_label_offset = 0.81   # larger label font, raise above tier anchor
+            elif label_len <= 6:
+                kpi_label_fontsize = 100
+                kpi_label_offset = 0.78   # tier anchor
+            elif label_len <= 8:
+                kpi_label_fontsize = 85
+                kpi_label_offset = 0.77   # floor at tier anchor
+            else:
+                kpi_label_fontsize = 70
+                kpi_label_offset = 0.77   # floor at tier anchor
         elif val_len <= 3:
             kpi_value_fontsize = 220
+            kpi_value_offset = 0.38
+            if label_len <= 4:
+                kpi_label_fontsize = 130
+                kpi_label_offset = 0.75   # larger label font, raise above tier anchor
+            elif label_len <= 6:
+                kpi_label_fontsize = 100
+                kpi_label_offset = 0.72  # tier anchor
+            elif label_len <= 8:
+                kpi_label_fontsize = 85
+                kpi_label_offset = 0.71   # floor at tier anchor
+            else:
+                kpi_label_fontsize = 70
+                kpi_label_offset = 0.71   # floor at tier anchor
         elif val_len <= 4:
             kpi_value_fontsize = 190
-        else:  # 5 chars e.g. "45.2k"
+            kpi_value_offset = 0.38
+            if label_len <= 4:
+                kpi_label_fontsize = 130
+                kpi_label_offset = 0.73   # larger label font, raise above tier anchor
+            elif label_len <= 6:
+                kpi_label_fontsize = 100
+                kpi_label_offset = 0.70   # tier anchor (needs tuning)
+            elif label_len <= 8:
+                kpi_label_fontsize = 85
+                kpi_label_offset = 0.69   # floor at tier anchor
+            else:
+                kpi_label_fontsize = 70
+                kpi_label_offset = 0.69   # floor at tier anchor
+        else:  # val_len > 4 (e.g. "45.2k")
             kpi_value_fontsize = 160
-
-        kpi_value_offset = 0.38
+            kpi_value_offset = 0.38
+            if label_len <= 4:
+                kpi_label_fontsize = 130
+                kpi_label_offset = 0.68   # larger label font, raise above tier anchor
+            elif label_len <= 6:
+                kpi_label_fontsize = 100
+                kpi_label_offset = 0.65   # CONFIRMED WORKING ANCHOR
+            elif label_len <= 8:
+                kpi_label_fontsize = 85
+                kpi_label_offset = 0.64   # floor at tier anchor
+            else:
+                kpi_label_fontsize = 70
+                kpi_label_offset = 0.64   # floor at tier anchor
 
         ax.text(0.5, kpi_label_offset, stat_name, ha='center', va='center',
                 fontsize=kpi_label_fontsize, fontweight='bold',
@@ -967,7 +1008,8 @@ def run_instagram_poster():
             }
 
             game_id = next((g['game_id'] for g in all_games
-                           if g['game_name'] == first_game['game']), None)
+                           if g['game_name'] == first_game['game']
+                           and g['game_installment'] == first_game['installment']), None)
 
             if game_id:
                 stats = get_stats_for_date(PLAYER_ID, game_id, today)
@@ -993,7 +1035,8 @@ def run_instagram_poster():
             }
 
             game_id = next((g['game_id'] for g in all_games
-                           if g['game_name'] == first_game['game']), None)
+                           if g['game_name'] == first_game['game']
+                           and g['game_installment'] == first_game['installment']), None)
 
             if game_id:
                 stats = get_stats_for_date(PLAYER_ID, game_id, yesterday)
@@ -1170,7 +1213,8 @@ def run_instagram_poster_for_queue():
             }
 
             game_id = next((g['game_id'] for g in all_games
-                           if g['game_name'] == first_game['game']), None)
+                           if g['game_name'] == first_game['game']
+                           and g['game_installment'] == first_game['installment']), None)
 
             if game_id:
                 stats = get_stats_for_date(PLAYER_ID, game_id, today)
@@ -1196,7 +1240,8 @@ def run_instagram_poster_for_queue():
             }
 
             game_id = next((g['game_id'] for g in all_games
-                           if g['game_name'] == first_game['game']), None)
+                           if g['game_name'] == first_game['game']
+                           and g['game_installment'] == first_game['installment']), None)
 
             if game_id:
                 stats = get_stats_for_date(PLAYER_ID, game_id, yesterday)

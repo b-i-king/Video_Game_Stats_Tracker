@@ -48,17 +48,21 @@ def get_gcs_client():
         return None
 
 
-def upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type='bar', platform='twitter'):
+def upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type='bar', platform='twitter', storage_option='game'):
     """
     Upload chart image to Google Cloud Storage with organized folder structure.
-    
+
     Args:
         image_buffer: BytesIO object containing PNG image
         player_name: str (sanitized for filename)
         game_name: str (sanitized for filename)
         chart_type: str ('bar' or 'line')
         platform: str ('twitter' or 'instagram')
-    
+        storage_option: str — instagram only: 'game' | 'week' | 'month'
+            'game'  → instagram/games/{game_name}/
+            'week'  → instagram/weekly/{year}/week_{week_num}/
+            'month' → instagram/monthly/{year}/{month}/
+
     Returns:
         str: Public URL of uploaded image, or None if failed
     """
@@ -85,17 +89,23 @@ def upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type='bar', 
         safe_game = sanitize_filename(game_name)
         
         if platform == 'twitter':
-            # Twitter: Organized by date (auto-posted)
-            # Path: twitter/2025/01/player_game_bar_20250115_143022.png
+            # twitter/2025/01/player_game_bar_20250115_143022.png
             folder_path = f"twitter/{year}/{month}"
             filename = f"{safe_player}_{safe_game}_{chart_type}_{timestamp}.png"
-        
+
         elif platform == 'instagram':
-            # Instagram: Organized by game (manual compilation)
-            # Path: instagram/games/call_of_duty_warzone/player_20250115_143022.png
-            folder_path = f"instagram/games/{safe_game}"
-            filename = f"{safe_player}_{chart_type}_{timestamp}.png"
-        
+            week_of_year = now.strftime('%W')  # ISO week number (00–53)
+            if storage_option == 'week':
+                # instagram/weekly/2025/week_12/player_game_bar_20250115_143022.png
+                folder_path = f"instagram/weekly/{year}/week_{week_of_year}"
+            elif storage_option == 'month':
+                # instagram/monthly/2025/03/player_game_bar_20250115_143022.png
+                folder_path = f"instagram/monthly/{year}/{month}"
+            else:
+                # default: 'game' — instagram/games/call_of_duty_warzone/player_bar_20250115.png
+                folder_path = f"instagram/games/{safe_game}"
+            filename = f"{safe_player}_{safe_game}_{chart_type}_{timestamp}.png"
+
         else:
             # Fallback to generic path
             folder_path = f"charts/{platform}/{year}/{month}"

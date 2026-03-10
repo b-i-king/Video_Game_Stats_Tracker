@@ -263,33 +263,36 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
     # stays safely above the box. Offsets derived from the largest-tier anchor.
     label_len = len(stat['label'])
     if size == 'instagram':
-        # Anchor: label_len<=6 → 72pt at 0.70 (ratio = 0.70/72 = 0.009722)
-        if label_len <= 4:
-            kpi_label_fontsize = 80
-            kpi_label_offset = 0.78   # 0.009722 * 80
-        elif label_len <= 6:
-            kpi_label_fontsize = 72
-            kpi_label_offset = 0.70   # anchor
-        elif label_len <= 8:
-            kpi_label_fontsize = 64
-            kpi_label_offset = 0.62   # 0.009722 * 64
-        else:
-            kpi_label_fontsize = 52
-            kpi_label_offset = 0.51   # 0.009722 * 52
-    else:
-        # Anchor: label_len<=6 → 80pt at 0.80 (ratio = 0.80/80 = 0.01)
+        # Anchor: label_len<=6 → 72pt at 0.70.
+        # Tiers with smaller font must NOT drop below the anchor offset — the
+        # value bbox top is fixed, so pulling the label down causes overlap.
         if label_len <= 4:
             kpi_label_fontsize = 90
-            kpi_label_offset = 0.90   # 0.01 * 90
+            kpi_label_offset = 0.72   # larger font, raise above anchor
         elif label_len <= 6:
             kpi_label_fontsize = 80
-            kpi_label_offset = 0.80   # anchor
+            kpi_label_offset = 0.70   # anchor (confirmed working)
         elif label_len <= 8:
             kpi_label_fontsize = 70
-            kpi_label_offset = 0.70   # 0.01 * 70
+            kpi_label_offset = 0.70   # same as anchor — smaller font still needs same clearance
         else:
             kpi_label_fontsize = 60
-            kpi_label_offset = 0.60   # 0.01 * 60
+            kpi_label_offset = 0.70   # same as anchor — smallest font, most whitespace above
+    else:
+        # Anchor: label_len<=6 → 80pt at 0.80.
+        # Same rule: floor offset at anchor to prevent value-box overlap.
+        if label_len <= 4:
+            kpi_label_fontsize = 90
+            kpi_label_offset = 0.82   # larger font, raise above anchor
+        elif label_len <= 6:
+            kpi_label_fontsize = 80
+            kpi_label_offset = 0.80   # anchor (confirmed working)
+        elif label_len <= 8:
+            kpi_label_fontsize = 70
+            kpi_label_offset = 0.80   # same as anchor — smaller font still needs same clearance
+        else:
+            kpi_label_fontsize = 60
+            kpi_label_offset = 0.80   # same as anchor — smallest font, most whitespace above
 
     ax.axis('off')
 
