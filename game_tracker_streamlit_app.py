@@ -169,8 +169,8 @@ elif st.session_state.auth_mode == 'logged_in':
         st.sidebar.success(f"Logged in as Admin: {st.session_state.email}")
         if not st.session_state.jwt_token and st.session_state.email:
              print("JWT token missing for logged-in trusted user, attempting recovery...")
-             if not attempt_flask_login(st.session_state.email): 
-                 st.error("Backend re-auth failed."); st.session_state.auth_mode = 'guest'; st.rerun()
+             if not attempt_flask_login(st.session_state.email):
+                 st.error("Backend re-auth failed."); st.session_state.auth_mode = 'login_failed'; st.rerun()
              else: st.rerun()
         
         # --- Admin Navigation ---
@@ -190,8 +190,12 @@ elif st.session_state.auth_mode == 'logged_in':
             "Legal": [privacy_page, tos_page, dd_page]
         })
 
-    else: 
-        st.sidebar.error("Invalid auth state. Reverting to guest."); st.session_state.auth_mode = 'guest'; st.rerun()
+    else:
+        st.sidebar.warning("Account not recognized. Please log out and try again.")
+        pg = st.navigation({
+            "Main": [home_page],
+            "Legal": [privacy_page, tos_page, dd_page]
+        })
 
     if st.sidebar.button("Logout"): 
         st.session_state.clear(); st.session_state.auth_mode = 'guest'

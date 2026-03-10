@@ -110,13 +110,15 @@ def release_db_connection(conn, close=True):
     """
     global db_pool
     if conn:
-        if close or not db_pool:
+        if db_pool:
+            # putconn(close=True) closes the connection AND removes it from
+            # the pool's internal count — prevents "pool exhausted" errors.
+            db_pool.putconn(conn, close=close)
+        else:
             try:
                 conn.close()
             except Exception:
                 pass
-        else:
-            db_pool.putconn(conn)
         
 def create_tables():
     """Creates the necessary database tables if they do not exist."""
