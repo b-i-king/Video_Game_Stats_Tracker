@@ -99,11 +99,24 @@ def get_db_connection():
         print("Error: Database pool is not initialized.")
         return None
 
-def release_db_connection(conn):
-    """Returns a connection to the pool."""
+def release_db_connection(conn, close=True):
+    """
+    Returns a connection to the pool, or closes it immediately.
+
+    Default close=True: physically closes the connection after each request
+    so Redshift Serverless can detect inactivity and auto-pause sooner.
+    Pass close=False to return the connection to the pool for reuse
+    (faster subsequent requests, but keeps Redshift warm longer).
+    """
     global db_pool
-    if db_pool and conn:
-        db_pool.putconn(conn)
+    if conn:
+        if close or not db_pool:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        else:
+            db_pool.putconn(conn)
         
 def create_tables():
     """Creates the necessary database tables if they do not exist."""
