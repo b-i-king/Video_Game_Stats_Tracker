@@ -1,0 +1,78 @@
+name: GCS Storage Cleanup
+
+on:
+  schedule:
+    # Runs 1st of every month at 6 AM UTC (10 PM PST / 11 PM PDT prior night)
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI with optional overrides
+    inputs:
+      warning_gb:
+        description: 'Trigger cleanup above this GB threshold (default: 4.0)'
+        required: false
+        default: '4.0'
+      target_gb:
+        description: 'Delete files until storage reaches this GB (default: 3.5)'
+        required: false
+        default: '3.5'
+      min_days_old:
+        description: 'Never delete files newer than this many days (default: 90)'
+        required: false
+        default: '90'
+
+jobs:
+  cleanup:
+    name: Smart GCS Cleanup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install google-cloud-storage google-auth
+
+      - name: Run smart cleanup
+        env:
+          GCS_CREDENTIALS_JSON: ${{ secrets.GCS_CREDENTIALS_JSON }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+        run: |
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, '.')
+          from utils.gcs_utils import smart_cleanup
+
+          warning_gb = float("${{ github.event.inputs.warning_gb || '4.0' }}")
+          target_gb  = float("${{ github.event.inputs.target_gb  || '3.5' }}")
+          min_days   = int("${{ github.event.inputs.min_days_old || '90' }}")
+
+          print(f"Config → warning: {warning_gb} GB | target: {target_gb} GB | min age: {min_days} days")
+          result = smart_cleanup(
+              warning_gb=warning_gb,
+              target_gb=target_gb,
+              min_days_old=min_days
+          )
+          print(f"Result: {result}")
+
+          if result.get('action') == 'error':
+              sys.exit(1)
+          EOF
+
+      - name: Report storage summary
+        if: always()
+        env:
+          GCS_CREDENTIALS_JSON: ${{ secrets.GCS_CREDENTIALS_JSON }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+        run: |
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, '.')
+          from utils.gcs_utils import get_storage_summary
+          get_storage_summary()
+          EOF

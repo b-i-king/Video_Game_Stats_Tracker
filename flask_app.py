@@ -47,7 +47,7 @@ def initialize_db_pool():
     try:
         print("Initializing database connection pool...")
         db_pool = SimpleConnectionPool(
-            minconn=1,      # Keep low for development
+            minconn=0,      # Keep low for development
             maxconn=3,     # Reasonable limit
             host=DB_URL,
             database=DB_NAME,

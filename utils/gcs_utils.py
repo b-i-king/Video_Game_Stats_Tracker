@@ -554,6 +554,81 @@ def sanitize_filename(name):
     return name[:50].lower()
 
 
+def smart_cleanup(warning_gb=4.0, target_gb=3.5, min_days_old=90):
+    """
+    Storage-aware cleanup: only deletes when approaching the 5 GB free-tier cap.
+
+    Strategy:
+      - If total usage < warning_gb  → do nothing (safe zone)
+      - If total usage >= warning_gb → delete oldest files across all platforms
+        until usage drops to target_gb, but never delete files newer than min_days_old days.
+
+    Args:
+        warning_gb:   float — trigger cleanup above this threshold (default 4.0 GB)
+        target_gb:    float — delete until usage reaches this level (default 3.5 GB)
+        min_days_old: int   — never delete files younger than this (default 90 days)
+
+    Returns:
+        dict with action taken and stats
+    """
+    from datetime import timedelta
+
+    bucket_name = os.environ.get('GCS_BUCKET_NAME')
+    client = get_gcs_client()
+
+    if not client or not bucket_name:
+        print("❌ GCS not configured")
+        return {'action': 'skipped', 'reason': 'GCS not configured'}
+
+    try:
+        bucket = client.bucket(bucket_name)
+        blobs = list(bucket.list_blobs())
+
+        total_bytes = sum(b.size for b in blobs)
+        total_gb = total_bytes / (1024 ** 3)
+
+        print(f"📊 Current GCS usage: {total_gb:.3f} GB / 5.0 GB free tier")
+
+        if total_gb < warning_gb:
+            print(f"✅ Storage safe ({total_gb:.3f} GB < {warning_gb} GB threshold) — no cleanup needed")
+            return {'action': 'none', 'usage_gb': round(total_gb, 3)}
+
+        print(f"⚠️ Approaching free-tier cap — targeting {target_gb} GB")
+
+        cutoff = datetime.now() - timedelta(days=min_days_old)
+        # Sort oldest first so we delete least-recent content
+        eligible = sorted(
+            [b for b in blobs if b.time_created.replace(tzinfo=None) < cutoff],
+            key=lambda b: b.time_created
+        )
+
+        deleted_count = 0
+        freed_bytes = 0
+
+        for blob in eligible:
+            if total_bytes - freed_bytes <= target_gb * (1024 ** 3):
+                break
+            freed_bytes += blob.size
+            blob.delete()
+            deleted_count += 1
+            print(f"🗑️ Deleted: {blob.name} ({blob.size / 1024 / 1024:.2f} MB)")
+
+        remaining_gb = (total_bytes - freed_bytes) / (1024 ** 3)
+        print(f"✅ Cleanup done — freed {freed_bytes / 1024 / 1024:.1f} MB, now at {remaining_gb:.3f} GB")
+
+        return {
+            'action': 'cleaned',
+            'deleted': deleted_count,
+            'freed_mb': round(freed_bytes / 1024 / 1024, 2),
+            'usage_before_gb': round(total_gb, 3),
+            'usage_after_gb': round(remaining_gb, 3)
+        }
+
+    except Exception as e:
+        print(f"❌ Smart cleanup failed: {e}")
+        return {'action': 'error', 'error': str(e)}
+
+
 def cleanup_old_images(days_old=365, platform=None):
     """
     Delete images older than specified days to manage storage costs.
