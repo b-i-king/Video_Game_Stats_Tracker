@@ -1390,7 +1390,7 @@ def get_live_dashboard():
 
         # Add time_period to response
         results['time_period'] = time_period
-        _cache_set(_dash_cache_key, results, 200, ttl_seconds=30)
+        _cache_set(_dash_cache_key, results, 200, ttl_seconds=600)  # 10 minutes — cache invalidated immediately on stat submit
         return jsonify(results), 200
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error fetching live dashboard stats: {error}")
@@ -1490,7 +1490,7 @@ def get_stat_ticker():
             facts.extend(generate_advanced_stats(cur, player_id, game_id, player_name, full_game_name, stat_types))
         
         response_data = {"facts": facts, "games_played": games_played}
-        _cache_set(_ticker_cache_key, response_data, 200, ttl_seconds=300)  # 5 minutes
+        _cache_set(_ticker_cache_key, response_data, 200, ttl_seconds=900)  # 15 minutes
         return jsonify(response_data), 200
 
     except (Exception, psycopg2.DatabaseError) as error:
@@ -1883,20 +1883,14 @@ def health_check():
 
 @app.route('/db_health', methods=['GET'])
 def db_health_check():
-    conn = None
-    try:
-        conn = get_db_connection()
-        if conn:
-            cur = conn.cursor(); cur.execute("SELECT 1;"); cur.fetchone()
-            release_db_connection(conn)
-            return jsonify({"status": "healthy", "db_connection": "successful"}), 200
-        else:
-            return jsonify({"status": "unhealthy", "db_connection": "failed to get from pool"}), 503
-    except (Exception, psycopg2.DatabaseError) as e:
-        print(f"DB health check failed: {e}")
-        return jsonify({"status": "unhealthy", "db_connection": "failed query"}), 503
-    finally:
-        if conn: release_db_connection(conn)
+    # NOTE: Does NOT query Redshift — use /health for keep-alive pings.
+    # Only call this manually to confirm DB credentials are reachable.
+    # Frequent polling of this endpoint keeps Redshift active and drives up RPU costs.
+    pool_ok = db_pool is not None
+    return jsonify({
+        "status": "healthy" if pool_ok else "pool_uninitialized",
+        "db_connection": "pool_ready" if pool_ok else "pool not yet initialized — will connect on first request"
+    }), 200
 
 def test_ssl_connection():
     conn = get_db_connection()

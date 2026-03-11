@@ -245,8 +245,8 @@
         const TICKER_API_URL = "https://video-game-stats-api.onrender.com/api/get_stat_ticker";
         
         // 2. Set polling interval (in milliseconds)
-        const REFRESH_INTERVAL_MS = 5000; // 5 seconds
-        const TICKER_REFRESH_INTERVAL_MS = 30000; // 30 seconds (ticker updates less frequently)
+        const REFRESH_INTERVAL_MS = 120000; // 2 minutes — server cache is 10 min; new stats invalidate cache immediately on submit
+        const TICKER_REFRESH_INTERVAL_MS = 300000; // 5 minutes — server cache is 15 min
         // ---------------------
 
         let fullApiUrl = ''; // Will be built dynamically
