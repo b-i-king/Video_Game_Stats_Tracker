@@ -387,16 +387,27 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         "post_match_rank_value": post_rank_from_state
                     })
             
-            # --- Stats preview (outside submit check so it always renders) ---
+            # --- Stats preview (always expanded so user sees values before submitting) ---
+            has_zero_stats = False
             if stats_list:
                 zero_stats = [s['stat_type'] for s in stats_list if s['stat_value'] == 0]
+                has_zero_stats = bool(zero_stats)
                 if zero_stats:
-                    st.warning(f"⚠️ Zero value detected for: **{', '.join(zero_stats)}**. Double-check before submitting.")
-                with st.expander("📋 Review stats before submitting", expanded=False):
+                    st.error(f"⛔ Zero value detected for: **{', '.join(zero_stats)}**. Fix or confirm below before submitting.")
+                with st.expander("📋 Review your stats before submitting", expanded=True):
                     for s in stats_list:
-                        st.write(f"• **{s['stat_type']}**: {s['stat_value']}")
+                        flag = " ⚠️ (zero)" if s['stat_value'] == 0 else ""
+                        st.write(f"• **{s['stat_type']}**: {s['stat_value']}{flag}")
 
-            submitted = st.form_submit_button("Submit Stats")
+            confirm_checked = st.checkbox(
+                "✅ I have reviewed my stats above and they are correct.",
+                value=False,
+                key="confirm_stats_checkbox"
+            )
+            if has_zero_stats and confirm_checked:
+                st.warning("You are submitting one or more stats with a value of 0. Make sure this is intentional.")
+
+            submitted = st.form_submit_button("Submit Stats", disabled=not confirm_checked)
             if submitted:
                 valid = False
                 if is_new_installment_mode:
