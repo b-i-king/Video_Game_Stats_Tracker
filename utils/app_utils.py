@@ -3,6 +3,13 @@ import requests
 import pandas as pd
 from datetime import datetime
 from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
+
+# Cached engine — reused across calls so we don't rebuild it every time.
+# NullPool disables connection pooling so each connect() opens a fresh TCP
+# connection that is physically closed on conn.close(), letting Redshift
+# Serverless detect inactivity and auto-pause sooner.
+_db_engine = None
 
 # --- Secrets and Config ---
 FLASK_API_URL = st.secrets.flask.flask_api_url
@@ -272,13 +279,17 @@ def set_live_dashboard_state(player_id, game_id):
 def get_db_conn_read_only():
     if not st.session_state.is_trusted_user:
         return None
+    global _db_engine
     try:
-        engine = create_engine(
-            f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_URL}:5439/{DB_NAME}",
-            connect_args={"connect_timeout": 5}
-        )
-        return engine.connect()
+        if _db_engine is None:
+            _db_engine = create_engine(
+                f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_URL}:5439/{DB_NAME}",
+                connect_args={"connect_timeout": 5},
+                poolclass=NullPool,
+            )
+        return _db_engine.connect()
     except Exception as e:
+        _db_engine = None  # Reset on error so next call retries
         print(f"SQLAlchemy connection error: {e}")
         return None
 

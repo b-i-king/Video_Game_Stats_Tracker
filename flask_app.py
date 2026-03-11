@@ -1,7 +1,7 @@
 import os
+import time
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
-from psycopg2 import sql
 from flask import Flask, request, jsonify, send_file
 from datetime import datetime, timedelta, timezone
 import jwt
@@ -13,6 +13,30 @@ from utils.ifttt_utils import trigger_ifttt_post, generate_post_caption
 
 app = Flask(__name__)
 CORS(app)
+
+# ---------------------------------------------------------------------------
+# Lightweight in-memory response cache (no extra dependencies)
+# Keys: str  →  (response_dict, status_code, expires_at_monotonic)
+# ---------------------------------------------------------------------------
+_endpoint_cache: dict = {}
+
+def _cache_get(key):
+    """Return (data_dict, status_code) if a fresh entry exists, else None."""
+    entry = _endpoint_cache.get(key)
+    if entry and time.monotonic() < entry[2]:
+        return entry[0], entry[1]
+    _endpoint_cache.pop(key, None)
+    return None
+
+def _cache_set(key, data, status_code, ttl_seconds):
+    """Store a response dict with a TTL."""
+    _endpoint_cache[key] = (data, status_code, time.monotonic() + ttl_seconds)
+
+def _cache_invalidate_obs():
+    """Clear all OBS-related cached responses (called after new stats are saved)."""
+    for k in list(_endpoint_cache.keys()):
+        if k.startswith(('dash_', 'ticker_')):
+            _endpoint_cache.pop(k, None)
 
 # --- Environment Variable Check ---
 DB_URL = os.environ.get("DB_URL")
@@ -495,23 +519,31 @@ def add_stats(user_email):
             player_id = player_record[0]
 
         # --- Stat Insertion ---
+        # Capture a single timestamp for the entire batch so all stats in this
+        # session share the exact same played_at — prevents COUNT(DISTINCT played_at)
+        # from counting one session as multiple games due to sub-second drift.
+        cur.execute("SELECT GETDATE();")
+        batch_timestamp = cur.fetchone()[0]
+
         successful_inserts = 0
         for stat_record in stats:
             if not stat_record.get('stat_type') or stat_record.get('stat_value') is None: continue
             cur.execute("""
                 INSERT INTO fact.fact_game_stats
                 (game_id, player_id, stat_type, stat_value, game_mode, game_level, win, ranked, pre_match_rank_value, post_match_rank_value, played_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE());
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
             """, (
                 game_id, player_id, stat_record.get('stat_type'), stat_record.get('stat_value'),
                 stat_record.get('game_mode'), stat_record.get('game_level'), stat_record.get('win'),
-                stat_record.get('ranked'), stat_record.get('pre_match_rank_value'), stat_record.get('post_match_rank_value')
+                stat_record.get('ranked'), stat_record.get('pre_match_rank_value'), stat_record.get('post_match_rank_value'),
+                batch_timestamp
             ))
             successful_inserts += 1
         if successful_inserts > 0:
             conn.commit()
             print(f"✅ {successful_inserts} stats inserted successfully")
-            
+            _cache_invalidate_obs()  # push fresh data to OBS on next poll
+
             # --- SOCIAL MEDIA INTEGRATION ---
             try:
                 # Count total games played for this player/game
@@ -524,44 +556,65 @@ def add_stats(user_email):
                 
                 print(f"📊 Generating chart for social media (Games played: {games_played})...")
                 
-                # Get top 3 stat types for this game
+                # Get top 3 stat types for this player+game (player_id scopes the scan)
                 cur.execute("""
                     SELECT stat_type, AVG(stat_value) as avg_value
                     FROM fact.fact_game_stats
-                    WHERE game_id = %s AND stat_type IS NOT NULL
+                    WHERE game_id = %s AND player_id = %s AND stat_type IS NOT NULL
                     GROUP BY stat_type
                     HAVING AVG(stat_value) > 0
                     ORDER BY avg_value ASC
                     LIMIT 3;
-                """, (game_id,))
+                """, (game_id, player_id))
                 top_stats = [row[0] for row in cur.fetchall()]
                 
                 if games_played == 1:
                     # Generate BAR CHART (first game)
-                    # Get current stats for bar chart
+                    # Build stat_data directly from the submitted stats — authoritative
+                    # for the current session (avoids stale DB reads or ordering issues).
                     stat_data = {}
-                    for i, stat_type in enumerate(top_stats[:3], 1):
+                    for i, stat_record in enumerate(stats[:3], 1):
+                        stat_type = stat_record.get('stat_type')
+                        if not stat_type:
+                            continue
+                        stat_data[f'stat{i}'] = {
+                            'label': stat_type,
+                            'value': stat_record.get('stat_value', 0),
+                            'prev_value': None
+                        }
+                        # Fetch the 2 most recent values; index [1] = previous session
                         cur.execute("""
                             SELECT stat_value FROM fact.fact_game_stats
                             WHERE player_id = %s AND game_id = %s AND stat_type = %s
-                            ORDER BY played_at DESC LIMIT 1;
+                            ORDER BY played_at DESC LIMIT 2;
                         """, (player_id, game_id, stat_type))
-                        result = cur.fetchone()
-                        stat_data[f'stat{i}'] = {
-                            'label': stat_type,
-                            'value': result[0] if result else 0
-                        }
+                        prev_rows = cur.fetchall()
+                        if len(prev_rows) > 1:
+                            stat_data[f'stat{i}']['prev_value'] = prev_rows[1][0]
 
                     image_buffer_twitter = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='twitter')
                     image_buffer_instagram = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='instagram')
                     chart_type = 'bar'
+                    stat_data_for_caption = stat_data  # already correct format
 
                 elif games_played > 1:
-                    # Generate LINE CHART (multiple games)
-                    stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats)
+                    # Generate LINE CHART (multiple games) — last 365 days
+                    stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats, days_back=365)
                     image_buffer_twitter = generate_line_chart(stat_history, player_name, game_name, game_installment, size='twitter')
                     image_buffer_instagram = generate_line_chart(stat_history, player_name, game_name, game_installment, size='instagram')
                     chart_type = 'line'
+
+                    # Build caption stat_data from stat_history (latest vs previous value)
+                    stat_data_for_caption = {}
+                    for i in range(1, 4):
+                        key = f'stat{i}'
+                        if key in stat_history and stat_history[key]:
+                            vals = stat_history[key].get('values', [])
+                            stat_data_for_caption[key] = {
+                                'label': stat_history[key].get('label', ''),
+                                'value': vals[-1] if vals else 0,
+                                'prev_value': vals[-2] if len(vals) > 1 else None
+                            }
 
                 # Upload to GCS — Twitter (16:9, auto-post)
                 twitter_public_url = upload_chart_to_gcs(image_buffer_twitter, player_name, game_name, chart_type, platform='twitter')
@@ -571,12 +624,12 @@ def add_stats(user_email):
                 instagram_url_game = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='game')
 
                 if twitter_public_url:
-                    # Generate caption — pass platform and is_live as keyword args
+                    # Generate caption with current + previous stat values
                     caption = generate_post_caption(
                         player_name,
                         game_name,
                         game_installment,
-                        stat_data if games_played == 1 else stat_history,
+                        stat_data_for_caption,
                         games_played,
                         platform='twitter',
                         is_live=is_live
@@ -929,7 +982,7 @@ def get_games(user_email):
         print(f"Error while fetching games for user {user_email}: {error}")
         return jsonify({"error": "An error occurred while fetching games."}), 500
     finally:
-        if conn: conn.close()
+        release_db_connection(conn)
 
 @app.route('/api/get_game_ranks/<int:game_id>', methods=['GET']) # Changed to game_id
 @requires_jwt_auth
@@ -1131,6 +1184,13 @@ def get_live_dashboard():
 
     # 2. Get timezone
     timezone_str = request.args.get('tz', 'UTC')
+
+    # --- 30-second response cache (avoids a DB round-trip on every OBS poll) ---
+    _dash_cache_key = f"dash_{key}_{timezone_str}"
+    _cached = _cache_get(_dash_cache_key)
+    if _cached:
+        print("📦 get_live_dashboard: serving cached response")
+        return jsonify(_cached[0]), _cached[1]
     
     conn = None
     try:
@@ -1169,36 +1229,38 @@ def get_live_dashboard():
         include_wins = False
         
         if has_win_tracking:
-            # Get top 2 relevant stats (highest non-zero AVG, ascending)
+            # Get top 2 relevant stats (player_id scopes the scan)
             cur.execute("""
                 SELECT stat_type, AVG(stat_value) as avg_value
                 FROM fact.fact_game_stats
-                WHERE game_id = %s 
-                  AND stat_type IS NOT NULL 
+                WHERE game_id = %s
+                  AND player_id = %s
+                  AND stat_type IS NOT NULL
                   AND stat_type != ''
                   AND stat_value > 0
                 GROUP BY stat_type
                 HAVING AVG(stat_value) > 0
                 ORDER BY avg_value ASC
                 LIMIT 2;
-            """, (game_id,))
+            """, (game_id, player_id))
             top_stats = [row[0] for row in cur.fetchall()]
             include_wins = True
             print(f"Win tracking enabled. Top 2 relevant stats: {top_stats}")
         else:
-            # Get top 3 relevant stats (highest non-zero AVG, ascending)
+            # Get top 3 relevant stats (player_id scopes the scan)
             cur.execute("""
                 SELECT stat_type, AVG(stat_value) as avg_value
                 FROM fact.fact_game_stats
-                WHERE game_id = %s 
-                  AND stat_type IS NOT NULL 
+                WHERE game_id = %s
+                  AND player_id = %s
+                  AND stat_type IS NOT NULL
                   AND stat_type != ''
                   AND stat_value > 0
                 GROUP BY stat_type
                 HAVING AVG(stat_value) > 0
                 ORDER BY avg_value ASC
                 LIMIT 3;
-            """, (game_id,))
+            """, (game_id, player_id))
             top_stats = [row[0] for row in cur.fetchall()]
             print(f"No win tracking. Top 3 relevant stats: {top_stats}")
         
@@ -1303,42 +1365,32 @@ def get_live_dashboard():
             results['stat1'] = {"label": "WINS", "value": win_count}
             stat_index = 2
 
-        # Handle other stats
-        for i, stat_type in enumerate(top_stats, stat_index):
-            value = 0
-            abbrev = abbreviate_stat(stat_type)
-            
-            # Use AVG for last day, SUM for today (or AVG if it makes more sense)
-            if stats_today_exist:
-                # For today, use SUM
-                query = sql.SQL("""
-                    SELECT SUM(stat_value)
-                    FROM fact.fact_game_stats
-                    WHERE player_id = %s AND game_id = %s AND stat_type = %s
-                      AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s;
-                """)
-                cur.execute(query, (player_id, game_id, stat_type, timezone_str, query_date))
-            else:
-                # For last day, use AVG
-                query = sql.SQL("""
-                    SELECT AVG(stat_value)
-                    FROM fact.fact_game_stats
-                    WHERE player_id = %s AND game_id = %s AND stat_type = %s
-                      AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s;
-                """)
-                cur.execute(query, (player_id, game_id, stat_type, timezone_str, query_date))
+        # Handle other stats — one batched query instead of one query per stat
+        if top_stats:
+            placeholders = ','.join(['%s'] * len(top_stats))
+            agg_func = 'SUM' if stats_today_exist else 'AVG'
+            cur.execute(f"""
+                SELECT stat_type, {agg_func}(stat_value)
+                FROM fact.fact_game_stats
+                WHERE player_id = %s AND game_id = %s
+                  AND stat_type IN ({placeholders})
+                  AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s
+                GROUP BY stat_type;
+            """, (player_id, game_id, *top_stats, timezone_str, query_date))
+            stat_results = {row[0]: row[1] for row in cur.fetchall()}
 
-            result = cur.fetchone()
-            if result and result[0] is not None:
-                if stats_today_exist:
-                    value = int(result[0])
+            for i, stat_type in enumerate(top_stats, stat_index):
+                abbrev = abbreviate_stat(stat_type)
+                raw = stat_results.get(stat_type)
+                if raw is not None:
+                    value = int(raw) if stats_today_exist else round(float(raw))
                 else:
-                    value = round(float(result[0]))  # Round to whole number for cleaner look
-            
-            results[f'stat{i}'] = {"label": f"{abbrev}", "value": value}
+                    value = 0
+                results[f'stat{i}'] = {"label": f"{abbrev}", "value": value}
 
         # Add time_period to response
         results['time_period'] = time_period
+        _cache_set(_dash_cache_key, results, 200, ttl_seconds=30)
         return jsonify(results), 200
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error fetching live dashboard stats: {error}")
@@ -1372,12 +1424,19 @@ def get_stat_ticker():
         return jsonify({"error": "Unauthorized"}), 401
 
     timezone_str = request.args.get('tz', 'UTC')
-    
+
+    # --- 5-minute response cache (ticker facts change only when new stats arrive) ---
+    _ticker_cache_key = f"ticker_{key}_{timezone_str}"
+    _cached = _cache_get(_ticker_cache_key)
+    if _cached:
+        print("📦 get_stat_ticker: serving cached response")
+        return jsonify(_cached[0]), _cached[1]
+
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        
+
         # Get current player/game
         cur.execute("SELECT current_player_id, current_game_id FROM dim.dim_dashboard_state WHERE state_id = 1;")
         state = cur.fetchone()
@@ -1430,8 +1489,10 @@ def get_stat_ticker():
         if games_played > 30:
             facts.extend(generate_advanced_stats(cur, player_id, game_id, player_name, full_game_name, stat_types))
         
-        return jsonify({"facts": facts, "games_played": games_played}), 200
-        
+        response_data = {"facts": facts, "games_played": games_played}
+        _cache_set(_ticker_cache_key, response_data, 200, ttl_seconds=300)  # 5 minutes
+        return jsonify(response_data), 200
+
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error fetching stat ticker: {error}")
         if conn: conn.rollback()

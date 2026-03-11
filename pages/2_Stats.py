@@ -387,18 +387,27 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         "post_match_rank_value": post_rank_from_state
                     })
             
+            # --- Stats preview (outside submit check so it always renders) ---
+            if stats_list:
+                zero_stats = [s['stat_type'] for s in stats_list if s['stat_value'] == 0]
+                if zero_stats:
+                    st.warning(f"⚠️ Zero value detected for: **{', '.join(zero_stats)}**. Double-check before submitting.")
+                with st.expander("📋 Review stats before submitting", expanded=False):
+                    for s in stats_list:
+                        st.write(f"• **{s['stat_type']}**: {s['stat_value']}")
+
             submitted = st.form_submit_button("Submit Stats")
             if submitted:
                 valid = False
                 if is_new_installment_mode:
-                    if final_game_name and final_game_genre != "Select a Genre" and final_game_subgenre != "Select a Subgenre" and stats_list: 
+                    if final_game_name and final_game_genre != "Select a Genre" and final_game_subgenre != "Select a Subgenre" and stats_list:
                         valid = True
                     else: st.warning("Fill New Game Name, Genre, Subgenre, & ≥1 Stat.")
                 else:
-                    if final_game_name and final_game_name != "Add a New Game" and st.session_state.player_name and stats_list: 
+                    if final_game_name and final_game_name != "Add a New Game" and st.session_state.player_name and stats_list:
                         valid = True
                     else: st.warning("Ensure game selected & ≥1 Stat entered.")
-                
+
                 if valid:
                     # Payload is built here, reading from state
                     payload = {"game_name": final_game_name, "game_installment": final_game_installment,
@@ -412,7 +421,10 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                     if auth_headers:
                         try:
                             response = requests.post(f"{FLASK_API_URL}/add_stats", json=payload, headers=auth_headers)
-                            response.raise_for_status(); st.success("Stats submitted!"); st.session_state.num_stats = 1; st.session_state.data_cache.clear(); st.session_state.selected_genre = "Select a Genre"; st.session_state.selected_subgenre = "Select a Subgenre"; st.rerun()
+                            response.raise_for_status()
+                            submitted_summary = ", ".join(f"{s['stat_type']}: {s['stat_value']}" for s in stats_list)
+                            st.success(f"Stats submitted! ✅ Saved: {submitted_summary}")
+                            st.session_state.num_stats = 1; st.session_state.data_cache.clear(); st.session_state.selected_genre = "Select a Genre"; st.session_state.selected_subgenre = "Select a Subgenre"; st.rerun()
                         except requests.exceptions.RequestException as e:
                             st.error(f"Submit error: {e}")
                             if 'response' in locals() and response is not None:

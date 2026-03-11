@@ -210,20 +210,20 @@ def format_date_label(dates):
     """
     Determine appropriate date format based on date range.
     Returns format string for matplotlib date formatter.
-    
-    - If span < 1 year: '%b %d' (Jan 15)
-    - If span >= 1 year: '%b %d, %Y' (Jan 15, 2026)
+
+    - If all dates share the same calendar year: '%b %d' (Jan 15)
+    - If dates span multiple calendar years: '%b %d, %Y' (Jan 15, 2026)
+
+    This handles short windows that cross a year boundary (e.g., Dec–Mar)
+    as well as long multi-year histories.
     """
     if not dates or len(dates) < 2:
         return '%b %d'
-    
-    date_range = dates[-1] - dates[0]
-    
-    # If date range is more than 365 days, include year
-    if date_range.days >= 365:
+
+    years = set(d.year for d in dates)
+    if len(years) > 1:
         return '%b %d, %Y'
-    else:
-        return '%b %d'
+    return '%b %d'
 
 
 def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, theme):
@@ -880,53 +880,80 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     return buf
 
 
-def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_str='UTC'):
+def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_str='UTC', days_back=365):
     """
     Fetch historical data for line chart from database.
+
+    Args:
+        days_back: int or None. Limit results to this many days back from today.
+                   Pass None to fetch all-time history.
     """
-    from datetime import datetime
-    
     stat_history = {
         'dates': [],
         'stat1': {'label': '', 'values': []},
         'stat2': {'label': '', 'values': []},
         'stat3': {'label': '', 'values': []}
     }
-    
-    # Get distinct dates
-    cur.execute("""
-        SELECT DISTINCT CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date
-        FROM fact.fact_game_stats
-        WHERE player_id = %s AND game_id = %s
-        ORDER BY play_date;
-    """, (timezone_str, player_id, game_id))
-    
-    dates = [row[0] for row in cur.fetchall()]
-    stat_history['dates'] = dates
-    
-    if not dates:
+
+    if not top_stat_types:
         return stat_history
-    
-    # For each stat type, get values per date
+
+    # Single batched query: all stat types × all dates in one round-trip.
+    # Previously this was a nested loop that fired up to (dates × stat_types)
+    # individual queries — up to 1,095 queries for 365 days × 3 stats.
+    placeholders = ','.join(['%s'] * len(top_stat_types[:3]))
+
+    if days_back is not None:
+        cur.execute(f"""
+            SELECT
+                CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date,
+                stat_type,
+                AVG(stat_value) as avg_value
+            FROM fact.fact_game_stats
+            WHERE player_id = %s
+              AND game_id = %s
+              AND stat_type IN ({placeholders})
+              AND played_at >= DATEADD(day, -%s, GETDATE())
+            GROUP BY play_date, stat_type
+            ORDER BY play_date;
+        """, (timezone_str, player_id, game_id, *top_stat_types[:3], days_back))
+    else:
+        cur.execute(f"""
+            SELECT
+                CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date,
+                stat_type,
+                AVG(stat_value) as avg_value
+            FROM fact.fact_game_stats
+            WHERE player_id = %s
+              AND game_id = %s
+              AND stat_type IN ({placeholders})
+            GROUP BY play_date, stat_type
+            ORDER BY play_date;
+        """, (timezone_str, player_id, game_id, *top_stat_types[:3]))
+
+    # Pivot results into the expected stat_history structure
+    stat_values_map = {st: {} for st in top_stat_types[:3]}
+    dates_ordered = []
+    seen_dates = set()
+
+    for row in cur.fetchall():
+        play_date, stat_type, avg_value = row
+        if play_date not in seen_dates:
+            seen_dates.add(play_date)
+            dates_ordered.append(play_date)
+        if stat_type in stat_values_map:
+            stat_values_map[stat_type][play_date] = round(float(avg_value), 1) if avg_value else 0
+
+    stat_history['dates'] = dates_ordered
+
+    if not dates_ordered:
+        return stat_history
+
     for i, stat_type in enumerate(top_stat_types[:3], 1):
         stat_key = f'stat{i}'
         stat_history[stat_key]['label'] = stat_type
-        
-        values = []
-        for date in dates:
-            cur.execute("""
-                SELECT AVG(stat_value)
-                FROM fact.fact_game_stats
-                WHERE player_id = %s 
-                  AND game_id = %s 
-                  AND stat_type = %s
-                  AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s;
-            """, (player_id, game_id, stat_type, timezone_str, date))
-            
-            result = cur.fetchone()
-            avg_value = round(float(result[0]), 1) if result and result[0] else 0
-            values.append(avg_value)
-        
-        stat_history[stat_key]['values'] = values
-    
+        stat_history[stat_key]['values'] = [
+            stat_values_map[stat_type].get(date, 0) for date in dates_ordered
+        ]
+
     return stat_history

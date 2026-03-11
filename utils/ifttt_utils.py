@@ -92,6 +92,14 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
     # Extract top stat for highlight
     stat1_label = stat_data.get('stat1', {}).get('label', 'Stat 1')
     stat1_value = stat_data.get('stat1', {}).get('value', 0)
+    stat1_prev = stat_data.get('stat1', {}).get('prev_value')
+
+    # Build optional previous-value comparison suffix
+    if stat1_prev is not None:
+        _arrow = "↑" if stat1_value > stat1_prev else "↓" if stat1_value < stat1_prev else "→"
+        _prev_suffix = f" ({_arrow} prev: {stat1_prev})"
+    else:
+        _prev_suffix = ""
     
     # Get theme info for hashtags
     theme = get_themed_colors()
@@ -125,8 +133,8 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
             caption += f"🎮 First game on {full_game_name}! 🎮\n"
             if game_handle:
                 caption += f"{credit_line}\n"
-            caption += f"\n🔥 {stat1_label.upper()}: {stat1_value}\n"
-            
+            caption += f"\n🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
+
             # Add stream link based on platform
             if platform == 'twitter':
                 caption += f"\nWatch live: twitch.tv/{os.environ.get('TWITCH_HANDLE', 'YourHandle')}\n"
@@ -143,8 +151,8 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
             caption = f"🎮 First game on {full_game_name}! 🎮\n"
             if game_handle:
                 caption += f"{credit_line}\n"
-            caption += f"\n🔥 {stat1_label.upper()}: {stat1_value}\n"
-            
+            caption += f"\n🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
+
             # Platform-specific base hashtags
             if platform == 'twitter':
                 hashtags = ['#Gaming', '#Stats']
@@ -159,8 +167,8 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
             if game_handle:
                 caption += f"{credit_line}\n"
             caption += f"\nGames Played: {games_played}\n"
-            caption += f"🔥 Latest {stat1_label.upper()}: {stat1_value}\n"
-            
+            caption += f"🔥 Latest {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
+
             # Add stream link based on platform
             if platform == 'twitter':
                 caption += f"\nJoin the stream: twitch.tv/{os.environ.get('TWITCH_HANDLE', 'YourHandle')}\n"
@@ -178,8 +186,8 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
             if game_handle:
                 caption += f"{credit_line}\n"
             caption += f"\nGames Played: {games_played}\n"
-            caption += f"🔥 Latest {stat1_label.upper()}: {stat1_value}\n"
-            
+            caption += f"🔥 Latest {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
+
             # Platform-specific base hashtags
             if platform == 'twitter':
                 hashtags = ['#Gaming', '#Stats', '#GamingAnalytics']
@@ -206,12 +214,20 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
     # Add hashtags to caption with single newline
     caption += f"\n{' '.join(unique_hashtags)}\n"
     
-    # Add YouTube handle if offline (less cluttered when live)
-    # Only for Instagram (Twitter has character limits)
+    # Add platform-specific footer if offline
     if not is_live:
         youtube_handle = os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')
-        caption += f"\n📺  YouTube: {youtube_handle} | Link in bio"
-    
+        linktree_handle = os.environ.get('LINKTREE_HANDLE', 'TheBOLGroup')
+        if platform == 'twitter':
+            caption += f"\n📺  YouTube: {youtube_handle} | Socials: linktr.ee/{linktree_handle}"
+        else:  # Instagram
+            caption += f"\n📺  YouTube: {youtube_handle} | Link in bio"
+
+    # Enforce platform character limits
+    char_limit = 280 if platform == 'twitter' else 2200
+    if len(caption) > char_limit:
+        caption = caption[:char_limit - 3] + "..."
+
     return caption
 
 
