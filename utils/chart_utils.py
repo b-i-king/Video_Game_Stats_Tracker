@@ -799,18 +799,34 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         # Sort by y-position (ascending) so we can detect and resolve overlaps
         line_end_positions.sort(key=lambda x: x['y'])
 
-        # Compute vertical offsets to separate labels that are too close in y-space
         ymin, ymax = ax.get_ylim()
         y_range = max(ymax - ymin, 1)
-        overlap_threshold = y_range * 0.05  # labels within 5% of y-range will visually overlap
-        SPREAD_PTS = 20  # vertical separation to apply in points
+
+        # Convert data units → approximate points using axes geometry so we can
+        # compare label positions to a fixed pixel/point gap threshold.
+        ax_height_pts = fig.get_size_inches()[1] * 72 * ax.get_position().height
+        data_to_pts = ax_height_pts / y_range
+
+        MIN_GAP_PTS = 26  # minimum vertical gap between label centres (points)
 
         n = len(line_end_positions)
-        y_offsets = [0] * n
-        for j in range(n - 1):
-            if abs(line_end_positions[j + 1]['y'] - line_end_positions[j]['y']) < overlap_threshold:
-                y_offsets[j] -= SPREAD_PTS
-                y_offsets[j + 1] += SPREAD_PTS
+        y_offsets = [0.0] * n
+
+        # Iterative spread: keep nudging overlapping pairs apart until all are
+        # separated by MIN_GAP_PTS.  Handles 2 or 3 lines at the same y-value.
+        for _ in range(30):
+            moved = False
+            for j in range(n - 1):
+                pos_j  = line_end_positions[j]['y']     * data_to_pts + y_offsets[j]
+                pos_j1 = line_end_positions[j + 1]['y'] * data_to_pts + y_offsets[j + 1]
+                gap = pos_j1 - pos_j
+                if gap < MIN_GAP_PTS:
+                    push = (MIN_GAP_PTS - gap) / 2.0
+                    y_offsets[j]     -= push
+                    y_offsets[j + 1] += push
+                    moved = True
+            if not moved:
+                break
 
         # Add text labels at line ends (show ACTUAL values with abbreviation)
         for idx, pos in enumerate(line_end_positions):

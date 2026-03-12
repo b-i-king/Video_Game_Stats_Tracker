@@ -587,6 +587,8 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
     Returns:
         BytesIO buffer with image
     """
+    stats = stats[:3]
+
     # Get colors (holiday theme only if exact date)
     if use_holiday_theme:
         theme = get_themed_colors()

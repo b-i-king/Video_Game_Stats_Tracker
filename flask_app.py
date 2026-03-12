@@ -20,6 +20,13 @@ CORS(app)
 # ---------------------------------------------------------------------------
 _endpoint_cache: dict = {}
 
+# ---------------------------------------------------------------------------
+# OBS Active flag — controls whether OBS overlay endpoints hit Redshift.
+# Set to True via /api/set_obs_active when streaming/recording, False otherwise.
+# Resets to False on app restart (safe default — no spurious queries).
+# ---------------------------------------------------------------------------
+obs_active: bool = False
+
 def _cache_get(key):
     """Return (data_dict, status_code) if a fresh entry exists, else None."""
     entry = _endpoint_cache.get(key)
@@ -1160,6 +1167,28 @@ def set_live_state(user_email):
     finally:
         release_db_connection(conn)
 
+# --- OBS Active State Endpoints ---
+@app.route('/api/obs_status', methods=['GET'])
+@requires_jwt_auth
+def get_obs_status(_user_email):
+    """Returns the current OBS active flag."""
+    return jsonify({"obs_active": obs_active}), 200
+
+@app.route('/api/set_obs_active', methods=['POST'])
+@requires_jwt_auth
+def set_obs_active(_user_email):
+    """
+    Called by Streamlit to activate/deactivate the OBS overlay and ticker.
+    When obs_active=False, get_live_dashboard and get_stat_ticker skip Redshift
+    and return an idle response, eliminating background queries.
+    """
+    global obs_active
+    data = request.json
+    obs_active = bool(data.get('active', False))
+    status = "active" if obs_active else "sleeping"
+    print(f"🎬 OBS overlay {status}")
+    return jsonify({"obs_active": obs_active}), 200
+
 # --- DYNAMIC OBS DASHBOARD ENDPOINT ---
 @app.route('/api/get_live_dashboard', methods=['GET'])
 def get_live_dashboard():
@@ -1182,7 +1211,11 @@ def get_live_dashboard():
     if key != OBS_SECRET_KEY:
         return jsonify({"error": "Unauthorized. Invalid or missing key."}), 401
 
-    # 2. Get timezone
+    # 2. Skip Redshift entirely when OBS is not active
+    if not obs_active:
+        return jsonify({"obs_active": False, "message": "OBS overlay sleeping — activate via Streamlit to load stats."}), 200
+
+    # 3. Get timezone
     timezone_str = request.args.get('tz', 'UTC')
 
     # --- 30-second response cache (avoids a DB round-trip on every OBS poll) ---
@@ -1422,6 +1455,10 @@ def get_stat_ticker():
     key = request.args.get('key')
     if key != OBS_SECRET_KEY:
         return jsonify({"error": "Unauthorized"}), 401
+
+    # Skip Redshift entirely when OBS is not active
+    if not obs_active:
+        return jsonify({"obs_active": False, "message": "OBS ticker sleeping — activate via Streamlit to load stats."}), 200
 
     timezone_str = request.args.get('tz', 'UTC')
 

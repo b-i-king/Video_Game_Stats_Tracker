@@ -290,7 +290,49 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
             st.success("🔴 LIVE - Posts will include live stream links and hashtags")
         else:
             st.info("⚪ Offline - Posts will use standard format")
-        
+
+        st.markdown("---")
+
+        # --- OBS Active Toggle ---
+        # Syncs obs_active flag in Flask so the overlay/ticker only hit Redshift when needed
+        if 'obs_active' not in st.session_state:
+            # Sync initial state from Flask on first load
+            try:
+                _init_headers = get_auth_headers()
+                if _init_headers:
+                    _resp = requests.get(f"{FLASK_API_URL}/obs_status", headers=_init_headers, timeout=3)
+                    st.session_state.obs_active = _resp.json().get('obs_active', False) if _resp.status_code == 200 else False
+                else:
+                    st.session_state.obs_active = False
+            except Exception:
+                st.session_state.obs_active = False
+
+        _prev_obs_active = st.session_state.obs_active
+        col1_obs, col2_obs = st.columns([3, 1])
+        with col1_obs:
+            st.subheader("🎬 OBS Status")
+        with col2_obs:
+            obs_active_toggle = st.toggle(
+                "OBS Active",
+                value=st.session_state.obs_active,
+                key="obs_active_toggle",
+                help="Enable when streaming or recording in OBS. Activates the overlay and stat ticker to prevent unnecessary Redshift queries when idle."
+            )
+            st.session_state.obs_active = obs_active_toggle
+
+        if obs_active_toggle != _prev_obs_active:
+            try:
+                _toggle_headers = get_auth_headers()
+                if _toggle_headers:
+                    requests.post(f"{FLASK_API_URL}/set_obs_active", json={"active": obs_active_toggle}, headers=_toggle_headers, timeout=3)
+            except Exception:
+                pass
+
+        if st.session_state.obs_active:
+            st.success("🎬 OBS Active — Overlay and ticker running")
+        else:
+            st.info("💤 OBS Sleeping — Overlay and ticker paused")
+
         st.markdown("---")
         
         # --- Stat Type Guidance ---
