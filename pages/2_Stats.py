@@ -344,69 +344,70 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
             st.session_state.post_match_rank_value = post_match_rank_final
         
 
-        st.markdown(f"**Entering stats for:** `{st.session_state.player_name}` | **Game:** `{final_game_franchise}` | **Installment:** `{final_game_installment or 'Main Game'}`")
+        with st.container(border=True):
+            st.markdown(f"**Entering stats for:** `{st.session_state.player_name}` | **Game:** `{final_game_franchise}` | **Installment:** `{final_game_installment or 'Main Game'}`")
 
-        # --- Hybrid Game Mode Input ---
-        game_mode_select_options = ["Main"]
-        if not is_new_installment_mode and selected_game_id:
-            game_mode_list = get_game_modes(selected_game_id)
-            if game_mode_list:
-                game_mode_select_options = list(set(game_mode_list))
+            # --- Hybrid Game Mode Input ---
+            game_mode_select_options = ["Main"]
+            if not is_new_installment_mode and selected_game_id:
+                game_mode_list = get_game_modes(selected_game_id)
+                if game_mode_list:
+                    game_mode_select_options = list(set(game_mode_list))
 
-        game_mode_select = st.selectbox("Game Mode *", game_mode_select_options, index=0, key="game_mode_select_inside", help="Select existing mode.")
-        new_game_mode_text = st.text_input("Game Mode (New/Override)", value="", key="new_game_mode_text", help="Leave blank to use selection. Type a new mode here.")
+            game_mode_select = st.selectbox("Game Mode *", game_mode_select_options, index=0, key="game_mode_select_inside", help="Select existing mode.")
+            new_game_mode_text = st.text_input("Game Mode (New/Override)", value="", key="new_game_mode_text", help="Leave blank to use selection. Type a new mode here.")
 
-        # Prioritize text input if filled, otherwise use selection
-        final_game_mode = new_game_mode_text.strip() if new_game_mode_text.strip() else game_mode_select
+            # Prioritize text input if filled, otherwise use selection
+            final_game_mode = new_game_mode_text.strip() if new_game_mode_text.strip() else game_mode_select
 
-        # game_mode = st.text_input("Game Mode *", value="Main", help="e.g., 'Team Deathmatch', 'Battle Royale'")
-        game_level = st.number_input("Game Level/Wave", help="e.g., 'Wave 10', 'Episode 1', 'Mission 3'", value=None, min_value=0, step=1, key="game_level_input")
-        win_option = st.selectbox("Win/Loss", [None, 'Win', 'Loss'], help="Select Win or Lose. Leave 'None' if N/A", index=0, key="win_option_select")
-        win_value = 1 if win_option == 'Win' else 0 if win_option == 'Loss' else None
+            # game_mode = st.text_input("Game Mode *", value="Main", help="e.g., 'Team Deathmatch', 'Battle Royale'")
+            game_level = st.number_input("Game Level/Wave", help="e.g., 'Wave 10', 'Episode 1', 'Mission 3'", value=None, min_value=0, step=1, key="game_level_input")
+            win_option = st.selectbox("Win/Loss", [None, 'Win', 'Loss'], help="Select Win or Lose. Leave 'None' if N/A", index=0, key="win_option_select")
+            win_value = 1 if win_option == 'Win' else 0 if win_option == 'Loss' else None
 
-        st.subheader("Stats")
-        stats_list = []
-        for i in range(st.session_state.num_stats):
-            st.markdown(f"**Stat Set {i+1}**"); cols = st.columns(2)
-            stat_type = cols[0].text_input(f"Stat Type", help="e.g., 'Points', 'Eliminations'", key=f"stat_type_{i}")
-            stat_value = cols[1].number_input(f"Stat Value", help="Numeric value of specific statistics", value=0, min_value=0, step=1, key=f"stat_value_{i}")
+            st.subheader("Stats")
+            stats_list = []
+            for i in range(st.session_state.num_stats):
+                st.markdown(f"**Stat Set {i+1}**"); cols = st.columns(2)
+                stat_type = cols[0].text_input(f"Stat Type", help="e.g., 'Points', 'Eliminations'", key=f"stat_type_{i}")
+                stat_value = cols[1].number_input(f"Stat Value", help="Numeric value of specific statistics", value=0, min_value=0, step=1, key=f"stat_value_{i}")
 
-            is_ranked_from_state = st.session_state.get('is_ranked', False)
-            pre_rank_from_state = st.session_state.get('pre_match_rank_value') if is_ranked_from_state else None
-            post_rank_from_state = st.session_state.get('post_match_rank_value') if is_ranked_from_state else None
+                is_ranked_from_state = st.session_state.get('is_ranked', False)
+                pre_rank_from_state = st.session_state.get('pre_match_rank_value') if is_ranked_from_state else None
+                post_rank_from_state = st.session_state.get('post_match_rank_value') if is_ranked_from_state else None
 
-            if stat_type and stat_value is not None and stat_value >= 0:
-                stats_list.append({
-                    "stat_type": stat_type, "stat_value": int(stat_value),
-                    "game_mode": final_game_mode or "Main",
-                    "game_level": int(game_level) if game_level and game_level > 0 else None,
-                    "win": win_value,
-                    "ranked": 1 if is_ranked_from_state else 0,
-                    "pre_match_rank_value": pre_rank_from_state,
-                    "post_match_rank_value": post_rank_from_state
-                })
+                if stat_type and stat_value is not None and stat_value >= 0:
+                    stats_list.append({
+                        "stat_type": stat_type, "stat_value": int(stat_value),
+                        "game_mode": final_game_mode or "Main",
+                        "game_level": int(game_level) if game_level and game_level > 0 else None,
+                        "win": win_value,
+                        "ranked": 1 if is_ranked_from_state else 0,
+                        "pre_match_rank_value": pre_rank_from_state,
+                        "post_match_rank_value": post_rank_from_state
+                    })
 
-        # --- Stats preview (reactive — updates on every widget change) ---
-        has_zero_stats = False
-        if stats_list:
-            zero_stats = [s['stat_type'] for s in stats_list if s['stat_value'] == 0]
-            has_zero_stats = bool(zero_stats)
-            if zero_stats:
-                st.error(f"⛔ Zero value detected for: **{', '.join(zero_stats)}**. Fix or confirm below before submitting.")
-            with st.expander("📋 Review your stats before submitting", expanded=True):
-                for s in stats_list:
-                    flag = " ⚠️ (zero)" if s['stat_value'] == 0 else ""
-                    st.write(f"• **{s['stat_type']}**: {s['stat_value']}{flag}")
+            # --- Stats preview (reactive — updates on every widget change) ---
+            has_zero_stats = False
+            if stats_list:
+                zero_stats = [s['stat_type'] for s in stats_list if s['stat_value'] == 0]
+                has_zero_stats = bool(zero_stats)
+                if zero_stats:
+                    st.error(f"⛔ Zero value detected for: **{', '.join(zero_stats)}**. Fix or confirm below before submitting.")
+                with st.expander("📋 Review your stats before submitting", expanded=True):
+                    for s in stats_list:
+                        flag = " ⚠️ (zero)" if s['stat_value'] == 0 else ""
+                        st.write(f"• **{s['stat_type']}**: {s['stat_value']}{flag}")
 
-        confirm_checked = st.checkbox(
-            "✅ I have reviewed my stats above and they are correct.",
-            value=False,
-            key="confirm_stats_checkbox"
-        )
-        if has_zero_stats and confirm_checked:
-            st.warning("You are submitting one or more stats with a value of 0. Make sure this is intentional.")
+            confirm_checked = st.checkbox(
+                "✅ I have reviewed my stats above and they are correct.",
+                value=False,
+                key="confirm_stats_checkbox"
+            )
+            if has_zero_stats and confirm_checked:
+                st.warning("You are submitting one or more stats with a value of 0. Make sure this is intentional.")
 
-        submitted = st.button("Submit Stats", disabled=not confirm_checked, key="submit_stats_button")
+            submitted = st.button("Submit Stats", disabled=not confirm_checked, key="submit_stats_button")
         if submitted:
             valid = False
             if is_new_installment_mode:
