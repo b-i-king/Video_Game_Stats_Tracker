@@ -796,30 +796,43 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     
     # Add direct labels at end of lines (instead of legend)
     if line_end_positions:
-        # Sort by y-position to avoid overlaps
+        # Sort by y-position (ascending) so we can detect and resolve overlaps
         line_end_positions.sort(key=lambda x: x['y'])
-        
+
+        # Compute vertical offsets to separate labels that are too close in y-space
+        ymin, ymax = ax.get_ylim()
+        y_range = max(ymax - ymin, 1)
+        overlap_threshold = y_range * 0.05  # labels within 5% of y-range will visually overlap
+        SPREAD_PTS = 20  # vertical separation to apply in points
+
+        n = len(line_end_positions)
+        y_offsets = [0] * n
+        for j in range(n - 1):
+            if abs(line_end_positions[j + 1]['y'] - line_end_positions[j]['y']) < overlap_threshold:
+                y_offsets[j] -= SPREAD_PTS
+                y_offsets[j + 1] += SPREAD_PTS
+
         # Add text labels at line ends (show ACTUAL values with abbreviation)
-        for pos in line_end_positions:
+        for idx, pos in enumerate(line_end_positions):
             label_x = pos['x']
             label_y = pos['y']
-            
+
             # Format actual value for display
             actual_val = pos['actual_y']
             value_display = format_large_number(actual_val)
-            
+
             label_text = f"{pos['label']}: {value_display}"
-            
-            ax.annotate(label_text, 
+
+            ax.annotate(label_text,
                        xy=(label_x, label_y),
-                       xytext=(10, 0),  # 10 points to the right
+                       xytext=(10, y_offsets[idx]),  # x offset right + vertical spread if needed
                        textcoords='offset points',
                        fontsize=direct_label_fontsize,
                        fontweight='bold',
                        color=pos['color'],
                        va='center',
-                       bbox=dict(boxstyle='round,pad=0.3', 
-                                facecolor='#2d2d2d', 
+                       bbox=dict(boxstyle='round,pad=0.3',
+                                facecolor='#2d2d2d',
                                 edgecolor=pos['color'],
                                 linewidth=2,
                                 alpha=0.9))

@@ -435,7 +435,7 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         response.raise_for_status()
                         submitted_summary = ", ".join(f"{s['stat_type']}: {s['stat_value']}" for s in stats_list)
                         st.success(f"Stats submitted! ✅ Saved: {submitted_summary}")
-                        st.session_state.confirm_stats_checkbox = False
+                        st.session_state.pop("confirm_stats_checkbox", None)
                         st.session_state.num_stats = 1; st.session_state.data_cache.clear(); st.session_state.selected_genre = "Select a Genre"; st.session_state.selected_subgenre = "Select a Subgenre"; st.rerun()
                     except requests.exceptions.RequestException as e:
                         st.error(f"Submit error: {e}")
