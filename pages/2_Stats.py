@@ -399,15 +399,7 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         flag = " ⚠️ (zero)" if s['stat_value'] == 0 else ""
                         st.write(f"• **{s['stat_type']}**: {s['stat_value']}{flag}")
 
-            confirm_checked = st.checkbox(
-                "✅ I have reviewed my stats above and they are correct.",
-                value=False,
-                key="confirm_stats_checkbox"
-            )
-            if has_zero_stats and confirm_checked:
-                st.warning("You are submitting one or more stats with a value of 0. Make sure this is intentional.")
-
-            submitted = st.form_submit_button("Submit Stats", disabled=not confirm_checked)
+            submitted = st.form_submit_button("Submit Stats", disabled=not st.session_state.get("confirm_stats_checkbox", False))
             if submitted:
                 valid = False
                 if is_new_installment_mode:
@@ -444,6 +436,14 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                                  if response.status_code == 401: st.error("Auth error."); st.session_state.jwt_token = None; st.session_state.auth_mode = 'guest'; st.rerun()
                                  elif response.status_code == 403: st.error("Permission denied.")
                                  else: st.error(f"Backend error: {error_detail}")
+
+        # Checkbox is outside the form so clicking it triggers a rerun,
+        # allowing the submit button's disabled state to update immediately
+        st.checkbox(
+            "✅ I have reviewed my stats above and they are correct.",
+            value=False,
+            key="confirm_stats_checkbox"
+        )
 
     # --- Edit Tab ---
     if st.session_state.is_trusted_user:
