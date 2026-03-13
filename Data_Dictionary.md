@@ -78,7 +78,7 @@ Stores the results of a specific stat for a specific match. This is the central 
 | `stat_id` | INT | IDENTITY(1, 1) PK | Primary Key. Unique, auto-incrementing ID for the stat entry. |
 | `game_id` | INTEGER | FK | Foreign Key. Links to `dim.dim_games(game_id)`. |
 | `player_id` | INTEGER | FK | Foreign Key. Links to `dim.dim_players(player_id)`. |
-| `stat_type` | VARCHAR(50) | NOT NULL | The name of the stat being measured (e.g., "Kills", "Score"). |
+| `stat_type` | VARCHAR(50) | NOT NULL | The name of the stat being measured (e.g., "Eliminations", "Score"). |
 | `stat_value` | INTEGER |  | The numeric value of the stat (e.g., 10, 1500). |
 | `game_mode` | VARCHAR(255) |  | The specific mode played (e.g., "Team Deathmatch", "Main"). |
 | `game_level` | INTEGER | NULL | The level, wave, or mission number (e.g., 10, 3). |
