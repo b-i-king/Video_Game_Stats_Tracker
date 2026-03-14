@@ -32,9 +32,10 @@ import io
 import requests
 import hashlib
 import logging
+from collections import defaultdict
 
 # Import utilities (these will be in the Lambda package)
-from utils.chart_utils import abbreviate_stat, format_large_number, load_custom_fonts, should_use_log_scale
+from utils.chart_utils import abbreviate_stat, abbreviate_game_mode, format_large_number, load_custom_fonts, should_use_log_scale
 from utils.holiday_themes import get_themed_colors, is_exact_holiday
 from utils.gcs_utils import upload_instagram_poster_to_gcs
 from utils.game_handles_utils import get_game_handle, get_game_hashtags
@@ -90,13 +91,14 @@ def get_redshift_client():
     return redshift_client
 
 
-def execute_query(sql, parameters=None):
+def execute_query(sql, parameters=None, timeout_seconds=120):
     """
     Execute a SQL query via Redshift Data API and return results.
 
     Args:
         sql: SQL string. Use :param_name for named parameters.
         parameters: list of {'name': str, 'value': str} dicts, or None.
+        timeout_seconds: max seconds to wait for query completion (default 120).
 
     Returns:
         list of rows, each row a list of field dicts.
@@ -113,6 +115,7 @@ def execute_query(sql, parameters=None):
 
     response = client.execute_statement(**kwargs)
     statement_id = response['Id']
+    elapsed = 0.0
 
     # Poll until finished
     while True:
@@ -125,7 +128,19 @@ def execute_query(sql, parameters=None):
             error = status_response.get('Error', 'Unknown error')
             raise Exception(f"Query failed [{status}]: {error}")
 
+        if elapsed >= timeout_seconds:
+            # Cancel the stalled statement before raising
+            try:
+                client.cancel_statement(Id=statement_id)
+            except Exception:
+                pass
+            raise Exception(
+                f"Query timed out after {timeout_seconds}s (status={status}). "
+                f"Check Redshift RPU capacity."
+            )
+
         time.sleep(0.5)
+        elapsed += 0.5
 
     if status_response.get('HasResultSet'):
         result = client.get_statement_result(Id=statement_id)
@@ -307,6 +322,32 @@ def get_stats_for_date_all_games(player_id, target_date):
     } for row in records]
 
 
+def get_game_mode_for_date(player_id, game_id, target_date):
+    """Return the most-played game mode on a specific date, or None if only 'Main' was played."""
+    records = execute_query(
+        """
+        SELECT game_mode, COUNT(*) AS cnt
+        FROM fact.fact_game_stats
+        WHERE player_id = :player_id
+          AND game_id = :game_id
+          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date
+          AND game_mode IS NOT NULL
+          AND TRIM(game_mode) != ''
+          AND LOWER(TRIM(game_mode)) != 'main'
+        GROUP BY game_mode
+        ORDER BY cnt DESC
+        LIMIT 1;
+        """,
+        [
+            {'name': 'player_id',   'value': str(player_id)},
+            {'name': 'game_id',     'value': str(game_id)},
+            {'name': 'timezone',    'value': TIMEZONE_STR},
+            {'name': 'target_date', 'value': str(target_date)},
+        ]
+    )
+    return get_field_value(records[0][0]) if records else None
+
+
 def detect_anomalies(player_id, game_id, target_date):
     """Detect statistical anomalies for a specific date"""
     records = execute_query(
@@ -435,7 +476,7 @@ def get_historical_records_all_games(player_id, posted_hashes, limit=10):
 # CAPTION GENERATION
 # ============================================================================
 
-def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies):
+def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies, game_mode=None):
     """
     Generate trendy caption with game-specific handle and hashtags.
     Now uses game_handles_utils for centralized social media data.
@@ -465,13 +506,13 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
 
     # Determine hashtag based on day
     day_hashtags = {
-        'Monday': '#MondayMotivation #MondayUpdate',
-        'Tuesday': '#TuesdayVibes #GamingTuesday',
-        'Wednesday': '#WednesdayUpdate #MidweekGrind',
-        'Thursday': '#ThrowbackThursday #GamingThursday',
-        'Friday': '#FridayFeeling #WeekendReady',
-        'Saturday': '#SaturdayGaming #WeekendVibes',
-        'Sunday': '#SundayFunday #SundayGaming'
+        'Monday': '#GamingThread #MondayMotivation #MondayUpdate',
+        'Tuesday': '#GamingThread #TuesdayVibes #GamingTuesday',
+        'Wednesday': '#GamingThread #WednesdayUpdate #MidweekGrind',
+        'Thursday': '#GamingThread #ThrowbackThursday #GamingThursday',
+        'Friday': '#GamingThread #FridayFeeling #WeekendReady',
+        'Saturday': '#GamingThread #SaturdayGaming #WeekendVibes',
+        'Sunday': '#GamingThread #SundayFunday #SundayGaming'
     }
 
     day_tag = day_hashtags.get(day_of_week, '#GamingUpdate')
@@ -503,6 +544,11 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
                 caption_lines.append(f"• {anomaly['description']}")
             caption_lines.append("")
 
+    # Game mode (if applicable)
+    if game_mode and game_mode.strip().lower() not in ('main', 'n/a', 'none', '-'):
+        caption_lines.append(f"🎮 Game Mode: {game_mode.strip()}")
+        caption_lines.append("")
+
     # Add game mention if available
     if game_handle:
         caption_lines.append(f"Playing {game_handle}")
@@ -514,6 +560,17 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
         else:
             caption_lines.append(f"{full_game_name} Analyzed")
             caption_lines.append("")
+
+    # Engagement CTA
+    if post_type == 'daily':
+        caption_lines.append("💬 What was your best match today? Drop it below 👇")
+    elif post_type == 'recent':
+        caption_lines.append("💬 Can you beat this score? Let us know 👇")
+    else:  # historical
+        caption_lines.append("💬 Think you can top this all-time record? 👇")
+    caption_lines.append("")
+    caption_lines.append("📲 Follow for daily stats, weekly recaps & more!")
+    caption_lines.append("")
 
     # Build hashtag list
     base_hashtags = ['#gaming', '#esports', '#casual', '#gamer', '#gamingcommunity']
@@ -562,7 +619,20 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
 # CHART GENERATION
 # ============================================================================
 
-def create_instagram_portrait_chart(stats, player_name, game_name, game_installment, title, subtitle=None, use_holiday_theme=False):
+def _add_branding(fig):
+    """Add consistent YT/Twitch handle and timestamp to the bottom of any figure."""
+    fs = 19
+    timestamp = datetime.now().strftime('%B %d, %Y')
+    handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
+    y = 0.03
+    fig.text(0.99, y, timestamp, ha='right', va='bottom', fontsize=fs, color='gray', style='italic')
+    fig.text(0.01,       y, 'YT',          ha='left', va='bottom', fontsize=fs, color='#FF0000', fontweight='bold')
+    fig.text(0.01+0.025, y, ' & ',         ha='left', va='bottom', fontsize=fs, color='white',   fontweight='normal')
+    fig.text(0.01+0.062, y, 'Twitch',      ha='left', va='bottom', fontsize=fs, color='#9146FF', fontweight='bold')
+    fig.text(0.01+0.134, y, f' : {handle}', ha='left', va='bottom', fontsize=fs, color='white',  fontweight='bold')
+
+
+def create_instagram_portrait_chart(stats, player_name, game_name, game_installment, title, subtitle=None, use_holiday_theme=False, game_mode=None):
     """
     Create portrait-oriented chart for Instagram (1080x1440).
 
@@ -844,6 +914,13 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
     fig.text(0.99, branding_y_pos, timestamp, ha='right', va='bottom',
              fontsize=branding_fontsize, color='gray', style='italic')
 
+    # Game mode tag (centered between handles and date)
+    _mode_tag = abbreviate_game_mode(game_mode) if game_mode else None
+    if _mode_tag:
+        fig.text(0.5, branding_y_pos, f' {_mode_tag} ', ha='center', va='bottom',
+                 fontsize=branding_fontsize, color='white', fontweight='bold',
+                 bbox=dict(boxstyle='round,pad=0.3', facecolor='none', edgecolor='white', linewidth=1.5))
+
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
     x_start = 0.01
     fig.text(x_start, branding_y_pos, 'YT', ha='left', va='bottom',
@@ -991,6 +1068,7 @@ def run_instagram_poster():
     stats = []
     game_info = {}
     anomalies = []
+    game_mode = None
     date_str = ""
     title = ""
     subtitle = None
@@ -1016,6 +1094,7 @@ def run_instagram_poster():
             if game_id:
                 stats = get_stats_for_date(PLAYER_ID, game_id, today)
                 anomalies = detect_anomalies(PLAYER_ID, game_id, today)
+                game_mode = get_game_mode_for_date(PLAYER_ID, game_id, today)
 
             post_type = 'daily'
             date_str = today.strftime('%A, %B %d')
@@ -1043,6 +1122,7 @@ def run_instagram_poster():
             if game_id:
                 stats = get_stats_for_date(PLAYER_ID, game_id, yesterday)
                 anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
+                game_mode = get_game_mode_for_date(PLAYER_ID, game_id, yesterday)
 
             post_type = 'recent'
             date_str = yesterday.strftime('%A, %B %d')
@@ -1093,7 +1173,8 @@ def run_instagram_poster():
     logger.info(f"🎨 Creating Instagram chart (Holiday theme: {use_holiday_theme})...")
     image_buffer = create_instagram_portrait_chart(
         stats, player_name, game_info['game_name'],
-        game_info.get('game_installment'), title, subtitle, use_holiday_theme
+        game_info.get('game_installment'), title, subtitle, use_holiday_theme,
+        game_mode=game_mode
     )
 
     # Backup to GCS
@@ -1113,7 +1194,8 @@ def run_instagram_poster():
 
     # Generate caption
     caption = generate_trendy_caption(
-        post_type, stats, game_info, player_name, day_of_week, anomalies
+        post_type, stats, game_info, player_name, day_of_week, anomalies,
+        game_mode=game_mode
     )
     logger.info(f"📝 Caption:\n{caption}\n")
 
@@ -1196,6 +1278,7 @@ def run_instagram_poster_for_queue():
     stats = []
     game_info = {}
     anomalies = []
+    game_mode = None
     date_str = ""
     title = ""
     subtitle = None
@@ -1221,6 +1304,7 @@ def run_instagram_poster_for_queue():
             if game_id:
                 stats = get_stats_for_date(PLAYER_ID, game_id, today)
                 anomalies = detect_anomalies(PLAYER_ID, game_id, today)
+                game_mode = get_game_mode_for_date(PLAYER_ID, game_id, today)
 
             post_type = 'daily'
             date_str = today.strftime('%A, %B %d')
@@ -1248,6 +1332,7 @@ def run_instagram_poster_for_queue():
             if game_id:
                 stats = get_stats_for_date(PLAYER_ID, game_id, yesterday)
                 anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
+                game_mode = get_game_mode_for_date(PLAYER_ID, game_id, yesterday)
 
             post_type = 'recent'
             date_str = yesterday.strftime('%A, %B %d')
@@ -1298,7 +1383,8 @@ def run_instagram_poster_for_queue():
     logger.info(f"🎨 Creating Instagram chart (Holiday theme: {use_holiday_theme})...")
     image_buffer = create_instagram_portrait_chart(
         stats, player_name, game_info['game_name'],
-        game_info.get('game_installment'), title, subtitle, use_holiday_theme
+        game_info.get('game_installment'), title, subtitle, use_holiday_theme,
+        game_mode=game_mode
     )
 
     # Backup to GCS (URL is required for Instagram posting)
@@ -1318,7 +1404,8 @@ def run_instagram_poster_for_queue():
 
     # Generate caption
     caption = generate_trendy_caption(
-        post_type, stats, game_info, player_name, day_of_week, anomalies
+        post_type, stats, game_info, player_name, day_of_week, anomalies,
+        game_mode=game_mode
     )
     logger.info(f"📝 Caption generated ({len(caption)} chars)")
 
@@ -1334,7 +1421,1226 @@ def run_instagram_poster_for_queue():
     }
 
 
+def run_tuesday_thursday_poster_for_queue():
+    """
+    FETCH step for Tuesday/Thursday Tale of the Tape comparison posts.
+    Returns a dict compatible with fetch_and_queue() — does NOT post to Instagram.
+    """
+    player_name = get_player_info(PLAYER_ID)
+    if not player_name:
+        raise Exception(f"No player data found for player_id={PLAYER_ID}")
+
+    logger.info(f"👤 Player: {player_name}")
+
+    # Check if today is exact holiday (for theme)
+    exact_holiday = is_exact_holiday()
+    use_holiday_theme = exact_holiday is not None
+
+    try:
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        now_local = datetime.now()
+    day_of_week = now_local.strftime('%A')
+
+    # Get comparison data
+    data = get_tale_of_tape_data(PLAYER_ID)
+    if data is None:
+        raise Exception("Insufficient data for Tale of the Tape (need 30+ samples per mode per stat)")
+
+    logger.info(f"🎮 Game: {data['game_name']} | Modes: {data['mode_1']} vs {data['mode_2']}")
+
+    game_info = {
+        'game_name': data['game_name'],
+        'game_installment': data['game_installment']
+    }
+
+    # Create chart
+    logger.info(f"🎨 Creating Tale of the Tape chart (Holiday theme: {use_holiday_theme})...")
+    image_buffer = create_tale_of_tape_chart(
+        data['game_name'], data['game_installment'],
+        data['mode_1'], data['mode_2'], data['stats'],
+        player_name, use_holiday_theme
+    )
+
+    # Upload to GCS
+    logger.info(f"☁️ Uploading to Google Cloud Storage...")
+    gcs_url = None
+    try:
+        gcs_buffer = io.BytesIO(image_buffer.getvalue())
+        gcs_url = upload_instagram_poster_to_gcs(gcs_buffer, player_name, data['game_name'], 'comparison')
+        if gcs_url:
+            logger.info(f"✅ Uploaded to GCS: {gcs_url}")
+        else:
+            logger.warning(f"⚠️ GCS upload failed (continuing)")
+    except Exception as gcs_error:
+        logger.warning(f"⚠️ GCS upload error: {gcs_error}")
+
+    # Generate caption
+    caption = generate_comparison_caption(
+        game_info, data['mode_1'], data['mode_2'], data['stats'], player_name, day_of_week
+    )
+    logger.info(f"📝 Caption generated ({len(caption)} chars)")
+
+    # No dedup needed for comparison posts
+    content_hash = None
+
+    return {
+        'image_buffer': image_buffer,
+        'gcs_url': gcs_url,
+        'caption': caption,
+        'post_type': 'comparison',
+        'game': data['game_name'],
+        'player': player_name,
+        'content_hash': content_hash
+    }
+
+
+def run_saturday_poster_for_queue():
+    """
+    FETCH step for Saturday weekly summary posts.
+    Returns a dict compatible with fetch_and_queue() — does NOT post to Instagram.
+    """
+    player_name = get_player_info(PLAYER_ID)
+    if not player_name:
+        raise Exception(f"No player data found for player_id={PLAYER_ID}")
+
+    logger.info(f"👤 Player: {player_name}")
+
+    # Check if today is exact holiday (for theme)
+    exact_holiday = is_exact_holiday()
+    use_holiday_theme = exact_holiday is not None
+
+    try:
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        now_local = datetime.now()
+
+    today = now_local.date()
+    week_end = today - timedelta(days=1)    # Friday
+    week_start = today - timedelta(days=7)  # Previous Saturday
+
+    logger.info(f"📅 Weekly range: {week_start} to {week_end}")
+
+    # Get weekly summary data
+    summary = get_weekly_summary_data(PLAYER_ID, week_start, week_end)
+    if summary is None:
+        raise Exception("Insufficient data for weekly summary")
+
+    logger.info(f"🎮 Games in summary: {summary.get('total_games', 0)}")
+
+    # Create chart
+    logger.info(f"🎨 Creating weekly summary chart (Holiday theme: {use_holiday_theme})...")
+    image_buffer = create_weekly_summary_chart(summary, player_name, use_holiday_theme)
+
+    # Upload to GCS
+    logger.info(f"☁️ Uploading to Google Cloud Storage...")
+    gcs_url = None
+    try:
+        gcs_buffer = io.BytesIO(image_buffer.getvalue())
+        gcs_url = upload_instagram_poster_to_gcs(gcs_buffer, player_name, 'weekly_summary', 'weekly')
+        if gcs_url:
+            logger.info(f"✅ Uploaded to GCS: {gcs_url}")
+        else:
+            logger.warning(f"⚠️ GCS upload failed (continuing)")
+    except Exception as gcs_error:
+        logger.warning(f"⚠️ GCS upload error: {gcs_error}")
+
+    # Generate caption
+    caption = generate_weekly_caption(summary, player_name)
+    logger.info(f"📝 Caption generated ({len(caption)} chars)")
+
+    # Hash from week_start date string to prevent double-posting the same week
+    content_hash = hashlib.md5(str(week_start).encode()).hexdigest()
+
+    return {
+        'image_buffer': image_buffer,
+        'gcs_url': gcs_url,
+        'caption': caption,
+        'post_type': 'weekly_summary',
+        'game': 'Weekly Summary',
+        'player': player_name,
+        'content_hash': content_hash
+    }
+
+
+def run_new_years_poster_for_queue():
+    """
+    FETCH step for New Year's Day yearly recap posts.
+    Returns a dict compatible with fetch_and_queue() — does NOT post to Instagram.
+    """
+    player_name = get_player_info(PLAYER_ID)
+    if not player_name:
+        raise Exception(f"No player data found for player_id={PLAYER_ID}")
+
+    logger.info(f"👤 Player: {player_name}")
+
+    # Check if today is exact holiday (for theme)
+    exact_holiday = is_exact_holiday()
+    use_holiday_theme = exact_holiday is not None
+
+    try:
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        now_local = datetime.now()
+
+    recap_year = now_local.year - 1
+    logger.info(f"📅 Generating recap for year: {recap_year}")
+
+    # Get yearly recap data
+    recap = get_yearly_recap_data(PLAYER_ID, recap_year)
+    if recap is None:
+        raise Exception(f"Insufficient data for {recap_year} yearly recap")
+
+    logger.info(f"🎮 Gamer type: {recap.get('gamer_type', 'unknown')}")
+
+    # Create chart
+    logger.info(f"🎨 Creating yearly recap chart (Holiday theme: {use_holiday_theme})...")
+    image_buffer = create_yearly_recap_chart(recap, player_name, use_holiday_theme)
+
+    # Upload to GCS
+    logger.info(f"☁️ Uploading to Google Cloud Storage...")
+    gcs_url = None
+    try:
+        gcs_buffer = io.BytesIO(image_buffer.getvalue())
+        gcs_url = upload_instagram_poster_to_gcs(
+            gcs_buffer, player_name, f'yearly_recap_{recap_year}', 'yearly'
+        )
+        if gcs_url:
+            logger.info(f"✅ Uploaded to GCS: {gcs_url}")
+        else:
+            logger.warning(f"⚠️ GCS upload failed (continuing)")
+    except Exception as gcs_error:
+        logger.warning(f"⚠️ GCS upload error: {gcs_error}")
+
+    # Generate caption
+    caption = generate_yearly_recap_caption(recap, player_name)
+    logger.info(f"📝 Caption generated ({len(caption)} chars)")
+
+    # Deterministic hash — same year never posts twice
+    content_hash = hashlib.md5(f"yearly_{recap_year}".encode()).hexdigest()
+
+    return {
+        'image_buffer': image_buffer,
+        'gcs_url': gcs_url,
+        'caption': caption,
+        'post_type': 'yearly_recap',
+        'game': f'{recap_year} Recap',
+        'player': player_name,
+        'content_hash': content_hash
+    }
+
+
+# ============================================================================
+# TUESDAY / THURSDAY: GAME MODE COMPARISON  (Tale of the Tape)
+# ============================================================================
+
+def get_tale_of_tape_data(player_id):
+    """
+    Find a game + two-mode pair where each mode has >= min_samples observations
+    per stat_type.  Returns dict or None when insufficient data exists.
+    """
+    records = execute_query(
+        """
+        WITH mode_stats AS (
+            SELECT
+                f.game_id,
+                f.game_mode,
+                f.stat_type,
+                COUNT(*)                            AS n,
+                AVG(CAST(f.stat_value AS FLOAT))    AS mean_val,
+                STDDEV(CAST(f.stat_value AS FLOAT)) AS std_val
+            FROM fact.fact_game_stats f
+            WHERE f.player_id = :player_id
+              AND f.game_mode IS NOT NULL
+              AND TRIM(f.game_mode) != ''
+            GROUP BY f.game_id, f.game_mode, f.stat_type
+            HAVING COUNT(*) >= 30
+        )
+        SELECT
+            a.game_id,
+            a.game_mode  AS mode_1,
+            b.game_mode  AS mode_2,
+            a.stat_type,
+            a.n          AS n1,
+            a.mean_val   AS mean1,
+            a.std_val    AS std1,
+            b.n          AS n2,
+            b.mean_val   AS mean2,
+            b.std_val    AS std2
+        FROM mode_stats a
+        JOIN mode_stats b
+          ON  a.game_id   = b.game_id
+          AND a.stat_type = b.stat_type
+          AND a.game_mode < b.game_mode
+        ORDER BY a.game_id, (a.mean_val + b.mean_val) DESC;
+        """,
+        [{'name': 'player_id', 'value': str(player_id)}]
+    )
+
+    if not records:
+        return None
+
+    pairs = defaultdict(list)
+    for row in records:
+        key = (
+            get_field_value(row[0]),   # game_id
+            get_field_value(row[1]),   # mode_1
+            get_field_value(row[2]),   # mode_2
+        )
+        pairs[key].append({
+            'stat_type': get_field_value(row[3]),
+            'n1':    int(get_field_value(row[4]) or 0),
+            'mean1': float(get_field_value(row[5]) or 0),
+            'std1':  float(get_field_value(row[6]) or 0),
+            'n2':    int(get_field_value(row[7]) or 0),
+            'mean2': float(get_field_value(row[8]) or 0),
+            'std2':  float(get_field_value(row[9]) or 0),
+        })
+
+    for (game_id, mode_1, mode_2), stats_list in pairs.items():
+        game_records = execute_query(
+            "SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = :game_id;",
+            [{'name': 'game_id', 'value': str(game_id)}]
+        )
+        if game_records:
+            return {
+                'game_id':          game_id,
+                'game_name':        get_field_value(game_records[0][0]),
+                'game_installment': get_field_value(game_records[0][1]),
+                'mode_1':           mode_1,
+                'mode_2':           mode_2,
+                'stats':            stats_list[:3],
+            }
+
+    return None
+
+
+def create_tale_of_tape_chart(game_name, installment, mode_1, mode_2, stats_data,
+                               player_name, use_holiday_theme=False):
+    """
+    UFC Tale of the Tape style 3-column comparison chart (1080x1440).
+    Left = mode_1 averages (dimmed if lower), center = stat labels,
+    right = mode_2 averages (dimmed if lower).
+    """
+    theme = get_themed_colors()
+    all_colors = theme['colors']
+    mode_1_color = all_colors[0]
+    mode_2_color = all_colors[1] if len(all_colors) > 1 else '#4fc3f7'
+    full_game_name = f"{game_name}: {installment}" if installment else game_name
+    num_stats = len(stats_data)
+
+    fig = plt.figure(figsize=(10.8, 14.4), dpi=100)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    fig.patch.set_facecolor('#1a1a1a')
+
+    import textwrap as _tw
+
+    def rule(y, alpha=0.3, lw=1):
+        ax.plot([0.05, 0.95], [y, y], color='white', linewidth=lw,
+                alpha=alpha, transform=ax.transAxes)
+
+    def _wrap_mode(name, maxcols=12):
+        """Wrap mode name to at most 2 lines."""
+        lines = _tw.wrap(name.upper(), width=maxcols)
+        return '\n'.join(lines[:2])
+
+    def _fmtv(v):
+        """Abbreviate stat value if >=1000, otherwise 1 decimal place."""
+        if v >= 1000:
+            return format_large_number(round(v, 1))
+        return f"{v:.1f}"
+
+    # ── Title (auto-size font to fit image width) ───────────────────────────
+    game_len = len(full_game_name)
+    if game_len <= 16:   game_title_fs = 62
+    elif game_len <= 22: game_title_fs = 56
+    elif game_len <= 28: game_title_fs = 48 
+    elif game_len <= 34: game_title_fs = 32
+    else:                game_title_fs = 28
+    
+    ax.text(0.5, 0.94, full_game_name, ha='center', va='center',
+            fontsize=game_title_fs, fontweight='bold', color='white',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.5, 0.90, player_name, ha='center', va='center',
+            fontsize=30, color='gray',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    rule(0.87)
+
+    # ── 1-stat: table layout ─────────────────────────────────────────────
+    if num_stats == 1:
+        stat = stats_data[0]
+        stat_label = abbreviate_stat(stat['stat_type']).upper()
+        val_fs = 72
+        max_val_len = max(len(_fmtv(stat['mean1'])), len(_fmtv(stat['mean2'])))
+        if max_val_len > 4:
+            val_fs = max(int(val_fs * 4 / max_val_len), val_fs // 2)
+
+        # Full-width "TALE OF THE TAPE" title
+        ax.text(0.5, 0.80, 'TALE OF THE TAPE', ha='center', va='center',
+                fontsize=52, fontweight='bold', color='gray',
+                fontfamily='Fira Code', transform=ax.transAxes)
+        rule(0.73)
+
+        # Column headers
+        col1_x, col2_x = 0.25, 0.72
+        ax.text(col1_x, 0.67, 'GAME MODE', ha='center', va='center',
+                fontsize=52, color='gray', fontfamily='Fira Code', transform=ax.transAxes)
+        ax.text(col2_x, 0.67, stat_label, ha='center', va='center',
+                fontsize=52, fontweight='bold', color='gray',
+                fontfamily='Fira Code', transform=ax.transAxes)
+        rule(0.61, alpha=0.4, lw=0.5)
+
+        # Vertical column divider
+        ax.plot([0.5, 0.5], [0.13, 0.73], color='white', alpha=0.2, lw=0.5,
+                transform=ax.transAxes)
+
+        # Row 1 — mode_1
+        row1_y = 0.49
+        m1_alpha = 1.0 if stat['mean1'] >= stat['mean2'] else 0.45
+        ax.text(col1_x, row1_y, _wrap_mode(mode_1), ha='center', va='center',
+                fontsize=56, fontweight='bold', color=mode_1_color,
+                multialignment='center', fontfamily='Fira Code', transform=ax.transAxes)
+        ax.text(col2_x, row1_y + 0.02, _fmtv(stat['mean1']), ha='center', va='center',
+                fontsize=val_fs, fontweight='bold', color=mode_1_color, alpha=m1_alpha,
+                fontfamily='Fira Code', transform=ax.transAxes)
+        ax.text(col2_x, row1_y - 0.03, f"n={stat['n1']}", ha='center', va='center',
+                fontsize=52, color='gray', fontfamily='Fira Code', transform=ax.transAxes)
+
+        rule(0.37, alpha=0.3, lw=0.5)
+
+        # Row 2 — mode_2
+        row2_y = 0.25
+        m2_alpha = 1.0 if stat['mean2'] >= stat['mean1'] else 0.45
+        ax.text(col1_x, row2_y, _wrap_mode(mode_2), ha='center', va='center',
+                fontsize=56, fontweight='bold', color=mode_2_color,
+                multialignment='center', fontfamily='Fira Code', transform=ax.transAxes)
+        ax.text(col2_x, row2_y + 0.02, _fmtv(stat['mean2']), ha='center', va='center',
+                fontsize=val_fs, fontweight='bold', color=mode_2_color, alpha=m2_alpha,
+                fontfamily='Fira Code', transform=ax.transAxes)
+        ax.text(col2_x, row2_y - 0.03, f"n={stat['n2']}", ha='center', va='center',
+                fontsize=52, color='gray', fontfamily='Fira Code', transform=ax.transAxes)
+
+        rule(0.13)
+        _add_branding(fig)
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                    facecolor='#1a1a1a', pad_inches=0.2)
+        buf.seek(0)
+        plt.close(fig)
+        return buf
+
+    # ── Column headers (2/3-stat) ─────────────────────────────────────────
+    # "TALE OF THE TAPE" sits at the same y-level as the mode names, centred
+    ax.text(0.5, 0.78, 'TALE OF\nTHE TAPE', ha='center', va='center',
+            fontsize=33, color='gray', style='italic', multialignment='center',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.18, 0.78, _wrap_mode(mode_1), ha='center', va='center',
+            fontsize=33, fontweight='bold', color=mode_1_color,
+            multialignment='center', fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.82, 0.78, _wrap_mode(mode_2), ha='center', va='center',
+            fontsize=33, fontweight='bold', color=mode_2_color,
+            multialignment='center', fontfamily='Fira Code', transform=ax.transAxes)
+    rule(0.72)
+
+    # ── Stat rows — stacked: value (top) → label → n= (bottom) ────────────
+    # row centers distributed evenly between top rule (0.72) and bottom rule (0.13).
+    # For N rows: spacing = 0.59/N, first center = 0.72 - spacing/2.
+    if num_stats == 2:
+        stat_fs, label_fs, n_fs = 120, 38, 38
+        val_off, lbl_off, n_off = 0.040, 0.040, -0.044
+        row_y_start, row_spacing = 0.575, 0.30
+        val_x1, val_x2 = 0.20, 0.80
+    else:  # 3 — equal sections: spacing=0.59/3≈0.197, first center=0.72-0.197/2≈0.622
+        stat_fs, label_fs, n_fs = 96, 32, 38
+        val_off, lbl_off, n_off = 0.040, 0.040, -0.033
+        row_y_start, row_spacing = 0.622, 0.197
+        val_x1, val_x2 = 0.18, 0.82
+
+    # Dynamic safeguard: scale stat_fs down if any formatted value exceeds 4 chars
+    max_val_len = max(
+        max(len(_fmtv(s['mean1'])) for s in stats_data),
+        max(len(_fmtv(s['mean2'])) for s in stats_data),
+    )
+    if max_val_len > 4:
+        stat_fs = max(int(stat_fs * 4 / max_val_len), stat_fs // 2)
+
+    for i, stat in enumerate(stats_data):
+        y = row_y_start - i * row_spacing
+        m1_alpha = 1.0 if stat['mean1'] >= stat['mean2'] else 0.45
+        m2_alpha = 1.0 if stat['mean2'] >= stat['mean1'] else 0.45
+
+        ax.text(val_x1, y + val_off, _fmtv(stat['mean1']), ha='center', va='center',
+                fontsize=stat_fs, fontweight='bold', color=mode_1_color, alpha=m1_alpha,
+                fontfamily='Fira Code', transform=ax.transAxes)
+        ax.text(val_x1, y + n_off, f"n={stat['n1']}", ha='center', va='center',
+                fontsize=n_fs, color='gray',
+                fontfamily='Fira Code', transform=ax.transAxes)
+
+        ax.text(0.5, y + lbl_off, abbreviate_stat(stat['stat_type']).upper(),
+                ha='center', va='center', fontsize=label_fs, fontweight='bold', color='white',
+                fontfamily='Fira Code', transform=ax.transAxes)
+
+        ax.text(val_x2, y + val_off, _fmtv(stat['mean2']), ha='center', va='center',
+                fontsize=stat_fs, fontweight='bold', color=mode_2_color, alpha=m2_alpha,
+                fontfamily='Fira Code', transform=ax.transAxes)
+        ax.text(val_x2, y + n_off, f"n={stat['n2']}", ha='center', va='center',
+                fontsize=n_fs, color='gray',
+                fontfamily='Fira Code', transform=ax.transAxes)
+
+        if i < num_stats - 1:
+            rule(y - row_spacing / 2, alpha=0.2, lw=0.5)
+
+    rule(0.13)
+    _add_branding(fig)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                facecolor='#1a1a1a', pad_inches=0.2)
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+
+def generate_comparison_caption(game_info, mode_1, mode_2, stats, player_name, day_of_week):
+    """Caption for Tuesday/Thursday game mode comparison posts."""
+    full_game_name = (f"{game_info['game_name']}: {game_info['game_installment']}"
+                      if game_info.get('game_installment') else game_info['game_name'])
+    day_hashtags_map = {
+        'Tuesday':  '#GamingThread #TuesdayVibes #GamingTuesday',
+        'Thursday': '#GamingThread #ThrowbackThursday #GamingThursday',
+    }
+    day_tag = day_hashtags_map.get(day_of_week, '#GamingThread')
+
+    lines = [
+        f"⚔️ {full_game_name} Mode Breakdown {day_tag} ⚔️",
+        "",
+        f"{mode_1} vs {mode_2} — which mode hits harder?",
+        "",
+    ]
+    for stat in stats:
+        winner = mode_1 if stat['mean1'] >= stat['mean2'] else mode_2
+        lines.append(
+            f"• {stat['stat_type']}: {mode_1} {stat['mean1']:.1f} | {mode_2} {stat['mean2']:.1f} → {winner} leads"
+        )
+
+    game_handle = get_game_handle(game_info['game_name'], platform='instagram')
+    game_hashtags = get_game_hashtags(game_info['game_name'], platform='instagram')
+
+    lines += [
+        "",
+        f"Playing {game_handle}" if game_handle else f"Playing {full_game_name}",
+        "",
+    ]
+
+    base_hashtags = ['#gaming', '#esports', '#casual', '#gamer', '#gamingcommunity', '#statsnerds']
+    all_hashtags = base_hashtags + game_hashtags
+    seen, unique_hashtags = set(), []
+    for tag in all_hashtags:
+        if tag.lower() not in seen:
+            seen.add(tag.lower())
+            unique_hashtags.append(tag)
+
+    lines.append(' '.join(unique_hashtags))
+    youtube_handle = os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')
+    lines += ["", f"📺 YouTube: {youtube_handle} | Link in bio"]
+
+    caption = '\n'.join(lines)
+    return caption[:2200] if len(caption) > 2200 else caption
+
+
+def run_tuesday_thursday_poster():
+    """Run the Tuesday/Thursday game mode comparison (Tale of the Tape) poster."""
+    logger.info("⚔️  Running Tale of the Tape comparison poster...")
+
+    player_name = get_player_info(PLAYER_ID)
+    if not player_name:
+        raise Exception(f"No player data found for player_id={PLAYER_ID}")
+
+    try:
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        now_local = datetime.now()
+
+    day_of_week = now_local.strftime('%A')
+    use_holiday_theme = is_exact_holiday() is not None
+
+    data = get_tale_of_tape_data(PLAYER_ID)
+    if not data:
+        raise Exception(
+            "Insufficient data for Tale of the Tape — need 30+ samples per game mode per stat"
+        )
+
+    logger.info(f"🎮 {data['game_name']} — {data['mode_1']} vs {data['mode_2']}")
+    logger.info(f"📊 Stats: {[s['stat_type'] for s in data['stats']]}")
+
+    image_buffer = create_tale_of_tape_chart(
+        data['game_name'], data['game_installment'],
+        data['mode_1'], data['mode_2'], data['stats'],
+        player_name, use_holiday_theme
+    )
+
+    try:
+        gcs_buffer = io.BytesIO(image_buffer.getvalue())
+        gcs_url = upload_instagram_poster_to_gcs(gcs_buffer, player_name, data['game_name'], 'comparison')
+        if gcs_url:
+            logger.info(f"✅ Backed up to GCS: {gcs_url}")
+    except Exception as gcs_error:
+        logger.warning(f"⚠️  GCS backup error: {gcs_error}")
+
+    game_info = {'game_name': data['game_name'], 'game_installment': data['game_installment']}
+    caption = generate_comparison_caption(
+        game_info, data['mode_1'], data['mode_2'], data['stats'], player_name, day_of_week
+    )
+    logger.info(f"📝 Caption:\n{caption}\n")
+
+    if not post_to_instagram(image_buffer, caption):
+        raise Exception("Failed to post comparison to Instagram")
+
+    logger.info("✅ Tale of the Tape posted!")
+    return {
+        'posted': True, 'post_type': 'comparison',
+        'game': data['game_name'], 'mode_1': data['mode_1'],
+        'mode_2': data['mode_2'], 'player': player_name,
+    }
+
+
+# ============================================================================
+# SATURDAY: WEEKLY SUMMARY
+# ============================================================================
+
+def get_weekly_summary_data(player_id, week_start, week_end):
+    """Fetch gaming summary for week_start–week_end (both inclusive)."""
+    params = [
+        {'name': 'player_id',  'value': str(player_id)},
+        {'name': 'timezone',   'value': TIMEZONE_STR},
+        {'name': 'week_start', 'value': str(week_start)},
+        {'name': 'week_end',   'value': str(week_end)},
+    ]
+
+    overview = execute_query(
+        """
+        SELECT
+            COUNT(DISTINCT game_id)   AS games_played,
+            COUNT(DISTINCT played_at) AS sessions
+        FROM fact.fact_game_stats
+        WHERE player_id = :player_id
+          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
+              BETWEEN :week_start AND :week_end;
+        """, params
+    )
+    if not overview:
+        return None
+
+    games_played = int(get_field_value(overview[0][0]) or 0)
+    sessions     = int(get_field_value(overview[0][1]) or 0)
+    if sessions == 0:
+        return None
+
+    top_stat = execute_query(
+        """
+        SELECT stat_type, stat_value
+        FROM fact.fact_game_stats
+        WHERE player_id = :player_id
+          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
+              BETWEEN :week_start AND :week_end
+        ORDER BY stat_value DESC
+        LIMIT 1;
+        """, params
+    )
+
+    top_day = execute_query(
+        """
+        SELECT
+            TRIM(TO_CHAR(CONVERT_TIMEZONE(:timezone, played_at), 'Day')) AS day_name,
+            COUNT(DISTINCT played_at) AS day_sessions
+        FROM fact.fact_game_stats
+        WHERE player_id = :player_id
+          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
+              BETWEEN :week_start AND :week_end
+        GROUP BY TRIM(TO_CHAR(CONVERT_TIMEZONE(:timezone, played_at), 'Day'))
+        ORDER BY day_sessions DESC,
+          CASE day_name
+            WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3
+            WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6
+            WHEN 'Sunday' THEN 7 ELSE 8
+          END ASC
+        LIMIT 1;
+        """, params
+    )
+
+    return {
+        'games_played':   games_played,
+        'sessions':       sessions,
+        'top_day':        (get_field_value(top_day[0][0]) or 'N/A').strip() if top_day else 'N/A',
+        'top_stat_name':  get_field_value(top_stat[0][0]) if top_stat else 'N/A',
+        'top_stat_value': int(get_field_value(top_stat[0][1]) or 0) if top_stat else 0,
+        'week_start':     week_start,
+        'week_end':       week_end,
+    }
+
+
+def create_weekly_summary_chart(summary, player_name, use_holiday_theme=False):
+    """
+    Creative weekly summary poster (1080x1440).
+    Four large KPI blocks: Games Played, Sessions, Top Day, Top Stat.
+    """
+    theme = get_themed_colors()
+    c = theme['colors']
+    week_str = (f"{summary['week_start'].strftime('%b %d')} – "
+                f"{summary['week_end'].strftime('%b %d, %Y')}")
+
+    fig = plt.figure(figsize=(10.8, 14.4), dpi=100)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    fig.patch.set_facecolor('#1a1a1a')
+
+    def rule(y, alpha=0.2, lw=1):
+        ax.plot([0.08, 0.92], [y, y], color='white', linewidth=lw,
+                alpha=alpha, transform=ax.transAxes)
+
+    def kpi_block(icon, label, value, y_center, accent):
+        # Scale font down for longer values; ≤5 chars keeps full 122pt
+        val_fs = min(122, int(122 * 5 / max(5, len(value))))
+        ax.text(0.5, y_center + 0.065, f"{icon}  {label}",
+                ha='center', va='center', fontsize=26, color='gray',
+                fontfamily='Fira Code', transform=ax.transAxes)
+        ax.text(0.5, y_center - 0.015, value,
+                ha='center', va='center', fontsize=val_fs, fontweight='bold',
+                color=accent, fontfamily='Fira Code', transform=ax.transAxes)
+
+    # ── Header ─────────────────────────────────────────────────────────────
+    ax.text(0.5, 0.94, 'WEEK IN REVIEW', ha='center', va='center',
+            fontsize=72, fontweight='bold', color='white',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.5, 0.88, week_str, ha='center', va='center',
+            fontsize=44, color='gray',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.5, 0.83, player_name, ha='center', va='center',
+            fontsize=44, color='gray',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    rule(0.80)
+
+    # ── 4 KPI blocks — evenly distributed between 0.80 and 0.13 ───────────
+    # Unicode symbols that render in Fira Code (no emoji glyphs needed)
+    block_ys = [0.716, 0.548, 0.381, 0.214]
+
+    kpi_block('\u25cf', 'GAMES PLAYED', str(summary['games_played']),
+              block_ys[0], c[0])
+    rule(0.633, alpha=0.15)
+
+    kpi_block('\u25c9', 'GAME SESSIONS', str(summary['sessions']),
+              block_ys[1], c[1] if len(c) > 1 else c[0])
+    rule(0.465, alpha=0.15)
+
+    kpi_block('\u25c6', 'TOP GAMING DAY', summary['top_day'],
+              block_ys[2], c[2] if len(c) > 2 else c[0])
+    rule(0.298, alpha=0.15)
+
+    top_stat_display = (f"{abbreviate_stat(summary['top_stat_name'])}: "
+                        f"{format_large_number(summary['top_stat_value'])}")
+    kpi_block('\u25b2', 'TOP STAT OF THE WEEK', top_stat_display,
+              block_ys[3], c[3] if len(c) > 3 else c[0])
+    rule(0.13)
+
+    _add_branding(fig)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                facecolor='#1a1a1a', pad_inches=0.2)
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+
+def generate_weekly_caption(summary, player_name):
+    """Caption for Saturday weekly summary posts."""
+    week_str = (f"{summary['week_start'].strftime('%b %d')} – "
+                f"{summary['week_end'].strftime('%b %d, %Y')}")
+    lines = [
+        f"📊 Weekly Gaming Recap | {week_str} 📊",
+        "",
+        f"🎮 {summary['games_played']} game(s) played this week",
+        f"🔥 {summary['sessions']} session(s) logged",
+        f"📅 Top gaming day: {summary['top_day']}",
+        f"🏆 Best stat: {summary['top_stat_name']} — {summary['top_stat_value']}",
+        "",
+        "Another week, another grind. Full breakdown on YouTube!",
+        "",
+    ]
+    base_hashtags = [
+        '#gaming', '#esports', '#casual', '#gamer', '#gamingcommunity',
+        '#weeklyrecap', '#GamingSaturday', '#GameStats',
+    ]
+    lines.append(' '.join(base_hashtags))
+    youtube_handle = os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')
+    lines += ["", f"📺 YouTube: {youtube_handle} | Link in bio"]
+    caption = '\n'.join(lines)
+    return caption[:2200] if len(caption) > 2200 else caption
+
+
+def run_saturday_poster():
+    """Run the Saturday weekly summary poster."""
+    logger.info("📊 Running Saturday weekly summary poster...")
+
+    player_name = get_player_info(PLAYER_ID)
+    if not player_name:
+        raise Exception(f"No player data found for player_id={PLAYER_ID}")
+
+    try:
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        now_local = datetime.now()
+
+    today      = now_local.date()
+    week_end   = today - timedelta(days=1)   # Friday
+    week_start = today - timedelta(days=7)   # Previous Saturday
+    use_holiday_theme = is_exact_holiday() is not None
+
+    summary = get_weekly_summary_data(PLAYER_ID, week_start, week_end)
+    if not summary:
+        raise Exception("No gaming data for the past week — skipping Saturday post")
+
+    logger.info(f"📈 Week summary: {summary}")
+    image_buffer = create_weekly_summary_chart(summary, player_name, use_holiday_theme)
+
+    try:
+        gcs_buffer = io.BytesIO(image_buffer.getvalue())
+        gcs_url = upload_instagram_poster_to_gcs(
+            gcs_buffer, player_name, 'weekly_summary', 'weekly'
+        )
+        if gcs_url:
+            logger.info(f"✅ Backed up to GCS: {gcs_url}")
+    except Exception as gcs_error:
+        logger.warning(f"⚠️ GCS backup error: {gcs_error}")
+
+    caption = generate_weekly_caption(summary, player_name)
+    logger.info(f"📝 Caption:\n{caption}\n")
+
+    if not post_to_instagram(image_buffer, caption):
+        raise Exception("Failed to post weekly summary to Instagram")
+
+    logger.info("✅ Weekly summary posted!")
+    return {
+        'posted': True, 'post_type': 'weekly_summary',
+        'games_played': summary['games_played'],
+        'sessions': summary['sessions'], 'player': player_name,
+    }
+
+
+# ============================================================================
+# NEW YEAR'S DAY: YEARLY RECAP
+# ============================================================================
+
+# Ordered list of (genre_keywords, gamer_type_name, tagline).
+# Covers all genres and subgenres from app_utils.py GENRES dict.
+# More specific entries (subgenres, niche genres) listed first so they win over broad categories.
+_GAMER_TYPES = [
+    # ── Specific subgenres first ───────────────────────────────────────────
+    (['Soulslike'],                                                   'The Soulsborn',         'Everyone has an expiration date.'),
+    (['Battle Royale'],                                               'The Last One Standing', 'Drop in. Outlast. Win.'),
+    (['MOBA'],                                                        'The Strategist',        'Every macro move matters.'),
+    (['Hack-and-Slash', 'Masher'],                                    'The Blade Dancer',      'Skill is the only stat that matters.'),
+    (['Metroidvania'],                                                'The Explorer',          'Every path leads somewhere new.'),
+    (['Roguelike', 'Dungeon Crawler'],                                'The Rogue',             'Permadeath is a feature, not a bug.'),
+    (['Monster-Taming'],                                              'The Tamer',             'Gotta catch the meta.'),
+    (['Walking Simulator', 'Visual Novel', 'Interactive Movie'],      'The Storyteller',       'Here for the narrative.'),
+    (['Escape Room'],                                                 'The Puzzle Master',     'No room can hold them.'),
+    (['Social Deduction'],                                            'The Deceiver',          'Trust no one.'),
+    (['Auto Battler'],                                                'The Economist',         'Comp is everything.'),
+    (['Tower Defense'],                                               'The Defender',          'No unit gets through.'),
+    (['4X'],                                                          'The Emperor',           'Explore. Expand. Exploit. Exterminate.'),
+    # ── Genre-level matches ────────────────────────────────────────────────
+    (['Massively Multiplayer', 'MMORPG', 'MMORPGs'],                  'The Guild Master',      'Never raids alone.'),
+    (['Action RPG', 'Action RPGs'],                                   'The Blade Dancer',      'Skill is the only stat that matters.'),
+    (['Tactical RPG', 'Tacical RPG', 'Tactical'],                     'The Tactician',         'Every grid square counts.'),
+    (['Real-Time Strategy', 'RTS', 'Real-Time Strategy (RTS)'],       'The Commander',         'Macro wins. Always.'),
+    (['Stealth'],                                                     'The Phantom',           'Strike before they see you.'),
+    (['Survival Horror', 'Horror', 'Survival'],                       'The Survivor',          'Thrives where others fear.'),
+    (['First-Person Shooter', 'FPS', 'First\u2011Person Shooter',
+      'First‑Person Shooter (FPS)'],                                  'The Sharpshooter',      'Precision. Reflexes. Domination.'),
+    (['Shooter'],                                                     'The Gunslinger',        'Locked, loaded, and lethal.'),
+    (['Simulation'],                                                  'The Architect',         'Building worlds, one sim at a time.'),
+    (['Platformer', 'Platformers'],                                   'The Platformer',        'One more jump. Always.'),
+    (['Puzzle'],                                                      'The Problem Solver',    'Logic is the way.'),
+    (['Strategy'],                                                    'The Grand Strategist',  'Always three steps ahead.'),
+    (['Role-Playing', 'RPG', 'Role\u2011Playing (RPG)'],              'The Adventurer',        'Living for the story.'),
+    (['Fighting'],                                                    'The Kombatant',         'Mastering the meta.'),
+    (['Racing'],                                                      'The Speedster',         'First across the line.'),
+    (['Sports'],                                                      'The Competitor',        'Here to win, always.'),
+    (['Adventure'],                                                   'The Explorer',          'Every path leads somewhere new.'),
+    (['Action-Adventure', 'Action '],                                 'The Warrior',           'Bold moves, big results.'),
+    (['Party'],                                                       'The Party Animal',      'Every game is more fun with friends.'),
+    (['Casual'],                                                      'The Chill Gamer',       'Gaming on your terms.'),
+]
+
+
+def generate_gamer_type(genres_played):
+    """Return (type_name, tagline) based on the genres the player played most."""
+    genres_upper = [g.upper() for g in genres_played if g]
+    for keywords, type_name, tagline in _GAMER_TYPES:
+        for kw in keywords:
+            if any(kw.upper() in g for g in genres_upper):
+                return type_name, tagline
+    return 'The All-Rounder', 'A little bit of everything.'
+
+
+def get_yearly_recap_data(player_id, year):
+    """Fetch all data needed for the yearly recap poster."""
+    game_records = execute_query(
+        """
+        SELECT
+            g.game_name,
+            g.game_installment,
+            g.game_genre,
+            g.game_subgenre,
+            COUNT(DISTINCT f.played_at) AS sessions
+        FROM fact.fact_game_stats f
+        JOIN dim.dim_games g ON f.game_id = g.game_id
+        WHERE f.player_id = :player_id
+          AND EXTRACT(YEAR FROM CONVERT_TIMEZONE(:timezone, f.played_at)) = :year
+        GROUP BY g.game_name, g.game_installment, g.game_genre, g.game_subgenre
+        ORDER BY sessions DESC;
+        """,
+        [
+            {'name': 'player_id', 'value': str(player_id)},
+            {'name': 'timezone',  'value': TIMEZONE_STR},
+            {'name': 'year',      'value': str(year)},
+        ]
+    )
+    if not game_records:
+        return None
+
+    games = []
+    total_sessions = 0
+    genres_seen = []    # includes both genre and subgenre strings for gamer-type matching
+    for row in game_records:
+        game_name   = get_field_value(row[0])
+        installment = get_field_value(row[1])
+        genre       = get_field_value(row[2])
+        subgenre    = get_field_value(row[3])
+        sessions    = int(get_field_value(row[4]) or 0)
+        total_sessions += sessions
+        games.append({'game_name': game_name, 'installment': installment,
+                      'genre': genre, 'sessions': sessions})
+        if genre and genre not in genres_seen:
+            genres_seen.append(genre)
+        if subgenre and subgenre not in genres_seen:
+            genres_seen.append(subgenre)
+
+    for g in games:
+        g['pct'] = round(g['sessions'] / total_sessions * 100) if total_sessions > 0 else 0
+
+    top_stat = execute_query(
+        """
+        SELECT stat_type, stat_value
+        FROM fact.fact_game_stats
+        WHERE player_id = :player_id
+          AND EXTRACT(YEAR FROM CONVERT_TIMEZONE(:timezone, played_at)) = :year
+        ORDER BY stat_value DESC
+        LIMIT 1;
+        """,
+        [
+            {'name': 'player_id', 'value': str(player_id)},
+            {'name': 'timezone',  'value': TIMEZONE_STR},
+            {'name': 'year',      'value': str(year)},
+        ]
+    )
+
+    gamer_type, gamer_tagline = generate_gamer_type(genres_seen)
+    return {
+        'year':           year,
+        'total_sessions': total_sessions,
+        'games':          games[:3],
+        'genres':         genres_seen[:3],
+        'top_stat_name':  get_field_value(top_stat[0][0]) if top_stat else 'N/A',
+        'top_stat_value': int(get_field_value(top_stat[0][1]) or 0) if top_stat else 0,
+        'gamer_type':     gamer_type,
+        'gamer_tagline':  gamer_tagline,
+    }
+
+
+def create_yearly_recap_chart(recap, player_name, use_holiday_theme=False):
+    """
+    Spotify/YouTube-style yearly recap chart (1080x1440).
+    Sections: year title → gamer type → top games with % bars → top genres.
+    """
+    theme = get_themed_colors()
+    c = theme['colors']
+    year = recap['year']
+    num_games = len(recap['games'])
+
+    fig = plt.figure(figsize=(10.8, 14.4), dpi=100)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    fig.patch.set_facecolor('#1a1a1a')
+
+    def rule(y, alpha=0.2, lw=1):
+        ax.plot([0.08, 0.92], [y, y], color='white', linewidth=lw,
+                alpha=alpha, transform=ax.transAxes)
+
+    # ── Title (auto-size to fill width: "YYYY RECAP" = 10 chars) ───────────
+    ax.text(0.5, 0.94, f'{year} RECAP', ha='center', va='center',
+            fontsize=80, fontweight='bold', color='white',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.5, 0.88, player_name, ha='center', va='center',
+            fontsize=24, color='gray',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    rule(0.85)
+
+    # ── Gamer Type ─────────────────────────────────────────────────────────
+    # Dynamic font: scale to fill ~90% of content width (Fira Code char ≈ font_pt * 0.833px)
+    _content_px    = 907   # 0.84 * 1080px
+    gamer_type_fs  = min(70, max(28, int(_content_px * 0.9 / max(1, len(recap['gamer_type'])) / 0.833)))
+    ax.text(0.5, 0.82, 'Gamer Type', ha='center', va='center',
+            fontsize=20, color='gray',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.5, 0.77, recap['gamer_type'], ha='center', va='center',
+            fontsize=gamer_type_fs, fontweight='bold', color=c[0],
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.5, 0.73, recap['gamer_tagline'], ha='center', va='center',
+            fontsize=18, color='gray', style='italic',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    rule(0.70)
+
+    # ── Dynamic layout: distribute space between game rows and genre items ───
+    # Available from "Top Games" label (0.67) down to bottom boundary (0.17).
+    # Game rows get 2× weight vs genre items so bars stay prominent.
+    top_y         = 0.67
+    bottom_y      = 0.17
+    games_hdr_h   = 0.04   # height consumed by "Top Games" label
+    gap_h         = 0.05   # gap between last bar and genres section
+    genres_hdr_h  = 0.04   # height consumed by "Top Genres" label
+    num_genres    = len(recap['genres'])
+
+    remaining_h   = (top_y - bottom_y) - games_hdr_h - gap_h - genres_hdr_h
+    total_units   = num_games * 2 + num_genres        # game rows = 2 units each
+    unit_h        = remaining_h / max(1, total_units)
+    game_row_h    = unit_h * 2
+    genre_item_h  = unit_h
+
+    # Scale fonts and bar from 3-game baseline (game_row_h ≈ 0.082)
+    _base_row_h   = 0.082
+    game_name_fs  = max(19, int(19 * game_row_h / _base_row_h))
+    pct_fs        = game_name_fs
+    bar_height    = game_row_h * 0.28
+    name_y_off    = game_row_h * 0.31
+    bar_y_off     = -game_row_h * 0.06
+
+    game_y_start  = top_y - games_hdr_h - game_row_h / 2   # first row centre
+
+    # Header font scales with num_games; capped at 39pt (50% above base 26pt) for 1-game
+    header_fs     = min(39, max(26, int(26 * game_row_h / _base_row_h)))
+
+    # ── Top Games ────────────────────────────────────────────────────────────
+    ax.text(0.5, top_y, f"Top {'Games' if num_games > 1 else 'Game'}",
+            ha='center', va='center', fontsize=header_fs, color='white',
+            fontfamily='Fira Code', transform=ax.transAxes)
+
+    bar_x0, bar_x1 = 0.08, 0.92
+    bar_w = bar_x1 - bar_x0
+
+    for i, game in enumerate(recap['games']):
+        y = game_y_start - i * game_row_h
+        color = c[i % len(c)]
+        full_name = (f"{game['game_name']}: {game['installment']}"
+                     if game['installment'] else game['game_name'])
+
+        ax.text(bar_x0, y + name_y_off, full_name,
+                ha='left', va='center', fontsize=game_name_fs, fontweight='bold',
+                color='white', fontfamily='Fira Code', transform=ax.transAxes)
+        ax.text(bar_x1, y + name_y_off, f"{game['pct']}%",
+                ha='right', va='center', fontsize=pct_fs, fontweight='bold',
+                color=color, fontfamily='Fira Code', transform=ax.transAxes)
+
+        ax.barh([y + bar_y_off], [bar_w], left=bar_x0, height=bar_height, color='#333333')
+        ax.barh([y + bar_y_off], [bar_w * (game['pct'] / 100)],
+                left=bar_x0, height=bar_height, color=color, alpha=0.85)
+
+    # Genres section anchors off the bottom edge of the last game row
+    last_game_bottom = game_y_start - (num_games - 1) * game_row_h - game_row_h / 2
+    genres_y = last_game_bottom - gap_h
+    rule(last_game_bottom - gap_h / 2)
+
+    # Distribute genres evenly from header down to just above bottom rule (0.16)
+    # so they fill the full divider section regardless of num_games
+    _genres_bottom = 0.16
+    genre_spacing  = (genres_y - _genres_bottom) / num_genres
+    # Scale genre font from 3-game baseline spacing (≈ 0.058 → 24pt)
+    genre_fs       = max(24, int(24 * genre_spacing / 0.058))
+
+    # ── Top Genres ───────────────────────────────────────────────────────────
+    ax.text(0.5, genres_y, 'Top Genres', ha='center', va='center',
+            fontsize=header_fs, color='white',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    for j, genre in enumerate(recap['genres']):
+        gy = genres_y - genre_spacing * (j + 1)
+        ax.text(0.5, gy, genre, ha='center', va='center',
+                fontsize=genre_fs, color=c[j % len(c)],
+                fontfamily='Fira Code', transform=ax.transAxes)
+
+    rule(0.13)
+    sessions_display = format_large_number(recap['total_sessions'])
+    ax.text(0.5, 0.10, f"{sessions_display} sessions in {year}",
+            ha='center', va='center', fontsize=22, color='gray',
+            fontfamily='Fira Code', transform=ax.transAxes)
+
+    _add_branding(fig)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                facecolor='#1a1a1a', pad_inches=0.2)
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+
+def generate_yearly_recap_caption(recap, player_name):
+    """Caption for New Year's Day yearly recap post."""
+    year = recap['year']
+    lines = [
+        f"🎮 {year} Gaming Recap 🎮",
+        "",
+        f"Gamer Type: {recap['gamer_type']}",
+        f'"{recap["gamer_tagline"]}"',
+        "",
+        f"📊 {recap['total_sessions']} sessions logged in {year}",
+    ]
+    if recap['games']:
+        lines += ["", "Top Games:"]
+        for g in recap['games']:
+            full_name = (f"{g['game_name']}: {g['installment']}"
+                         if g['installment'] else g['game_name'])
+            lines.append(f"• {full_name} ({g['pct']}%)")
+    if recap['top_stat_name'] != 'N/A':
+        lines += ["", f"🏆 Best stat: {recap['top_stat_name']} — {recap['top_stat_value']}"]
+    lines += [
+        "",
+        "New year. New games. Same grind. 🔥",
+        "",
+    ]
+    base_hashtags = [
+        '#gaming', '#NewYearsDay', '#GamingRecap', '#YearInReview',
+        f'#{year}Wrapped', '#gamer', '#esports', '#gamingcommunity',
+    ]
+    lines.append(' '.join(base_hashtags))
+    youtube_handle = os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')
+    lines += ["", f"📺 YouTube: {youtube_handle} | Link in bio"]
+    caption = '\n'.join(lines)
+    return caption[:2200] if len(caption) > 2200 else caption
+
+
+def run_new_years_poster():
+    """Run the New Year's Day yearly recap poster."""
+    logger.info("🎊 Running New Year's Day yearly recap poster...")
+
+    player_name = get_player_info(PLAYER_ID)
+    if not player_name:
+        raise Exception(f"No player data found for player_id={PLAYER_ID}")
+
+    try:
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        now_local = datetime.now()
+
+    recap_year = now_local.year - 1   # recap covers the PREVIOUS calendar year
+    use_holiday_theme = is_exact_holiday() is not None
+
+    recap = get_yearly_recap_data(PLAYER_ID, recap_year)
+    if not recap:
+        raise Exception(f"No gaming data found for {recap_year} — skipping yearly recap")
+
+    logger.info(f"📅 {recap_year} recap: {recap['total_sessions']} sessions, "
+                f"gamer type: {recap['gamer_type']}")
+
+    image_buffer = create_yearly_recap_chart(recap, player_name, use_holiday_theme)
+
+    try:
+        gcs_buffer = io.BytesIO(image_buffer.getvalue())
+        gcs_url = upload_instagram_poster_to_gcs(
+            gcs_buffer, player_name, f'yearly_recap_{recap_year}', 'yearly'
+        )
+        if gcs_url:
+            logger.info(f"✅ Backed up to GCS: {gcs_url}")
+    except Exception as gcs_error:
+        logger.warning(f"⚠️ GCS backup error: {gcs_error}")
+
+    caption = generate_yearly_recap_caption(recap, player_name)
+    logger.info(f"📝 Caption:\n{caption}\n")
+
+    if not post_to_instagram(image_buffer, caption):
+        raise Exception("Failed to post yearly recap to Instagram")
+
+    logger.info(f"✅ {recap_year} yearly recap posted!")
+    return {
+        'posted': True, 'post_type': 'yearly_recap',
+        'year': recap_year, 'gamer_type': recap['gamer_type'],
+        'player': player_name,
+    }
+
+
+def get_queue_result_for_today():
+    """
+    Route to the correct _for_queue function based on day of week.
+    Jan 1 (New Year's Day) overrides everything and runs yearly recap.
+    Returns None on Sunday (no post scheduled).
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        now_local = datetime.now()
+
+    if now_local.month == 1 and now_local.day == 1:
+        logger.info("🎊 New Year's Day — routing to yearly recap")
+        return run_new_years_poster_for_queue()
+
+    day = now_local.strftime('%A')
+    logger.info(f"📅 Routing queue function for {day}")
+
+    if day in ('Monday', 'Wednesday', 'Friday'):
+        return run_instagram_poster_for_queue()
+    elif day in ('Tuesday', 'Thursday'):
+        return run_tuesday_thursday_poster_for_queue()
+    elif day == 'Saturday':
+        return run_saturday_poster_for_queue()
+    else:  # Sunday
+        logger.info("📵 Sunday — no post scheduled")
+        return None
+
+
 # Backward compatibility for non-Lambda execution
 if __name__ == "__main__":
-    result = run_instagram_poster()
+    try:
+        from zoneinfo import ZoneInfo
+        _now = datetime.now(ZoneInfo(TIMEZONE_STR))
+    except Exception:
+        _now = datetime.now()
+
+    if _now.month == 1 and _now.day == 1:
+        result = run_new_years_poster()
+    else:
+        _day = _now.strftime('%A')
+        if _day in ('Monday', 'Wednesday', 'Friday'):
+            result = run_instagram_poster()
+        elif _day in ('Tuesday', 'Thursday'):
+            result = run_tuesday_thursday_poster()
+        elif _day == 'Saturday':
+            result = run_saturday_poster()
+        else:
+            logger.info("📵 Sunday — no post scheduled")
+            result = {'posted': False, 'reason': 'No post on Sunday'}
     logger.info(f"Result: {result}")

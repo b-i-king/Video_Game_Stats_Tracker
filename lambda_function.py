@@ -138,10 +138,22 @@ def fetch_and_queue(event, context):
 
     logger.info("🔐 Using DB credentials from Lambda environment variables")
 
-    from instagram_poster import run_instagram_poster_for_queue
+    from instagram_poster import get_queue_result_for_today
 
     try:
-        result = run_instagram_poster_for_queue()
+        result = get_queue_result_for_today()
+
+        if result is None:
+            logger.info("📵 No post scheduled for today")
+            send_notification(
+                subject="Instagram Post Skipped",
+                message="No post scheduled for today (Sunday).",
+                success=True
+            )
+            return {
+                'statusCode': 200,
+                'body': json.dumps({'mode': 'FETCH', 'message': 'No post scheduled', 'posted': False})
+            }
 
         caption = result['caption']
         post_type = result['post_type']

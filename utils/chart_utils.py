@@ -144,6 +144,29 @@ def abbreviate_stat(stat_name):
     return single_word.upper()
 
 
+def abbreviate_game_mode(game_mode):
+    """
+    Create a short display tag from a game mode name.
+    Takes the first letter of each word, uppercased.
+    Returns None for empty or generic modes ('Main', 'N/A').
+
+    Examples:
+        'Zombies'         → 'Z'
+        'Team Deathmatch' → 'TD'
+        'Battle Royale'   → 'BR'
+        'Main'            → None
+    """
+    if not game_mode or not game_mode.strip():
+        return None
+    clean = game_mode.strip()
+    if clean.lower() in ('main', 'n/a', 'none', '-'):
+        return None
+    words = clean.replace('-', ' ').replace('_', ' ').split()
+    if not words:
+        return None
+    return ''.join(w[0].upper() for w in words if w) or None
+
+
 def format_large_number(value):
     """
     Format large numbers with abbreviations for display.
@@ -226,7 +249,7 @@ def format_date_label(dates):
     return '%b %d'
 
 
-def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, theme):
+def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, theme, game_mode=None):
     """
     Generate a KPI scoreboard visual for a single stat.
     Shows the abbreviated stat name in large text with the value as a huge
@@ -339,6 +362,13 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
     fig.text(0.99, 0.03, timestamp, ha='right', va='bottom',
              fontsize=branding_fontsize, color='gray', style='italic')
 
+    # Game mode tag (centered between handles and date)
+    _mode_tag = abbreviate_game_mode(game_mode) if game_mode else None
+    if _mode_tag:
+        fig.text(0.5, 0.03, f' {_mode_tag} ', ha='center', va='bottom',
+                 fontsize=branding_fontsize, color='white', fontweight='bold',
+                 bbox=dict(boxstyle='round,pad=0.3', facecolor='none', edgecolor='white', linewidth=1.5))
+
     # Multi-platform branding
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
     x_start = 0.01
@@ -365,7 +395,7 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
     return buf
 
 
-def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter'):
+def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter', game_mode=None):
     """
     Generate a HORIZONTAL bar chart for first-time game stats.
     
@@ -423,7 +453,7 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     colors = theme['colors']
 
     if num_stats == 1:
-        return _generate_kpi_chart(stats[0], player_name, game_name, game_installment, size, theme)
+        return _generate_kpi_chart(stats[0], player_name, game_name, game_installment, size, theme, game_mode=game_mode)
 
     # Determine if we should use log scale
     use_log = should_use_log_scale(values)
@@ -563,6 +593,13 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     fig.text(0.99, branding_y_pos, timestamp, ha='right', va='bottom',
              fontsize=branding_fontsize, color='gray', style='italic')
 
+    # Game mode tag (centered between handles and date)
+    _mode_tag = abbreviate_game_mode(game_mode) if game_mode else None
+    if _mode_tag:
+        fig.text(0.5, branding_y_pos, f' {_mode_tag} ', ha='center', va='bottom',
+                 fontsize=branding_fontsize, color='white', fontweight='bold',
+                 bbox=dict(boxstyle='round,pad=0.3', facecolor='none', edgecolor='white', linewidth=1.5))
+
     # Add multi-platform branding
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
     x_start = 0.01
@@ -607,7 +644,7 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     return buf
 
 
-def generate_line_chart(stat_history, player_name, game_name, game_installment=None, size='twitter'):
+def generate_line_chart(stat_history, player_name, game_name, game_installment=None, size='twitter', game_mode=None):
     """
     Generate a line chart showing stat trends over time.
     
@@ -866,11 +903,18 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     # Extend x-axis slightly to make room for labels
     x_min, x_max = ax.get_xlim()
     ax.set_xlim(x_min, x_max + (x_max - x_min) * 0.15)
-    
+
     # Add timestamp
     timestamp = datetime.now().strftime('%B %d, %Y')
     fig.text(0.99, branding_y_pos, timestamp, ha='right', va='bottom',
              fontsize=branding_fontsize, color='gray', style='italic')
+
+    # Game mode tag (centered between handles and date)
+    _mode_tag = abbreviate_game_mode(game_mode) if game_mode else None
+    if _mode_tag:
+        fig.text(0.5, branding_y_pos, f' {_mode_tag} ', ha='center', va='bottom',
+                 fontsize=branding_fontsize, color='white', fontweight='bold',
+                 bbox=dict(boxstyle='round,pad=0.3', facecolor='none', edgecolor='white', linewidth=1.5))
 
     # Add multi-platform branding
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')

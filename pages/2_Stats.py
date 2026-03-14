@@ -402,10 +402,57 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
             # Prioritize text input if filled, otherwise use selection
             final_game_mode = new_game_mode_text.strip() if new_game_mode_text.strip() else game_mode_select
 
-            # game_mode = st.text_input("Game Mode *", value="Main", help="e.g., 'Team Deathmatch', 'Battle Royale'")
+            match_type = st.selectbox(
+                "Match Type",
+                ["Solo", "Team"],
+                index=0,
+                key="match_type_select",
+                help="Solo = playing alone (no teammates). Team = playing with at least one other player."
+            )
+            solo_mode_value = 1 if match_type == "Solo" else 0
+
             game_level = st.number_input("Game Level/Wave", help="e.g., 'Wave 10', 'Episode 1', 'Mission 3'", value=None, min_value=0, step=1, key="game_level_input")
             win_option = st.selectbox("Win/Loss", [None, 'Win', 'Loss'], help="Select Win or Lose. Leave 'None' if N/A", index=0, key="win_option_select")
             win_value = 1 if win_option == 'Win' else 0 if win_option == 'Loss' else None
+
+            party_size_option = st.selectbox(
+                "Party Size",
+                ["1", "2", "3", "4", "5+"],
+                index=0,
+                key="party_size_select",
+                help="Number of players in your party. 1 = Solo."
+            )
+
+            difficulty_option = st.selectbox(
+                "Difficulty",
+                [None, "Easy", "Normal", "Hard", "Expert"],
+                index=0,
+                key="difficulty_select",
+                format_func=lambda x: "N/A" if x is None else x,
+                help="Game difficulty setting. Leave N/A if not applicable (e.g., multiplayer)."
+            )
+
+            input_device_option = st.selectbox(
+                "Input Device",
+                ["Controller", "Keyboard & Mouse", "Mixed"],
+                index=0,
+                key="input_device_select",
+                help="Primary input device used during the session."
+            )
+
+            platform_option = st.selectbox(
+                "Platform",
+                ["PC", "PlayStation", "Xbox", "Switch", "Mobile"],
+                index=0,
+                key="platform_select",
+                help="Platform the game was played on."
+            )
+
+            col_ot, col_fsd = st.columns(2)
+            with col_ot:
+                overtime_toggle = st.toggle("Overtime / Sudden Death", value=False, key="overtime_toggle", help="Did this match go to overtime or sudden death?")
+            with col_fsd:
+                first_session_toggle = st.toggle("First Session of Day", value=True, key="first_session_toggle", help="Is this your first gaming session today? Turn off for subsequent sessions.")
 
             st.subheader("Stats")
             stats_list = []
@@ -422,11 +469,19 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                     stats_list.append({
                         "stat_type": stat_type, "stat_value": int(stat_value),
                         "game_mode": final_game_mode or "Main",
+                        "solo_mode": solo_mode_value,
+                        "party_size": party_size_option,
                         "game_level": int(game_level) if game_level and game_level > 0 else None,
                         "win": win_value,
                         "ranked": 1 if is_ranked_from_state else 0,
                         "pre_match_rank_value": pre_rank_from_state,
-                        "post_match_rank_value": post_rank_from_state
+                        "post_match_rank_value": post_rank_from_state,
+                        "overtime": 1 if overtime_toggle else 0,
+                        "difficulty": difficulty_option,
+                        "input_device": input_device_option,
+                        "platform": platform_option,
+                        "first_session_of_day": 1 if first_session_toggle else 0,
+                        "was_streaming": 1 if st.session_state.get('is_live_streaming', False) else 0,
                     })
 
             # --- Stats preview (reactive — updates on every widget change) ---
@@ -478,7 +533,12 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         submitted_summary = ", ".join(f"{s['stat_type']}: {s['stat_value']}" for s in stats_list)
                         st.success(f"Stats submitted! ✅ Saved: {submitted_summary}")
                         st.session_state.pop("confirm_stats_checkbox", None)
-                        st.session_state.num_stats = 1; st.session_state.data_cache.clear(); st.session_state.selected_genre = "Select a Genre"; st.session_state.selected_subgenre = "Select a Subgenre"; st.rerun()
+                        # Preserve stat type names so user doesn't retype them next session;
+                        # reset values to 0 so new numbers can be entered cleanly.
+                        for i, s in enumerate(stats_list):
+                            st.session_state[f"stat_type_{i}"] = s['stat_type']
+                            st.session_state[f"stat_value_{i}"] = 0
+                        st.session_state.data_cache.clear(); st.session_state.selected_genre = "Select a Genre"; st.session_state.selected_subgenre = "Select a Subgenre"; st.rerun()
                     except requests.exceptions.RequestException as e:
                         st.error(f"Submit error: {e}")
                         if 'response' in locals() and response is not None:

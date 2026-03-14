@@ -209,12 +209,20 @@ def create_tables():
                 stat_type VARCHAR(50) NOT NULL,
                 stat_value INTEGER,
                 game_mode VARCHAR(255),
+                solo_mode INTEGER,
+                party_size VARCHAR(20),
                 game_level INTEGER,
                 win INTEGER,
                 ranked INTEGER,
                 pre_match_rank_value VARCHAR(50),
                 post_match_rank_value VARCHAR(50),
-                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                overtime INTEGER NOT NULL DEFAULT 0,
+                difficulty VARCHAR(20),
+                input_device VARCHAR(30) NOT NULL DEFAULT 'Controller',
+                platform VARCHAR(20) NOT NULL DEFAULT 'PC',
+                first_session_of_day INTEGER NOT NULL DEFAULT 1,
+                was_streaming INTEGER NOT NULL DEFAULT 0,
+                played_at TIMESTAMP DEFAULT GETDATE()
             );
         """)
         
@@ -537,12 +545,19 @@ def add_stats(user_email):
             if not stat_record.get('stat_type') or stat_record.get('stat_value') is None: continue
             cur.execute("""
                 INSERT INTO fact.fact_game_stats
-                (game_id, player_id, stat_type, stat_value, game_mode, game_level, win, ranked, pre_match_rank_value, post_match_rank_value, played_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                (game_id, player_id, stat_type, stat_value, game_mode, solo_mode, party_size,
+                 game_level, win, ranked, pre_match_rank_value, post_match_rank_value,
+                 overtime, difficulty, input_device, platform, first_session_of_day, was_streaming,
+                 played_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
             """, (
                 game_id, player_id, stat_record.get('stat_type'), stat_record.get('stat_value'),
-                stat_record.get('game_mode'), stat_record.get('game_level'), stat_record.get('win'),
+                stat_record.get('game_mode'), stat_record.get('solo_mode'), stat_record.get('party_size'),
+                stat_record.get('game_level'), stat_record.get('win'),
                 stat_record.get('ranked'), stat_record.get('pre_match_rank_value'), stat_record.get('post_match_rank_value'),
+                stat_record.get('overtime', 0), stat_record.get('difficulty'),
+                stat_record.get('input_device', 'Controller'), stat_record.get('platform', 'PC'),
+                stat_record.get('first_session_of_day', 0), stat_record.get('was_streaming', 0),
                 batch_timestamp
             ))
             successful_inserts += 1
@@ -553,6 +568,12 @@ def add_stats(user_email):
 
             # --- SOCIAL MEDIA INTEGRATION ---
             try:
+                # Capture batch game_mode (all stats in a session share the same mode)
+                batch_game_mode = next(
+                    (s.get('game_mode') for s in stats if s.get('game_mode') and s['game_mode'].strip()),
+                    None
+                )
+
                 # Count total games played for this player/game
                 cur.execute("""
                     SELECT COUNT(DISTINCT played_at) as games_played
@@ -628,7 +649,7 @@ def add_stats(user_email):
 
                 # Upload to GCS — Instagram (1080x1080) organized by week AND by game
                 instagram_url_week = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='week')
-                instagram_url_game = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='game')
+                instagram_url_game = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='game', game_installment=game_installment, game_mode=batch_game_mode)
 
                 if twitter_public_url:
                     # Generate caption with current + previous stat values

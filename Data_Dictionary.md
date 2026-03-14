@@ -81,9 +81,17 @@ Stores the results of a specific stat for a specific match. This is the central 
 | `stat_type` | VARCHAR(50) | NOT NULL | The name of the stat being measured (e.g., "Eliminations", "Score"). |
 | `stat_value` | INTEGER |  | The numeric value of the stat (e.g., 10, 1500). |
 | `game_mode` | VARCHAR(255) |  | The specific mode played (e.g., "Team Deathmatch", "Main"). |
+| `solo_mode` | INTEGER | NULL | Whether the match was played solo or with teammates. `1 = Solo`, `0 = Team`. |
+| `party_size` | VARCHAR(20) | NULL | Number of players in the party. Options: `"1"`, `"2"`, `"3"`, `"4"`, `"5+"`. `"1"` = Solo. Default `"1"`. |
 | `game_level` | INTEGER | NULL | The level, wave, or mission number (e.g., 10, 3). |
 | `win` | INTEGER | NULL | A boolean-like integer. 1 = Win, 0 = Loss. |
 | `ranked` | INTEGER | NULL | A boolean-like integer. 1 = Ranked, 0 = Unranked. |
 | `pre_match_rank_value` | VARCHAR(50) | NULL | The player's rank before the match (e.g., "Gold 2"). |
 | `post_match_rank_value` | VARCHAR(50) | NULL | The player's rank after the match (e.g., "Gold 1"). |
+| `overtime` | INTEGER | NOT NULL, DEFAULT 0 | Whether the match went to overtime or sudden death. `1 = Yes`, `0 = No`. |
+| `difficulty` | VARCHAR(20) | NULL | Game difficulty setting. Options: `"Easy"`, `"Normal"`, `"Hard"`, `"Expert"`. NULL if not applicable (e.g., multiplayer). |
+| `input_device` | VARCHAR(30) | NOT NULL, DEFAULT 'Controller' | Primary input device. Options: `"Controller"`, `"Keyboard & Mouse"`, `"Mixed"`. |
+| `platform` | VARCHAR(20) | NOT NULL, DEFAULT 'PC' | Platform the game was played on. Options: `"PC"`, `"PlayStation"`, `"Xbox"`, `"Switch"`, `"Mobile"`. |
+| `first_session_of_day` | INTEGER | NOT NULL, DEFAULT 1 | Whether this is the player's first gaming session of the day. `1 = Yes`, `0 = No`. |
+| `was_streaming` | INTEGER | NOT NULL, DEFAULT 0 | Whether the player was live streaming during this session. `1 = Yes`, `0 = No`. Synced automatically from the Streaming Status toggle. |
 | `played_at` | TIMESTAMP | DEFAULT GETDATE() | Timestamp of when the stat was recorded. |

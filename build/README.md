@@ -60,9 +60,24 @@ All scripts are path-aware:
 - Output to `temp/` directory
 - Read from project root
 
-## Redeploying Code in AWS Lambda
+## Redeploying Layer and Code in AWS Lambda
 
-**Full Deployment using Powershell**
+**Full Layer Deployment using Powershell**
+Type this code in Terminal
+```
+aws s3 cp temp/lambda-layer.zip s3://YOUR-BUCKET/ --region us-west-1                                                                                                                                                             
+$LAYER_ARN = (aws lambda publish-layer-version `
+    --layer-name instagram-poster-dependencies `
+    --content S3Bucket=YOUR-BUCKET `
+    --compatible-runtimes python3.11 `
+    --region us-west-1 `
+    --query 'LayerVersionArn' `
+    --output text)
+ 
+echo $LAYER_ARN
+```
+
+**Full Code Deployment using Powershell**
 1. Type `aws lambda update-function-code --function-name {YOUR-LAMBDA-FUNCTION-NAME1} --zip-file fileb://temp/instagram-poster-code.zip` in Terminal
 2. Type `aws lambda update-function-code --function-name {YOUR-LAMBDA-FUNCTION-NAME2} --zip-file fileb://temp/instagram-poster-code.zip` in Terminal
 

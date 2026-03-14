@@ -65,8 +65,8 @@ def trigger_ifttt_post(image_url, caption, platform='twitter'):
         return False
 
 
-def generate_post_caption(player_name, game_name, game_installment, stat_data, games_played, 
-                         platform='twitter', is_live=False, credit_style='shoutout'):
+def generate_post_caption(player_name, game_name, game_installment, stat_data, games_played,
+                         platform='twitter', is_live=False, credit_style='shoutout', game_mode=None):
     """
     Generate engaging caption for social media post.
     Now uses game_handles_utils for platform-specific handles and hashtags.
@@ -194,6 +194,10 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
             else:  # Instagram
                 hashtags = ['#gaming', '#stats', '#gaminganalytics']
     
+    # Game mode line (after caption body, before hashtags)
+    if game_mode and game_mode.strip().lower() not in ('main', 'n/a', 'none', '-'):
+        caption += f"Game Mode: {game_mode.strip()}\n"
+
     # Add game-specific hashtags
     if game_hashtags:
         hashtags.extend(game_hashtags)
@@ -211,22 +215,31 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
             seen.add(tag_lower)
             unique_hashtags.append(tag)
     
-    # Add hashtags to caption with single newline
-    caption += f"\n{' '.join(unique_hashtags)}\n"
-    
-    # Add platform-specific footer if offline
+    # Build footer
+    footer = ""
     if not is_live:
         youtube_handle = os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')
         linktree_handle = os.environ.get('LINKTREE_HANDLE', 'TheBOLGroup')
         if platform == 'twitter':
-            caption += f"\n📺  YouTube: {youtube_handle} | Socials: linktr.ee/{linktree_handle}"
-        else:  # Instagram
-            caption += f"\n📺  YouTube: {youtube_handle} | Link in bio"
+            footer = f"\n📺  YouTube: {youtube_handle} | Socials: linktr.ee/{linktree_handle}"
+        else:
+            footer = f"\n📺  YouTube: {youtube_handle} | Link in bio"
 
-    # Enforce platform character limits
-    char_limit = 280 if platform == 'twitter' else 2200
-    if len(caption) > char_limit:
-        caption = caption[:char_limit - 3] + "..."
+    if platform == 'twitter':
+        # Smart hashtag trimming: remove tags from the end until the tweet fits 280 chars
+        tags = list(unique_hashtags)
+        while True:
+            hashtag_str = f"\n{' '.join(tags)}\n" if tags else "\n"
+            trial = caption + hashtag_str + footer
+            if len(trial) <= 280 or not tags:
+                caption = trial if len(trial) <= 280 else trial[:277] + "..."
+                break
+            tags.pop()
+    else:
+        caption += f"\n{' '.join(unique_hashtags)}\n"
+        caption += footer
+        if len(caption) > 2200:
+            caption = caption[:2197] + "..."
 
     return caption
 

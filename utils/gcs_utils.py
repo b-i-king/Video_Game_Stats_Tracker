@@ -3,7 +3,7 @@ Google Cloud Storage utilities for uploading social media images
 Organized folder structure:
 - twitter/YYYY/MM/  → Auto-posted charts (1200x630)
 - instagram/YYYY/MM/  → Weekly compilations (1080x1080)
-- instagram/games/GAME_NAME/  → Game-specific collections
+- instagram/games/{game}/{installment}/{mode}/  → Game-specific collections
 - instagram/posters/YYYY/MM/WEEK/  → Auto-posted Instagram portraits (1080x1440)
 """
 
@@ -48,7 +48,8 @@ def get_gcs_client():
         return None
 
 
-def upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type='bar', platform='twitter', storage_option='game'):
+def upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type='bar', platform='twitter',
+                        storage_option='game', game_installment=None, game_mode=None):
     """
     Upload chart image to Google Cloud Storage with organized folder structure.
 
@@ -59,9 +60,12 @@ def upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type='bar', 
         chart_type: str ('bar' or 'line')
         platform: str ('twitter' or 'instagram')
         storage_option: str — instagram only: 'game' | 'week' | 'month'
-            'game'  → instagram/games/{game_name}/
+            'game'  → instagram/games/{game}/{installment}/{mode}/
+                      (installment and mode segments omitted if None/empty/Main)
             'week'  → instagram/weekly/{year}/week_{week_num}/
             'month' → instagram/monthly/{year}/{month}/
+        game_installment: str or None — game installment for 'game' storage path
+        game_mode: str or None — game mode for 'game' storage path (skipped if None/empty/Main)
 
     Returns:
         str: Public URL of uploaded image, or None if failed
@@ -102,8 +106,15 @@ def upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type='bar', 
                 # instagram/monthly/2025/03/player_game_bar_20250115_143022.png
                 folder_path = f"instagram/monthly/{year}/{month}"
             else:
-                # default: 'game' — instagram/games/call_of_duty_warzone/player_bar_20250115.png
-                folder_path = f"instagram/games/{safe_game}"
+                # default: 'game' — instagram/games/{game}/{installment}/{mode}/
+                # Installment and mode segments are only added when non-null and non-trivial.
+                _skip_mode = {'main', 'n/a', 'none', '-', ''}
+                path_parts = [f"instagram/games/{safe_game}"]
+                if game_installment and game_installment.strip():
+                    path_parts.append(sanitize_filename(game_installment))
+                if game_mode and game_mode.strip().lower() not in _skip_mode:
+                    path_parts.append(sanitize_filename(game_mode))
+                folder_path = '/'.join(path_parts)
             filename = f"{safe_player}_{safe_game}_{chart_type}_{timestamp}.png"
 
         else:
