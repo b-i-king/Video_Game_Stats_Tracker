@@ -27,6 +27,7 @@ import sys
 import boto3
 import time
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import random
 import io
 import requests
@@ -506,13 +507,13 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
 
     # Determine hashtag based on day
     day_hashtags = {
-        'Monday': '#GamingThread #MondayMotivation #MondayUpdate',
-        'Tuesday': '#GamingThread #TuesdayVibes #GamingTuesday',
-        'Wednesday': '#GamingThread #WednesdayUpdate #MidweekGrind',
-        'Thursday': '#GamingThread #ThrowbackThursday #GamingThursday',
-        'Friday': '#GamingThread #FridayFeeling #WeekendReady',
-        'Saturday': '#GamingThread #SaturdayGaming #WeekendVibes',
-        'Sunday': '#GamingThread #SundayFunday #SundayGaming'
+        'Monday': '#GamingThreads #MondayMotivation #MondayUpdate',
+        'Tuesday': '#GamingThreads #TuesdayVibes #GamingTuesday',
+        'Wednesday': '#GamingThreads #WednesdayUpdate #MidweekGrind',
+        'Thursday': '#GamingThreads #ThrowbackThursday #GamingThursday',
+        'Friday': '#GamingThreads #FridayFeeling #WeekendReady',
+        'Saturday': '#GamingThreads #SaturdayGaming #WeekendVibes',
+        'Sunday': '#GamingThreads #SundayFunday #SundayGaming'
     }
 
     day_tag = day_hashtags.get(day_of_week, '#GamingUpdate')
@@ -564,10 +565,13 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     # Engagement CTA
     if post_type == 'daily':
         caption_lines.append("💬 What was your best match today? Drop it below 👇")
+        caption_lines.append("❤️ Like if you're grinding today & 🔁 repost to display match results!")
     elif post_type == 'recent':
         caption_lines.append("💬 Can you beat this score? Let us know 👇")
+        caption_lines.append("❤️ Like if this you can beat this score & 🔁 repost to challenge the community!")
     else:  # historical
         caption_lines.append("💬 Think you can top this all-time record? 👇")
+        caption_lines.append("❤️ Like if you respect the grind & 🔁 repost to see if anyone can match it!")
     caption_lines.append("")
     caption_lines.append("📲 Follow for daily stats, weekly recaps & more!")
     caption_lines.append("")
@@ -622,7 +626,10 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
 def _add_branding(fig):
     """Add consistent YT/Twitch handle and timestamp to the bottom of any figure."""
     fs = 19
-    timestamp = datetime.now().strftime('%B %d, %Y')
+    try:
+        timestamp = datetime.now(ZoneInfo(TIMEZONE_STR)).strftime('%B %d, %Y')
+    except Exception:
+        timestamp = datetime.now().strftime('%B %d, %Y')
     handle = os.environ.get('TWITCH_HANDLE', 'TheBOLBroadcast')
     y = 0.03
     fig.text(0.99, y, timestamp, ha='right', va='bottom', fontsize=fs, color='gray', style='italic')
@@ -910,7 +917,10 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
     top_margin = y_position
 
     # --- BRANDING & TIMESTAMP ---
-    timestamp = datetime.now().strftime('%B %d, %Y')
+    try:
+        timestamp = datetime.now(ZoneInfo(TIMEZONE_STR)).strftime('%B %d, %Y')
+    except Exception:
+        timestamp = datetime.now().strftime('%B %d, %Y')
     fig.text(0.99, branding_y_pos, timestamp, ha='right', va='bottom',
              fontsize=branding_fontsize, color='gray', style='italic')
 
@@ -998,6 +1008,27 @@ def post_to_instagram(image_buffer, caption):
             media_id = response_data['id']
             logger.info(f"✅ Media container created: {media_id}")
 
+        # Step 2: Poll until container is FINISHED (Instagram needs time to process)
+        status_url = f"https://graph.facebook.com/v24.0/{media_id}"
+        max_attempts = 10
+        for attempt in range(1, max_attempts + 1):
+            time.sleep(4)
+            status_resp = requests.get(status_url, params={
+                'fields': 'status_code',
+                'access_token': INSTAGRAM_ACCESS_TOKEN
+            })
+            status_data = status_resp.json()
+            status_code = status_data.get('status_code', '')
+            logger.info(f"⏳ Container status attempt {attempt}/{max_attempts}: {status_code}")
+            if status_code == 'FINISHED':
+                break
+            if status_code == 'ERROR':
+                logger.error(f"❌ Container processing failed: {status_data}")
+                return False
+        else:
+            logger.error(f"❌ Container not ready after {max_attempts} attempts")
+            return False
+
         publish_url = f"https://graph.facebook.com/v24.0/{INSTAGRAM_ACCOUNT_ID}/media_publish"
         publish_data = {
             'creation_id': media_id,
@@ -1051,11 +1082,7 @@ def run_instagram_poster():
     logger.info(f"📝 Previously posted content hashes: {len(posted_hashes)}")
 
     # Determine post content using the configured timezone
-    try:
-        from zoneinfo import ZoneInfo
-        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        now_local = datetime.now()
+    now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
     today = now_local.date()
     yesterday = today - timedelta(days=1)
     day_of_week = now_local.strftime('%A')
@@ -1261,11 +1288,7 @@ def run_instagram_poster_for_queue():
     logger.info(f"📝 Previously posted content hashes: {len(posted_hashes)}")
 
     # Determine post content using the configured timezone
-    try:
-        from zoneinfo import ZoneInfo
-        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        now_local = datetime.now()
+    now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
     today = now_local.date()
     yesterday = today - timedelta(days=1)
     day_of_week = now_local.strftime('%A')
@@ -1436,11 +1459,7 @@ def run_tuesday_thursday_poster_for_queue():
     exact_holiday = is_exact_holiday()
     use_holiday_theme = exact_holiday is not None
 
-    try:
-        from zoneinfo import ZoneInfo
-        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        now_local = datetime.now()
+    now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
     day_of_week = now_local.strftime('%A')
 
     # Get comparison data
@@ -1511,11 +1530,7 @@ def run_saturday_poster_for_queue():
     exact_holiday = is_exact_holiday()
     use_holiday_theme = exact_holiday is not None
 
-    try:
-        from zoneinfo import ZoneInfo
-        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        now_local = datetime.now()
+    now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
 
     today = now_local.date()
     week_end = today - timedelta(days=1)    # Friday
@@ -1580,11 +1595,7 @@ def run_new_years_poster_for_queue():
     exact_holiday = is_exact_holiday()
     use_holiday_theme = exact_holiday is not None
 
-    try:
-        from zoneinfo import ZoneInfo
-        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        now_local = datetime.now()
+    now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
 
     recap_year = now_local.year - 1
     logger.info(f"📅 Generating recap for year: {recap_year}")
@@ -1913,10 +1924,10 @@ def generate_comparison_caption(game_info, mode_1, mode_2, stats, player_name, d
     full_game_name = (f"{game_info['game_name']}: {game_info['game_installment']}"
                       if game_info.get('game_installment') else game_info['game_name'])
     day_hashtags_map = {
-        'Tuesday':  '#GamingThread #TuesdayVibes #GamingTuesday',
-        'Thursday': '#GamingThread #ThrowbackThursday #GamingThursday',
+        'Tuesday':  '#GamingThreads #TuesdayVibes #GamingTuesday',
+        'Thursday': '#GamingThreads #ThrowbackThursday #GamingThursday',
     }
-    day_tag = day_hashtags_map.get(day_of_week, '#GamingThread')
+    day_tag = day_hashtags_map.get(day_of_week, '#GamingThreads')
 
     lines = [
         f"⚔️ {full_game_name} Mode Breakdown {day_tag} ⚔️",
@@ -1936,6 +1947,11 @@ def generate_comparison_caption(game_info, mode_1, mode_2, stats, player_name, d
     lines += [
         "",
         f"Playing {game_handle}" if game_handle else f"Playing {full_game_name}",
+        "",
+        "💬 Which mode do YOU prefer? Drop your take below 👇",
+        "❤️ Like if you're messsing with the winning mode & 🔁 repost to settle the debate!",
+        "",
+        "📲 Follow for daily stats, weekly recaps & more!",
         "",
     ]
 
@@ -1963,11 +1979,7 @@ def run_tuesday_thursday_poster():
     if not player_name:
         raise Exception(f"No player data found for player_id={PLAYER_ID}")
 
-    try:
-        from zoneinfo import ZoneInfo
-        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        now_local = datetime.now()
+    now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
 
     day_of_week = now_local.strftime('%A')
     use_holiday_theme = is_exact_holiday() is not None
@@ -2056,30 +2068,36 @@ def get_weekly_summary_data(player_id, week_start, week_end):
         """, params
     )
 
-    top_day = execute_query(
+    top_day_raw = execute_query(
         """
-        SELECT
-            TRIM(TO_CHAR(CONVERT_TIMEZONE(:timezone, played_at), 'Day')) AS day_name,
-            COUNT(DISTINCT played_at) AS day_sessions
+        SELECT CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) AS play_date,
+               COUNT(*) AS cnt
         FROM fact.fact_game_stats
         WHERE player_id = :player_id
           AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
               BETWEEN :week_start AND :week_end
-        GROUP BY TRIM(TO_CHAR(CONVERT_TIMEZONE(:timezone, played_at), 'Day'))
-        ORDER BY day_sessions DESC,
-          CASE day_name
-            WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3
-            WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6
-            WHEN 'Sunday' THEN 7 ELSE 8
-          END ASC
+        GROUP BY played_at, CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
+        ORDER BY cnt DESC, play_date ASC
         LIMIT 1;
         """, params
     )
 
+    if top_day_raw:
+        top_date_val = get_field_value(top_day_raw[0][0])
+        if top_date_val:
+            if isinstance(top_date_val, str):
+                from datetime import datetime as _dt
+                top_date_val = _dt.strptime(top_date_val[:10], '%Y-%m-%d').date()
+            top_day_name = top_date_val.strftime('%A')
+        else:
+            top_day_name = 'N/A'
+    else:
+        top_day_name = 'N/A'
+
     return {
         'games_played':   games_played,
         'sessions':       sessions,
-        'top_day':        (get_field_value(top_day[0][0]) or 'N/A').strip() if top_day else 'N/A',
+        'top_day':        top_day_name,
         'top_stat_name':  get_field_value(top_stat[0][0]) if top_stat else 'N/A',
         'top_stat_value': int(get_field_value(top_stat[0][1]) or 0) if top_stat else 0,
         'week_start':     week_start,
@@ -2176,9 +2194,14 @@ def generate_weekly_caption(summary, player_name):
         "",
         "Another week, another grind. Full breakdown on YouTube!",
         "",
+        "💬 How was your gaming week? Share your best moment below 👇",
+        "❤️ Like if you hit a personal best this week & 🔁 repost to support the weekly grind!",
+        "",
+        "📲 Follow for daily stats, weekly recaps & more!",
+        "",
     ]
     base_hashtags = [
-        '#gaming', '#esports', '#casual', '#gamer', '#gamingcommunity',
+        '#GamingThreads','#gaming', '#esports', '#casual', '#gamer', '#gamingcommunity',
         '#weeklyrecap', '#GamingSaturday', '#GameStats',
     ]
     lines.append(' '.join(base_hashtags))
@@ -2196,11 +2219,7 @@ def run_saturday_poster():
     if not player_name:
         raise Exception(f"No player data found for player_id={PLAYER_ID}")
 
-    try:
-        from zoneinfo import ZoneInfo
-        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        now_local = datetime.now()
+    now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
 
     today      = now_local.date()
     week_end   = today - timedelta(days=1)   # Friday
@@ -2530,6 +2549,11 @@ def generate_yearly_recap_caption(recap, player_name):
         "",
         "New year. New games. Same grind. 🔥",
         "",
+        "💬 What was your biggest gaming achievement this year? Drop it below 👇",
+        "❤️ Like if you're locking in for an even bigger year & 🔁 repost to inspire your crew!",
+        "",
+        "📲 Follow for daily stats, weekly recaps & more!",
+        "",
     ]
     base_hashtags = [
         '#gaming', '#NewYearsDay', '#GamingRecap', '#YearInReview',
@@ -2550,11 +2574,7 @@ def run_new_years_poster():
     if not player_name:
         raise Exception(f"No player data found for player_id={PLAYER_ID}")
 
-    try:
-        from zoneinfo import ZoneInfo
-        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        now_local = datetime.now()
+    now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
 
     recap_year = now_local.year - 1   # recap covers the PREVIOUS calendar year
     use_holiday_theme = is_exact_holiday() is not None
@@ -2598,11 +2618,7 @@ def get_queue_result_for_today():
     Jan 1 (New Year's Day) overrides everything and runs yearly recap.
     Returns None on Sunday (no post scheduled).
     """
-    try:
-        from zoneinfo import ZoneInfo
-        now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        now_local = datetime.now()
+    now_local = datetime.now(ZoneInfo(TIMEZONE_STR))
 
     if now_local.month == 1 and now_local.day == 1:
         logger.info("🎊 New Year's Day — routing to yearly recap")
@@ -2624,11 +2640,7 @@ def get_queue_result_for_today():
 
 # Backward compatibility for non-Lambda execution
 if __name__ == "__main__":
-    try:
-        from zoneinfo import ZoneInfo
-        _now = datetime.now(ZoneInfo(TIMEZONE_STR))
-    except Exception:
-        _now = datetime.now()
+    _now = datetime.now(ZoneInfo(TIMEZONE_STR))
 
     if _now.month == 1 and _now.day == 1:
         result = run_new_years_poster()

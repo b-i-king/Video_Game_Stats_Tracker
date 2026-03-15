@@ -83,6 +83,21 @@ echo $LAYER_ARN
 
 ## Troubleshooting
 
+**Manual AWS Lambda Test**
+```
+$logB64 = aws lambda invoke `
+    --function-name instagram-data-fetcher `
+    --payload '{}' `
+    --region us-west-1 `
+    --log-type Tail `
+    --query 'LogResult' `
+    --output text `
+    --cli-read-timeout 300 `
+response.json
+```
+
+aws lambda invoke --function-name instagram-data-fetcher --payload '{"MODE": "FETCH"}' --region us-west-1 --log-type Tail --query 'LogResult' --output text --cli-read-timeout 300 response.json    
+
 **Scripts won't run:**
 ```powershell
 # Run from project root, not build/

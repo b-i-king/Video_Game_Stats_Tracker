@@ -19,10 +19,13 @@ import matplotlib.font_manager as fm
 import matplotlib.dates as mdates
 import seaborn as sns
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import io
 import os
 import numpy as np
 from utils.holiday_themes import get_themed_colors
+
+TIMEZONE_STR = os.environ.get("TIMEZONE", "America/Los_Angeles")
 
 # Set style for professional-looking charts
 sns.set_style("darkgrid")
@@ -358,7 +361,10 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
                  transform=fig.transFigure)
 
     # Timestamp
-    timestamp = datetime.now().strftime('%B %d, %Y')
+    try:
+        timestamp = datetime.now(ZoneInfo(TIMEZONE_STR)).strftime('%B %d, %Y')
+    except Exception:
+        timestamp = datetime.now().strftime('%B %d, %Y')
     fig.text(0.99, 0.03, timestamp, ha='right', va='bottom',
              fontsize=branding_fontsize, color='gray', style='italic')
 
@@ -589,7 +595,10 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     ax.spines['bottom'].set_color('white')
 
     # Add timestamp
-    timestamp = datetime.now().strftime('%B %d, %Y')
+    try:
+        timestamp = datetime.now(ZoneInfo(TIMEZONE_STR)).strftime('%B %d, %Y')
+    except Exception:
+        timestamp = datetime.now().strftime('%B %d, %Y')
     fig.text(0.99, branding_y_pos, timestamp, ha='right', va='bottom',
              fontsize=branding_fontsize, color='gray', style='italic')
 
@@ -905,7 +914,10 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     ax.set_xlim(x_min, x_max + (x_max - x_min) * 0.15)
 
     # Add timestamp
-    timestamp = datetime.now().strftime('%B %d, %Y')
+    try:
+        timestamp = datetime.now(ZoneInfo(TIMEZONE_STR)).strftime('%B %d, %Y')
+    except Exception:
+        timestamp = datetime.now().strftime('%B %d, %Y')
     fig.text(0.99, branding_y_pos, timestamp, ha='right', va='bottom',
              fontsize=branding_fontsize, color='gray', style='italic')
 
