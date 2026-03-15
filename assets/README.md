@@ -19,16 +19,18 @@ assets/
 │   ├── test_instagram_historical_2.png
 │   ├── test_instagram_historical_5.png
 │   └── test_instagram_multi_game_4.png
-└── captions/               # Sample caption text outputs
-    ├── test_twitter_caption_bar_offline.txt
-    ├── test_twitter_caption_line_offline.txt
-    ├── test_instagram_caption_daily_1.txt
-    ├── test_instagram_caption_recent_3.txt
-    ├── test_instagram_caption_historical_2.txt
-    ├── test_instagram_caption_historical_5.txt
-    ├── test_instagram_caption_multi_game_4.txt
-    ├── test_instagram_square_caption_bar.txt
-    └── test_instagram_square_caption_line.txt
+├── captions/               # Sample caption text outputs
+│   ├── test_twitter_caption_bar_offline.txt
+│   ├── test_twitter_caption_line_offline.txt
+│   ├── test_instagram_caption_daily_1.txt
+│   ├── test_instagram_caption_recent_3.txt
+│   ├── test_instagram_caption_historical_2.txt
+│   ├── test_instagram_caption_historical_5.txt
+│   ├── test_instagram_caption_multi_game_4.txt
+│   ├── test_instagram_square_caption_bar.txt
+│   └── test_instagram_square_caption_line.txt
+└── sql/                    # Redshift test queries for manual validation
+    └── test_queries.sql    # SQL for each Instagram poster type
 ```
 
 ## How These Are Generated
@@ -50,8 +52,34 @@ These files are referenced directly in the root `README.md`:
 ![Twitter Bar Chart](./assets/images/test_twitter_bar_chart_offline.png)
 ```
 
+## SQL Test Queries
+
+`assets/sql/test_queries.sql` contains standalone Redshift-compatible queries for every Instagram poster type, extracted from `instagram_poster.py`. Use them to validate query syntax and output before deploying Lambda changes.
+
+### How to use
+
+1. Open **AWS Redshift Query Editor v2** and connect to your serverless workgroup.
+2. Open `test_queries.sql` and run each section independently.
+3. Values marked `-- ← CHANGE ME` are placeholders — substitute your own `player_id`, `timezone`, dates, etc.
+
+### Sections
+
+| # | Poster type | Day(s) |
+|---|---|---|
+| 1 | Utility queries | All posters |
+| 2 | MWF Portrait | Mon / Wed / Fri |
+| 3 | Tale of the Tape | Tue / Thu |
+| 4 | Weekly Summary | Saturday |
+| 5 | Yearly Recap | New Year's Day |
+
+### Key things to validate
+
+- `CONVERT_TIMEZONE('America/Los_Angeles', played_at)` returns the expected local date
+- `GROUP BY` includes all non-aggregated columns (Redshift is strict about this)
+- Row counts and values match what you expect from your Streamlit app or manual inspection
+
 ## Notes
 
 - These are **sample outputs only** — no real player data is included
-- To regenerate them, run the test scripts with your local environment configured
+- To regenerate chart images and captions, run the test scripts with your local environment configured
 - Do not commit images with sensitive or personal data
