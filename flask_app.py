@@ -620,16 +620,16 @@ def add_stats(user_email):
                         if len(prev_rows) > 1:
                             stat_data[f'stat{i}']['prev_value'] = prev_rows[1][0]
 
-                    image_buffer_twitter = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='twitter')
-                    image_buffer_instagram = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='instagram')
+                    image_buffer_twitter = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='twitter', game_mode=batch_game_mode)
+                    image_buffer_instagram = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='instagram', game_mode=batch_game_mode)
                     chart_type = 'bar'
                     stat_data_for_caption = stat_data  # already correct format
 
                 elif games_played > 1:
                     # Generate LINE CHART (multiple games) — last 365 days
                     stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats, days_back=365)
-                    image_buffer_twitter = generate_line_chart(stat_history, player_name, game_name, game_installment, size='twitter')
-                    image_buffer_instagram = generate_line_chart(stat_history, player_name, game_name, game_installment, size='instagram')
+                    image_buffer_twitter = generate_line_chart(stat_history, player_name, game_name, game_installment, size='twitter', game_mode=batch_game_mode)
+                    image_buffer_instagram = generate_line_chart(stat_history, player_name, game_name, game_installment, size='instagram', game_mode=batch_game_mode)
                     chart_type = 'line'
 
                     # Build caption stat_data from stat_history (latest vs previous value)
@@ -660,7 +660,8 @@ def add_stats(user_email):
                         stat_data_for_caption,
                         games_played,
                         platform='twitter',
-                        is_live=is_live
+                        is_live=is_live,
+                        game_mode=batch_game_mode
                     )
 
                     # Post only Twitter URL to Twitter via IFTTT
@@ -678,7 +679,9 @@ def add_stats(user_email):
                     
             except Exception as social_error:
                 # Don't fail the entire request if social media posting fails
+                import traceback
                 print(f"⚠️ Social media integration error (stats still saved): {social_error}")
+                traceback.print_exc()
             
             return jsonify({"message": f"Stats successfully added ({successful_inserts} records)!"}), 201
 
