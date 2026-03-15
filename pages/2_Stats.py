@@ -455,6 +455,12 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                 first_session_toggle = st.toggle("First Session of Day", value=True, key="first_session_toggle", help="Is this your first gaming session today? Turn off for subsequent sessions.")
 
             st.subheader("Stats")
+            # Apply any carry-over values from the previous submit before widgets render.
+            for i in range(st.session_state.num_stats):
+                if f"_next_stat_type_{i}" in st.session_state:
+                    st.session_state[f"stat_type_{i}"] = st.session_state.pop(f"_next_stat_type_{i}")
+                if f"_next_stat_value_{i}" in st.session_state:
+                    st.session_state[f"stat_value_{i}"] = st.session_state.pop(f"_next_stat_value_{i}")
             stats_list = []
             for i in range(st.session_state.num_stats):
                 st.markdown(f"**Stat Set {i+1}**"); cols = st.columns(2)
@@ -535,9 +541,11 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         st.session_state.pop("confirm_stats_checkbox", None)
                         # Preserve stat type names so user doesn't retype them next session;
                         # reset values to 0 so new numbers can be entered cleanly.
+                        # Use staging keys — widget keys cannot be set after they are rendered.
+                        # The staging values are applied before the widgets render on rerun.
                         for i, s in enumerate(stats_list):
-                            st.session_state[f"stat_type_{i}"] = s['stat_type']
-                            st.session_state[f"stat_value_{i}"] = 0
+                            st.session_state[f"_next_stat_type_{i}"] = s['stat_type']
+                            st.session_state[f"_next_stat_value_{i}"] = 0
                         st.session_state.data_cache.clear(); st.session_state.selected_genre = "Select a Genre"; st.session_state.selected_subgenre = "Select a Subgenre"; st.rerun()
                     except requests.exceptions.RequestException as e:
                         st.error(f"Submit error: {e}")

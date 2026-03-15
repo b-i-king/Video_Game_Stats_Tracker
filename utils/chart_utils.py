@@ -682,9 +682,6 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     theme = get_themed_colors()
     colors = theme['colors']
     
-    # Count how many stat series are present
-    num_stats = sum(1 for i in range(1, 4)
-                    if f'stat{i}' in stat_history and stat_history[f'stat{i}'])
 
     # Fixed canvas sizes matching generate_bar_chart
     if size == 'instagram':
@@ -846,11 +843,26 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         line_end_positions.sort(key=lambda x: x['y'])
 
         ymin, ymax = ax.get_ylim()
-        y_range = max(ymax - ymin, 1)
-
-        # Convert data units → approximate points using axes geometry so we can
-        # compare label positions to a fixed pixel/point gap threshold.
         ax_height_pts = fig.get_size_inches()[1] * 72 * ax.get_position().height
+
+        # On a log axis the data→screen mapping is log10-linear, not linear.
+        # Using raw data values to estimate screen gaps gives completely wrong
+        # spread distances (e.g. values 9 and 12 look far apart in data space
+        # but are visually close on a log scale).  Convert to log10 space first
+        # so the gap calculation matches what is actually rendered on screen.
+        if use_log:
+            import math
+            _to_screen = lambda v: math.log10(max(v, 1e-10))
+            log_min = _to_screen(max(ymin, 1e-10))
+            log_max = _to_screen(max(ymax, 1e-10))
+            y_range = max(log_max - log_min, 1e-6)
+            spread_positions = [_to_screen(pos['y']) for pos in line_end_positions]
+        else:
+            y_range = max(ymax - ymin, 1)
+            spread_positions = [pos['y'] for pos in line_end_positions]
+
+        # Convert data-space units → approximate screen points so we can
+        # compare label positions against a fixed pixel/point gap threshold.
         data_to_pts = ax_height_pts / y_range
 
         MIN_GAP_PTS = 26  # minimum vertical gap between label centres (points)
@@ -863,8 +875,8 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         for _ in range(30):
             moved = False
             for j in range(n - 1):
-                pos_j  = line_end_positions[j]['y']     * data_to_pts + y_offsets[j]
-                pos_j1 = line_end_positions[j + 1]['y'] * data_to_pts + y_offsets[j + 1]
+                pos_j  = spread_positions[j]     * data_to_pts + y_offsets[j]
+                pos_j1 = spread_positions[j + 1] * data_to_pts + y_offsets[j + 1]
                 gap = pos_j1 - pos_j
                 if gap < MIN_GAP_PTS:
                     push = (MIN_GAP_PTS - gap) / 2.0
