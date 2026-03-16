@@ -269,28 +269,76 @@ def get_player_info(player_id):
     return get_field_value(records[0][0]) if records else None
 
 
-def get_stats_for_date(player_id, game_id, target_date):
-    """Get stats for a specific date and game"""
+def get_stats_for_date(player_id, game_id, target_date, game_mode=None):
+    """
+    Get best (MAX) value per stat type for a game on a date, aggregated across
+    all matches played that day.  Passing game_mode restricts results to that
+    mode only (use when all sessions share the same mode).
+    """
+    params = [
+        {'name': 'player_id',   'value': str(player_id)},
+        {'name': 'game_id',     'value': str(game_id)},
+        {'name': 'timezone',    'value': TIMEZONE_STR},
+        {'name': 'target_date', 'value': str(target_date)},
+    ]
+    mode_clause = ''
+    if game_mode:
+        mode_clause = 'AND game_mode = :game_mode'
+        params.append({'name': 'game_mode', 'value': game_mode})
+
     records = execute_query(
-        """
+        f"""
         SELECT
-            f.stat_type,
-            f.stat_value
-        FROM fact.fact_game_stats f
-        WHERE f.player_id = :player_id
-        AND f.game_id = :game_id
-        AND CAST(CONVERT_TIMEZONE(:timezone, f.played_at) AS DATE) = :target_date
-        ORDER BY f.stat_value DESC
+            stat_type,
+            MAX(stat_value) AS best_value
+        FROM fact.fact_game_stats
+        WHERE player_id = :player_id
+          AND game_id = :game_id
+          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date
+          {mode_clause}
+        GROUP BY stat_type
+        ORDER BY best_value DESC
         LIMIT 5;
         """,
-        [
-            {'name': 'player_id', 'value': str(player_id)},
-            {'name': 'game_id', 'value': str(game_id)},
-            {'name': 'timezone', 'value': TIMEZONE_STR},
-            {'name': 'target_date', 'value': str(target_date)},
-        ]
+        params
     )
     return [(get_field_value(row[0]), get_field_value(row[1])) for row in records]
+
+
+def get_match_count_for_date(player_id, game_id, target_date, game_mode=None):
+    """
+    Count distinct match sessions (unique played_at timestamps) for a game on a
+    date.  Each form submission shares one played_at so this equals # of
+    submitted sessions.  Returns 1 as a safe fallback.
+    """
+    params = [
+        {'name': 'player_id',   'value': str(player_id)},
+        {'name': 'game_id',     'value': str(game_id)},
+        {'name': 'timezone',    'value': TIMEZONE_STR},
+        {'name': 'target_date', 'value': str(target_date)},
+    ]
+    mode_clause = ''
+    if game_mode:
+        mode_clause = 'AND game_mode = :game_mode'
+        params.append({'name': 'game_mode', 'value': game_mode})
+
+    try:
+        records = execute_query(
+            f"""
+            SELECT COUNT(DISTINCT played_at) AS match_count
+            FROM fact.fact_game_stats
+            WHERE player_id = :player_id
+              AND game_id = :game_id
+              AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date
+              {mode_clause};
+            """,
+            params
+        )
+        count = get_field_value(records[0][0]) if records else 1
+        return int(count) if count else 1
+    except Exception as e:
+        logger.warning(f"⚠️ Could not get match count: {e}")
+        return 1
 
 
 def get_stats_for_date_all_games(player_id, target_date):
@@ -477,7 +525,7 @@ def get_historical_records_all_games(player_id, posted_hashes, limit=10):
 # CAPTION GENERATION
 # ============================================================================
 
-def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies, game_mode=None):
+def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies, game_mode=None, match_count=1):
     """
     Generate trendy caption with game-specific handle and hashtags.
     Now uses game_handles_utils for centralized social media data.
@@ -493,8 +541,6 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     Returns:
         str: Caption text for Instagram
     """
-    from utils.holiday_themes import get_themed_colors
-
     game_name = game_info['game_name']
     game_installment = game_info.get('game_installment')
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
@@ -530,6 +576,11 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
         hook = f"{emoji} {full_game_name} All-Time Records {day_tag} {emoji}"
 
     caption_lines = [hook, ""]
+
+    # Show match count when multiple sessions were played the same day
+    if match_count > 1:
+        caption_lines.append(f"#️⃣ {match_count} matches played")
+        caption_lines.append("")
 
     # Add top stats (limit to top 3 for brevity)
     for stat_name, stat_value in stats[:3]:
@@ -1061,8 +1112,6 @@ def run_instagram_poster():
     Returns:
         dict: Result information for Lambda response
     """
-    logger.info(f"📅 Today: {datetime.now().strftime('%A, %B %d, %Y')}")
-
     # Get player info
     player_name = get_player_info(PLAYER_ID)
 
@@ -1086,6 +1135,7 @@ def run_instagram_poster():
     today = now_local.date()
     yesterday = today - timedelta(days=1)
     day_of_week = now_local.strftime('%A')
+    logger.info(f"📅 Today: {now_local.strftime('%A, %B %d, %Y')} ({TIMEZONE_STR})")
 
     # Check if today is exact holiday (for theme)
     exact_holiday = is_exact_holiday()
@@ -1096,6 +1146,7 @@ def run_instagram_poster():
     game_info = {}
     anomalies = []
     game_mode = None
+    match_count = 1
     date_str = ""
     title = ""
     subtitle = None
@@ -1119,9 +1170,15 @@ def run_instagram_poster():
                            and g['game_installment'] == first_game['installment']), None)
 
             if game_id:
-                stats = get_stats_for_date(PLAYER_ID, game_id, today)
-                anomalies = detect_anomalies(PLAYER_ID, game_id, today)
+                # Resolve mode first so stat aggregation can filter by it
                 game_mode = get_game_mode_for_date(PLAYER_ID, game_id, today)
+                stats = get_stats_for_date(PLAYER_ID, game_id, today, game_mode)
+                anomalies = detect_anomalies(PLAYER_ID, game_id, today)
+                match_count = get_match_count_for_date(PLAYER_ID, game_id, today, game_mode)
+                if match_count > 1:
+                    logger.info(f"🔁 {match_count} matches for {game_info['game_name']} today (mode: {game_mode or 'all'})")
+            else:
+                logger.warning(f"⚠️ game_id not found for {first_game['game']} {first_game['installment']}")
 
             post_type = 'daily'
             date_str = today.strftime('%A, %B %d')
@@ -1147,9 +1204,14 @@ def run_instagram_poster():
                            and g['game_installment'] == first_game['installment']), None)
 
             if game_id:
-                stats = get_stats_for_date(PLAYER_ID, game_id, yesterday)
-                anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
                 game_mode = get_game_mode_for_date(PLAYER_ID, game_id, yesterday)
+                stats = get_stats_for_date(PLAYER_ID, game_id, yesterday, game_mode)
+                anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
+                match_count = get_match_count_for_date(PLAYER_ID, game_id, yesterday, game_mode)
+                if match_count > 1:
+                    logger.info(f"🔁 {match_count} matches for {game_info['game_name']} yesterday (mode: {game_mode or 'all'})")
+            else:
+                logger.warning(f"⚠️ game_id not found for {first_game['game']} {first_game['installment']}")
 
             post_type = 'recent'
             date_str = yesterday.strftime('%A, %B %d')
@@ -1222,7 +1284,7 @@ def run_instagram_poster():
     # Generate caption
     caption = generate_trendy_caption(
         post_type, stats, game_info, player_name, day_of_week, anomalies,
-        game_mode=game_mode
+        game_mode=game_mode, match_count=match_count
     )
     logger.info(f"📝 Caption:\n{caption}\n")
 
@@ -1267,8 +1329,6 @@ def run_instagram_poster_for_queue():
             'content_hash': str
         }
     """
-    logger.info(f"📅 Today: {datetime.now().strftime('%A, %B %d, %Y')}")
-
     # Get player info
     player_name = get_player_info(PLAYER_ID)
 
@@ -1292,6 +1352,7 @@ def run_instagram_poster_for_queue():
     today = now_local.date()
     yesterday = today - timedelta(days=1)
     day_of_week = now_local.strftime('%A')
+    logger.info(f"📅 Today: {now_local.strftime('%A, %B %d, %Y')} ({TIMEZONE_STR})")
 
     # Check if today is exact holiday (for theme)
     exact_holiday = is_exact_holiday()
@@ -1302,6 +1363,7 @@ def run_instagram_poster_for_queue():
     game_info = {}
     anomalies = []
     game_mode = None
+    match_count = 1
     date_str = ""
     title = ""
     subtitle = None
@@ -1325,9 +1387,14 @@ def run_instagram_poster_for_queue():
                            and g['game_installment'] == first_game['installment']), None)
 
             if game_id:
-                stats = get_stats_for_date(PLAYER_ID, game_id, today)
-                anomalies = detect_anomalies(PLAYER_ID, game_id, today)
                 game_mode = get_game_mode_for_date(PLAYER_ID, game_id, today)
+                stats = get_stats_for_date(PLAYER_ID, game_id, today, game_mode)
+                anomalies = detect_anomalies(PLAYER_ID, game_id, today)
+                match_count = get_match_count_for_date(PLAYER_ID, game_id, today, game_mode)
+                if match_count > 1:
+                    logger.info(f"🔁 {match_count} matches for {game_info['game_name']} today (mode: {game_mode or 'all'})")
+            else:
+                logger.warning(f"⚠️ game_id not found for {first_game['game']} {first_game['installment']}")
 
             post_type = 'daily'
             date_str = today.strftime('%A, %B %d')
@@ -1353,9 +1420,14 @@ def run_instagram_poster_for_queue():
                            and g['game_installment'] == first_game['installment']), None)
 
             if game_id:
-                stats = get_stats_for_date(PLAYER_ID, game_id, yesterday)
-                anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
                 game_mode = get_game_mode_for_date(PLAYER_ID, game_id, yesterday)
+                stats = get_stats_for_date(PLAYER_ID, game_id, yesterday, game_mode)
+                anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
+                match_count = get_match_count_for_date(PLAYER_ID, game_id, yesterday, game_mode)
+                if match_count > 1:
+                    logger.info(f"🔁 {match_count} matches for {game_info['game_name']} yesterday (mode: {game_mode or 'all'})")
+            else:
+                logger.warning(f"⚠️ game_id not found for {first_game['game']} {first_game['installment']}")
 
             post_type = 'recent'
             date_str = yesterday.strftime('%A, %B %d')
@@ -1428,7 +1500,7 @@ def run_instagram_poster_for_queue():
     # Generate caption
     caption = generate_trendy_caption(
         post_type, stats, game_info, player_name, day_of_week, anomalies,
-        game_mode=game_mode
+        game_mode=game_mode, match_count=match_count
     )
     logger.info(f"📝 Caption generated ({len(caption)} chars)")
 
@@ -1543,7 +1615,7 @@ def run_saturday_poster_for_queue():
     if summary is None:
         raise Exception("Insufficient data for weekly summary")
 
-    logger.info(f"🎮 Games in summary: {summary.get('total_games', 0)}")
+    logger.info(f"🎮 Games in summary: {summary.get('games_played', 0)}")
 
     # Create chart
     logger.info(f"🎨 Creating weekly summary chart (Holiday theme: {use_holiday_theme})...")
