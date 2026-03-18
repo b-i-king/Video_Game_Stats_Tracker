@@ -10,6 +10,11 @@ import atexit
 from utils.chart_utils import generate_bar_chart, generate_line_chart, get_stat_history_from_db
 from utils.gcs_utils import upload_chart_to_gcs
 from utils.ifttt_utils import trigger_ifttt_post, generate_post_caption
+from utils.queue_utils import (
+    ensure_post_queue_table, enqueue_post, get_oldest_pending,
+    mark_status, get_queue_counts, reset_failed_to_pending,
+    reset_stale_processing, purge_old_sent
+)
 
 app = Flask(__name__)
 CORS(app)
@@ -55,11 +60,21 @@ JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 TRUSTED_EMAILS_STR = os.environ.get("TRUSTED_EMAILS", "")
 TRUSTED_EMAILS_LIST = [email.strip() for email in TRUSTED_EMAILS_STR.split(',') if email.strip()]
 OBS_SECRET_KEY = os.environ.get("OBS_SECRET_KEY")
+CRON_SECRET = os.environ.get("CRON_SECRET")
 
 if not all([DB_URL, DB_NAME, DB_USER, DB_PASSWORD, API_KEY, JWT_SECRET_KEY]):
     print("WARNING: One or more environment variables are not set. Using default values.")
 if not TRUSTED_EMAILS_LIST:
     print("WARNING: TRUSTED_EMAILS environment variable is not set or empty. No users will be automatically marked as trusted.")
+if not CRON_SECRET:
+    print("WARNING: CRON_SECRET not set — /api/process_queue will reject all requests.")
+
+# --- Render Postgres (post_queue) setup ---
+try:
+    ensure_post_queue_table()
+    print("✅ post_queue table ready.")
+except Exception as _pq_err:
+    print(f"⚠️  Could not initialize post_queue table: {_pq_err}")
 
 # --- Database Connection Pool ---
 # Create the connection pool once when the app starts
@@ -453,6 +468,7 @@ def add_stats(user_email):
     player_name = data.get('player_name')
     stats = data.get('stats')
     is_live = data.get('is_live', False)
+    queue_mode = data.get('queue_mode', False)
     conn = None
 
     # This is a sample of the data that's expected
@@ -664,17 +680,35 @@ def add_stats(user_email):
                         game_mode=batch_game_mode
                     )
 
-                    # Post only Twitter URL to Twitter via IFTTT
-                    success = trigger_ifttt_post(twitter_public_url, caption, 'twitter')
-
-                    if success:
-                        print(f"✅ Twitter post triggered successfully!")
+                    if queue_mode:
+                        qid = enqueue_post(player_id, 'twitter', twitter_public_url, caption)
+                        print(f"📥 Twitter post queued (queue_id={qid})")
                     else:
-                        print(f"⚠️ Twitter post failed, but stats were saved")
+                        success = trigger_ifttt_post(twitter_public_url, caption, 'twitter')
+                        if success:
+                            print(f"✅ Twitter post triggered successfully!")
+                        else:
+                            print(f"⚠️ Twitter post failed, but stats were saved")
                 else:
                     print(f"⚠️ Failed to upload Twitter chart, but stats were saved")
 
-                if not instagram_url_week and not instagram_url_game:
+                # Instagram — queue or log URL (no immediate IFTTT post for Instagram)
+                instagram_url = instagram_url_game or instagram_url_week
+                if instagram_url:
+                    instagram_caption = generate_post_caption(
+                        player_name,
+                        game_name,
+                        game_installment,
+                        stat_data_for_caption,
+                        games_played,
+                        platform='instagram',
+                        is_live=is_live,
+                        game_mode=batch_game_mode
+                    )
+                    if queue_mode:
+                        qid = enqueue_post(player_id, 'instagram', instagram_url, instagram_caption)
+                        print(f"📥 Instagram post queued (queue_id={qid})")
+                elif not instagram_url_week and not instagram_url_game:
                     print(f"⚠️ Failed to upload Instagram chart, but stats were saved")
                     
             except Exception as social_error:
@@ -683,7 +717,11 @@ def add_stats(user_email):
                 print(f"⚠️ Social media integration error (stats still saved): {social_error}")
                 traceback.print_exc()
             
-            return jsonify({"message": f"Stats successfully added ({successful_inserts} records)!"}), 201
+            post_action = "queued" if queue_mode else "posted"
+            return jsonify({
+                "message": f"Stats successfully added ({successful_inserts} records)!",
+                "social_media": post_action
+            }), 201
 
         else:
             return jsonify({"error": "No valid stats provided to insert."}), 400
@@ -692,6 +730,93 @@ def add_stats(user_email):
         return jsonify({"error": f"An internal error occurred: {str(error)}"}), 500
     finally:
         release_db_connection(conn)
+
+
+# --- Post Queue Endpoints ---
+
+@app.route('/api/process_queue', methods=['POST'])
+def process_queue():
+    """
+    Process the oldest pending post in post_queue and fire the IFTTT webhook.
+    Protected by X-Cron-Secret header — called by the Render cron job.
+    Also runs housekeeping: resets stale 'processing' rows and purges old sent rows.
+    """
+    incoming_secret = request.headers.get('X-Cron-Secret')
+    if not CRON_SECRET or incoming_secret != CRON_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    results = {"processed": 0, "status": None, "queue_id": None, "purged": 0, "stale_reset": 0}
+
+    # Housekeeping: reset any rows stuck in 'processing' for > 10 min
+    try:
+        stale = reset_stale_processing(minutes=10)
+        results["stale_reset"] = stale
+        if stale:
+            print(f"♻️  Reset {stale} stale processing row(s) back to pending.")
+    except Exception as e:
+        print(f"⚠️  Stale reset error (non-fatal): {e}")
+
+    # Housekeeping: purge sent rows older than 7 days
+    try:
+        purged = purge_old_sent(days=7)
+        results["purged"] = purged
+        if purged:
+            print(f"🗑️  Purged {purged} old sent post(s) from queue.")
+    except Exception as e:
+        print(f"⚠️  Queue cleanup error (non-fatal): {e}")
+
+    # Pick and atomically claim the oldest pending item
+    try:
+        item = get_oldest_pending()
+    except Exception as e:
+        return jsonify({"error": f"Queue read failed: {str(e)}"}), 500
+
+    if not item:
+        results["status"] = "empty"
+        return jsonify(results), 200
+
+    queue_id = item['queue_id']
+    results["queue_id"] = queue_id
+
+    try:
+        success = trigger_ifttt_post(item['image_url'], item['caption'], item['platform'])
+        new_status = 'sent' if success else 'failed'
+        mark_status(queue_id, new_status)
+        results["processed"] = 1
+        results["status"] = new_status
+        print(f"{'✅' if success else '❌'} Queue item {queue_id} ({item['platform']}): {new_status}")
+        return jsonify(results), 200
+    except Exception as e:
+        try:
+            mark_status(queue_id, 'failed')
+        except Exception:
+            pass
+        return jsonify({"error": str(e), "queue_id": queue_id}), 500
+
+
+@app.route('/api/queue_status', methods=['GET'])
+@requires_jwt_auth
+def queue_status(user_email):
+    """Return pending/processing/sent/failed counts for the Streamlit UI."""
+    try:
+        counts = get_queue_counts()
+        print(f"📊 Queue status requested by {user_email}: {counts}")
+        return jsonify(counts), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/retry_failed', methods=['POST'])
+@requires_jwt_auth
+def retry_failed(user_email):
+    """Reset all failed queue items back to pending."""
+    try:
+        count = reset_failed_to_pending()
+        print(f"♻️  {user_email} reset {count} failed post(s) to pending.")
+        return jsonify({"reset_count": count}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 # --- Player Endpoints ---
 

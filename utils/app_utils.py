@@ -1,9 +1,11 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
+import pytz
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
+from utils.holiday_themes import get_nth_weekday, get_last_weekday
 
 # Cached engine — reused across calls so we don't rebuild it every time.
 # NullPool disables connection pooling so each connect() opens a fresh TCP
@@ -359,3 +361,38 @@ def clear_delete_cache():
     st.session_state.game_delete_data_loaded = False
     st.session_state.game_delete_confirmed = False
     st.session_state.last_deleted_game_id = None
+
+
+def is_business_hours_pst() -> bool:
+    """
+    Returns True if it is currently Mon–Fri, 9am–4:59pm PST/PDT
+    and today is NOT a US federal holiday.
+    Uses holiday date helpers from holiday_themes to avoid an extra dependency.
+    Federal holidays: New Year, MLK Day, Memorial Day, Juneteenth,
+    Independence Day, Labor Day, Veterans Day, Thanksgiving, Christmas.
+    """
+    pst = pytz.timezone("America/Los_Angeles")
+    now = datetime.now(pst)
+    today = now.date()
+
+    if now.weekday() > 4:           # Sat=5, Sun=6
+        return False
+    if not (9 <= now.hour < 17):    # outside 9am–5pm
+        return False
+
+    year = today.year
+    federal_holidays = {
+        date(year, 1, 1),                           # New Year's Day
+        get_nth_weekday(year, 1, 0, 3),             # MLK Day (3rd Mon in Jan)
+        get_last_weekday(year, 5, 0),               # Memorial Day (last Mon in May)
+        date(year, 6, 19),                          # Juneteenth
+        date(year, 7, 4),                           # Independence Day
+        get_nth_weekday(year, 9, 0, 1),             # Labor Day (1st Mon in Sep)
+        date(year, 11, 11),                         # Veterans Day
+        get_nth_weekday(year, 11, 3, 4),            # Thanksgiving (4th Thu in Nov)
+        date(year, 12, 25),                         # Christmas
+    }
+    # Filter out any None values (edge case if helper returns None)
+    federal_holidays = {d for d in federal_holidays if d is not None}
+
+    return today not in federal_holidays

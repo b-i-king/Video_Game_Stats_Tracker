@@ -567,15 +567,15 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     # Build the main caption content
     if post_type == 'daily':
         emoji = "🔥"
-        hook = f"{emoji} Today's {full_game_name} Session {day_tag} {emoji}"
+        hook = f"{emoji} Today's {full_game_name} Session {emoji}"
     elif post_type == 'recent':
         emoji = "📊"
-        hook = f"{emoji} Yesterday's {full_game_name} Highlights {day_tag} {emoji}"
+        hook = f"{emoji} Yesterday's {full_game_name} Highlights {emoji}"
     else:  # historical
         emoji = "🏆"
-        hook = f"{emoji} {full_game_name} All-Time Records {day_tag} {emoji}"
+        hook = f"{emoji} {full_game_name} All-Time Records {emoji}"
 
-    caption_lines = [hook, ""]
+    caption_lines = [hook, day_tag, ""]
 
     # Show match count when multiple sessions were played the same day
     if match_count > 1:
@@ -2002,7 +2002,7 @@ def generate_comparison_caption(game_info, mode_1, mode_2, stats, player_name, d
     day_tag = day_hashtags_map.get(day_of_week, '#GamingThreads')
 
     lines = [
-        f"⚔️ {full_game_name} Mode Breakdown {day_tag} ⚔️",
+        f"⚔️ {full_game_name} Mode Breakdown ⚔️ {day_tag}",
         "",
         f"{mode_1} vs {mode_2} — which mode hits harder?",
         "",
@@ -2628,7 +2628,7 @@ def generate_yearly_recap_caption(recap, player_name):
         "",
     ]
     base_hashtags = [
-        '#gaming', '#NewYearsDay', '#GamingRecap', '#YearInReview',
+        'GamingThreads', '#gaming', '#NewYearsDay', '#GamingRecap', '#YearInReview',
         f'#{year}Wrapped', '#gamer', '#esports', '#gamingcommunity',
     ]
     lines.append(' '.join(base_hashtags))

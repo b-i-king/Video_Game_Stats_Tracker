@@ -1,0 +1,49 @@
+name: Process Post Queue
+
+on:
+  schedule:
+    # Every 30 min, 0:00–6:30 UTC Tue–Sat = 5pm–10:30pm PST Mon–Fri (year-round safe window)
+    - cron: '*/30 0-6 * * 2-6'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI
+    inputs:
+      dry_run:
+        description: 'Dry run — log queue status without processing (true/false)'
+        required: false
+        default: 'false'
+
+jobs:
+  process-queue:
+    name: Process Post Queue
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Process oldest pending post
+        env:
+          WEB_SERVICE_URL: ${{ secrets.WEB_SERVICE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run — checking queue status only..."
+            curl -s -X GET \
+              "$WEB_SERVICE_URL/api/queue_status" \
+              -H "Authorization: Bearer skip" \
+              --max-time 15 || echo "Queue status unavailable"
+            exit 0
+          fi
+
+          echo "Processing queue at $(date -u)..."
+          HTTP_CODE=$(curl -s -o /tmp/queue_response.json -w "%{http_code}" \
+            -X POST "$WEB_SERVICE_URL/api/process_queue" \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            --max-time 30)
+
+          echo "HTTP status: $HTTP_CODE"
+          echo "Response: $(cat /tmp/queue_response.json)"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "ERROR: Queue processor returned $HTTP_CODE"
+            exit 1
+          fi

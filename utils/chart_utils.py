@@ -1005,7 +1005,7 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
             SELECT
                 CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date,
                 stat_type,
-                AVG(stat_value) as avg_value
+                MAX(stat_value) as best_value
             FROM fact.fact_game_stats
             WHERE player_id = %s
               AND game_id = %s
@@ -1019,7 +1019,7 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
             SELECT
                 CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date,
                 stat_type,
-                AVG(stat_value) as avg_value
+                MAX(stat_value) as best_value
             FROM fact.fact_game_stats
             WHERE player_id = %s
               AND game_id = %s
@@ -1034,12 +1034,12 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
     seen_dates = set()
 
     for row in cur.fetchall():
-        play_date, stat_type, avg_value = row
+        play_date, stat_type, best_value = row
         if play_date not in seen_dates:
             seen_dates.add(play_date)
             dates_ordered.append(play_date)
         if stat_type in stat_values_map:
-            stat_values_map[stat_type][play_date] = round(float(avg_value), 1) if avg_value else 0
+            stat_values_map[stat_type][play_date] = int(float(best_value)) if best_value is not None else 0
 
     stat_history['dates'] = dates_ordered
 

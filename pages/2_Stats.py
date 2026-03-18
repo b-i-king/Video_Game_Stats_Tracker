@@ -3,13 +3,14 @@ import requests
 import pandas as pd
 from datetime import datetime
 from utils.app_utils import (
-    GENRES, FLASK_API_URL, 
+    GENRES, FLASK_API_URL,
     get_all_players, get_game_ranks, get_all_games, get_game_details,
-    get_game_modes, get_game_stat_types, get_auth_headers, 
+    get_game_modes, get_game_stat_types, get_auth_headers,
     add_stat_input, delete_stat_input, update_genre_state,
-    update_guest_genre_state_callback, get_recent_stats_for_display, 
+    update_guest_genre_state_callback, get_recent_stats_for_display,
     clear_edit_cache, clear_delete_cache,
-    get_game_franchises, get_game_installments, set_live_dashboard_state
+    get_game_franchises, get_game_installments, set_live_dashboard_state,
+    is_business_hours_pst
 )
 
 # --- Page Guard ---
@@ -17,6 +18,73 @@ from utils.app_utils import (
 if st.session_state.auth_mode != 'logged_in':
     st.warning("Please log in from the Home page to access this feature.")
     st.stop()
+
+# --- Queue Mode Sidebar Toggle (Trusted Users Only) ---
+if st.session_state.get('is_trusted_user'):
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("📬 Post Queue")
+
+        # Auto-detect on first load; respect manual override on reruns
+        auto_val = is_business_hours_pst()
+        if 'queue_mode' not in st.session_state:
+            st.session_state.queue_mode = auto_val
+            st.session_state.queue_mode_manual = False
+
+        queue_on = st.toggle(
+            "Queue Mode",
+            value=st.session_state.queue_mode,
+            key="queue_mode_toggle",
+            help=(
+                "Automatically ON during weekdays 9am–5pm PST (excluding US federal holidays). "
+                "Posts are held in queue instead of sent immediately. Toggle manually to override."
+            )
+        )
+
+        # Detect if user flipped the toggle away from the auto value
+        if queue_on != auto_val:
+            st.session_state.queue_mode_manual = True
+        elif st.session_state.get('queue_mode_manual'):
+            # Reset manual flag if toggle is back in sync with auto
+            st.session_state.queue_mode_manual = False
+
+        st.session_state.queue_mode = queue_on
+
+        if queue_on:
+            st.info("📥 Posts will be queued, not sent immediately.")
+        else:
+            st.success("🚀 Posts sent immediately via IFTTT.")
+
+        if st.session_state.get('queue_mode_manual'):
+            st.caption("Manual override active")
+
+        # --- Queue status display ---
+        auth_headers = get_auth_headers()
+        if auth_headers:
+            try:
+                resp = requests.get(
+                    f"{FLASK_API_URL}/queue_status",
+                    headers=auth_headers,
+                    timeout=4
+                )
+                if resp.status_code == 200:
+                    counts = resp.json()
+                    st.metric("Pending", counts.get('pending', 0) + counts.get('processing', 0))
+                    col_s, col_f = st.columns(2)
+                    col_s.metric("Sent", counts.get('sent', 0))
+                    col_f.metric("Failed", counts.get('failed', 0))
+                    if counts.get('failed', 0) > 0:
+                        if st.button("Retry Failed", key="retry_failed_btn"):
+                            r = requests.post(
+                                f"{FLASK_API_URL}/retry_failed",
+                                headers=auth_headers,
+                                timeout=4
+                            )
+                            if r.status_code == 200:
+                                st.success(f"Reset {r.json().get('reset_count', 0)} failed post(s).")
+                                st.rerun()
+            except Exception:
+                st.caption("Queue status unavailable.")
 
 # --- Player Selection (Trusted Users Only) ---
 if st.session_state.is_trusted_user:
@@ -461,6 +529,9 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                     st.session_state[f"stat_type_{i}"] = st.session_state.pop(f"_next_stat_type_{i}")
                 if f"_next_stat_value_{i}" in st.session_state:
                     st.session_state[f"stat_value_{i}"] = st.session_state.pop(f"_next_stat_value_{i}")
+            # Reset confirm checkbox before the widget renders (staging approach)
+            if st.session_state.pop("_reset_confirm_checkbox", False):
+                st.session_state.pop("confirm_stats_checkbox", None)
             stats_list = []
             for i in range(st.session_state.num_stats):
                 st.markdown(f"**Stat Set {i+1}**"); cols = st.columns(2)
@@ -529,7 +600,8 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                            "game_genre": final_game_genre, "game_subgenre": final_game_subgenre,
                            "player_name": st.session_state.player_name,
                            "stats": stats_list,
-                           "is_live": st.session_state.is_live_streaming
+                           "is_live": st.session_state.is_live_streaming,
+                           "queue_mode": st.session_state.get('queue_mode', False)
                            }
                 auth_headers = get_auth_headers()
                 if auth_headers:
@@ -538,7 +610,7 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         response.raise_for_status()
                         submitted_summary = ", ".join(f"{s['stat_type']}: {s['stat_value']}" for s in stats_list)
                         st.success(f"Stats submitted! ✅ Saved: {submitted_summary}")
-                        st.session_state.pop("confirm_stats_checkbox", None)
+                        st.session_state["_reset_confirm_checkbox"] = True
                         # Preserve stat type names so user doesn't retype them next session;
                         # reset values to 0 so new numbers can be entered cleanly.
                         # Use staging keys — widget keys cannot be set after they are rendered.

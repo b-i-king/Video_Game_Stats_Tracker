@@ -92,6 +92,6 @@ Stores the results of a specific stat for a specific match. This is the central 
 | `difficulty` | VARCHAR(20) | NULL | Game difficulty setting. Options: `"Easy"`, `"Normal"`, `"Hard"`, `"Expert"`. NULL if not applicable (e.g., multiplayer). |
 | `input_device` | VARCHAR(30) | NOT NULL, DEFAULT 'Controller' | Primary input device. Options: `"Controller"`, `"Keyboard & Mouse"`, `"Mixed"`. |
 | `platform` | VARCHAR(20) | NOT NULL, DEFAULT 'PC' | Platform the game was played on. Options: `"PC"`, `"PlayStation"`, `"Xbox"`, `"Switch"`, `"Mobile"`. |
-| `first_session_of_day` | INTEGER | NOT NULL, DEFAULT 1 | Whether this is the player's first gaming session of the day. `1 = Yes`, `0 = No`. |
+| `first_session_of_day` | INTEGER | NOT NULL, DEFAULT 1 | Whether this is the player's first gaming session of the day for an individual game (game by game basis). `1 = Yes`, `0 = No`. |
 | `was_streaming` | INTEGER | NOT NULL, DEFAULT 0 | Whether the player was live streaming during this session. `1 = Yes`, `0 = No`. Synced automatically from the Streaming Status toggle. |
 | `played_at` | TIMESTAMP | DEFAULT GETDATE() | Timestamp of when the stat was recorded. |
