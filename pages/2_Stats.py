@@ -529,9 +529,6 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                     st.session_state[f"stat_type_{i}"] = st.session_state.pop(f"_next_stat_type_{i}")
                 if f"_next_stat_value_{i}" in st.session_state:
                     st.session_state[f"stat_value_{i}"] = st.session_state.pop(f"_next_stat_value_{i}")
-            # Reset confirm checkbox before the widget renders (staging approach)
-            if st.session_state.pop("_reset_confirm_checkbox", False):
-                st.session_state.pop("confirm_stats_checkbox", None)
             stats_list = []
             for i in range(st.session_state.num_stats):
                 st.markdown(f"**Stat Set {i+1}**"); cols = st.columns(2)
@@ -573,10 +570,11 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         flag = " ⚠️ (zero)" if s['stat_value'] == 0 else ""
                         st.write(f"• **{s['stat_type']}**: {s['stat_value']}{flag}")
 
+            _cb_ver = st.session_state.get('confirm_checkbox_version', 0)
             confirm_checked = st.checkbox(
                 "✅ I have reviewed my stats above and they are correct.",
                 value=False,
-                key="confirm_stats_checkbox"
+                key=f"confirm_stats_checkbox_{_cb_ver}"
             )
             if has_zero_stats and confirm_checked:
                 st.warning("You are submitting one or more stats with a value of 0. Make sure this is intentional.")
@@ -610,7 +608,7 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         response.raise_for_status()
                         submitted_summary = ", ".join(f"{s['stat_type']}: {s['stat_value']}" for s in stats_list)
                         st.success(f"Stats submitted! ✅ Saved: {submitted_summary}")
-                        st.session_state["_reset_confirm_checkbox"] = True
+                        st.session_state['confirm_checkbox_version'] = st.session_state.get('confirm_checkbox_version', 0) + 1
                         # Preserve stat type names so user doesn't retype them next session;
                         # reset values to 0 so new numbers can be entered cleanly.
                         # Use staging keys — widget keys cannot be set after they are rendered.

@@ -1000,33 +1000,51 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
     # individual queries — up to 1,095 queries for 365 days × 3 stats.
     placeholders = ','.join(['%s'] * len(top_stat_types[:3]))
 
+    # Use a window function to get the most recently submitted value per (date, stat_type).
+    # MAX would show the highest value from all matches on a given day, which doesn't
+    # match what the user just submitted when a later match has a lower value (e.g.,
+    # match 1: 9 elims, match 2: 7 elims → MAX=9 but latest=7).
     if days_back is not None:
         cur.execute(f"""
-            SELECT
-                CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date,
-                stat_type,
-                MAX(stat_value) as best_value
-            FROM fact.fact_game_stats
-            WHERE player_id = %s
-              AND game_id = %s
-              AND stat_type IN ({placeholders})
-              AND played_at >= DATEADD(day, -%s, GETDATE())
-            GROUP BY play_date, stat_type
+            SELECT play_date, stat_type, stat_value AS latest_value
+            FROM (
+                SELECT
+                    CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) AS play_date,
+                    stat_type,
+                    stat_value,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE), stat_type
+                        ORDER BY played_at DESC
+                    ) AS rn
+                FROM fact.fact_game_stats
+                WHERE player_id = %s
+                  AND game_id = %s
+                  AND stat_type IN ({placeholders})
+                  AND played_at >= DATEADD(day, -%s, GETDATE())
+            ) t
+            WHERE rn = 1
             ORDER BY play_date;
-        """, (timezone_str, player_id, game_id, *top_stat_types[:3], days_back))
+        """, (timezone_str, timezone_str, player_id, game_id, *top_stat_types[:3], days_back))
     else:
         cur.execute(f"""
-            SELECT
-                CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date,
-                stat_type,
-                MAX(stat_value) as best_value
-            FROM fact.fact_game_stats
-            WHERE player_id = %s
-              AND game_id = %s
-              AND stat_type IN ({placeholders})
-            GROUP BY play_date, stat_type
+            SELECT play_date, stat_type, stat_value AS latest_value
+            FROM (
+                SELECT
+                    CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) AS play_date,
+                    stat_type,
+                    stat_value,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE), stat_type
+                        ORDER BY played_at DESC
+                    ) AS rn
+                FROM fact.fact_game_stats
+                WHERE player_id = %s
+                  AND game_id = %s
+                  AND stat_type IN ({placeholders})
+            ) t
+            WHERE rn = 1
             ORDER BY play_date;
-        """, (timezone_str, player_id, game_id, *top_stat_types[:3]))
+        """, (timezone_str, timezone_str, player_id, game_id, *top_stat_types[:3]))
 
     # Pivot results into the expected stat_history structure
     stat_values_map = {st: {} for st in top_stat_types[:3]}
