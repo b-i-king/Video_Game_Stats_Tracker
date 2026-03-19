@@ -55,3 +55,21 @@ Thumbs.db
 # =============================================================================
 test_*.py
 test_*.txt
+
+# =============================================================================
+# Mobile (React Native + Expo)
+# =============================================================================
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/.env
+mobile/.env.local
+mobile/*.jks
+mobile/*.p8
+mobile/*.p12
+mobile/*.key
+mobile/*.mobileprovision
+mobile/npm-debug.*
+mobile/yarn-debug.*
+mobile/yarn-error.*

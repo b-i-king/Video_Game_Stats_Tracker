@@ -558,17 +558,84 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                         "was_streaming": 1 if st.session_state.get('is_live_streaming', False) else 0,
                     })
 
-            # --- Stats preview (reactive — updates on every widget change) ---
-            has_zero_stats = False
+            # --- Validation ---
+            _skipped = st.session_state.num_stats - len(stats_list)
+            _seen_types: dict = {}
+            _dupe_types: list = []
+            for _s in stats_list:
+                _k = _s['stat_type'].strip().lower()
+                if _k in _seen_types:
+                    _dupe_types.append(_s['stat_type'])
+                else:
+                    _seen_types[_k] = True
+            _zero_stats = [s['stat_type'] for s in stats_list if s['stat_value'] == 0]
+            _ranked_same = (
+                st.session_state.get('is_ranked') and
+                st.session_state.get('pre_match_rank_value') not in (None, 'Unranked') and
+                st.session_state.get('pre_match_rank_value') == st.session_state.get('post_match_rank_value')
+            )
+            _has_critical = bool(_dupe_types)
+
+            # Collect all issues: (level, label) — level is "error", "warning", or "info"
+            _issues: list = []
+            if _dupe_types:
+                _issues.append(("error",   f"⛔ Duplicate stat types: {', '.join(set(_dupe_types))}"))
             if stats_list:
-                zero_stats = [s['stat_type'] for s in stats_list if s['stat_value'] == 0]
-                has_zero_stats = bool(zero_stats)
-                if zero_stats:
-                    st.error(f"⛔ Zero value detected for: **{', '.join(zero_stats)}**. Fix or confirm below before submitting.")
+                # Stat-level checks
+                if _skipped > 0:
+                    _issues.append(("warning", f"⚠️ {_skipped} row(s) skipped — blank Stat Type"))
+                if _zero_stats:
+                    _issues.append(("warning", f"⚠️ Zero value: {', '.join(_zero_stats)}"))
+                # Match context checks
+                if match_type == "Solo" and party_size_option != "1":
+                    _issues.append(("warning", f"⚠️ Solo mode but Party Size is {party_size_option}"))
+                if win_option is None and not overtime_toggle:
+                    _issues.append(("warning", "⚠️ Win/Loss not set (N/A)"))
+                if overtime_toggle and win_option is None:
+                    _issues.append(("warning", "⚠️ Overtime set but Win/Loss not recorded"))
+                if _ranked_same:
+                    _issues.append(("warning", f"⚠️ Pre/Post rank unchanged: {st.session_state.get('pre_match_rank_value')}"))
+                # Game mode override notice
+                if new_game_mode_text.strip() and game_mode_select != "Main":
+                    _issues.append(("info", f"ℹ️ Mode text overrides dropdown ('{game_mode_select}' → '{new_game_mode_text.strip()}')"))
+                # Platform / input device mismatch
+                if platform_option in {"PlayStation", "Xbox", "Switch", "Mobile"} and input_device_option == "Keyboard & Mouse":
+                    _issues.append(("warning", f"⚠️ {platform_option} + Keyboard & Mouse is unusual"))
+                # Difficulty on a ranked match
+                if difficulty_option is not None and st.session_state.get('is_ranked'):
+                    _issues.append(("info", f"ℹ️ Difficulty ({difficulty_option}) set on Ranked — confirm if applicable"))
+                # Subsequent session notice
+                if not first_session_toggle:
+                    _issues.append(("info", "ℹ️ Subsequent session — line chart will use this as latest entry"))
+                # Live / OBS status
+                if is_live and not obs_active_toggle:
+                    _issues.append(("warning", "⚠️ Live mode on but OBS is not active"))
+                elif is_live and obs_active_toggle:
+                    _issues.append(("info", "ℹ️ Live post — #Live hashtags and stream links included"))
+                elif obs_active_toggle and not is_live:
+                    _issues.append(("info", "ℹ️ OBS active — overlay and ticker are running"))
+
+            # Render issues side-by-side in a compact container
+            if _issues:
+                with st.container(border=True):
+                    st.caption("**Review before submitting**")
+                    _col_l, _col_r = st.columns(2)
+                    for _idx, (_level, _msg) in enumerate(_issues):
+                        _col = _col_l if _idx % 2 == 0 else _col_r
+                        with _col:
+                            if _level == "error":
+                                st.error(_msg)
+                            elif _level == "warning":
+                                st.warning(_msg)
+                            else:
+                                st.info(_msg)
+
+            # Stats review expander
+            if stats_list:
                 with st.expander("📋 Review your stats before submitting", expanded=True):
                     for s in stats_list:
-                        flag = " ⚠️ (zero)" if s['stat_value'] == 0 else ""
-                        st.write(f"• **{s['stat_type']}**: {s['stat_value']}{flag}")
+                        _flag = " ⚠️ (zero)" if s['stat_value'] == 0 else ""
+                        st.write(f"• **{s['stat_type']}**: {s['stat_value']}{_flag}")
 
             _cb_ver = st.session_state.get('confirm_checkbox_version', 0)
             confirm_checked = st.checkbox(
@@ -576,10 +643,8 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                 value=False,
                 key=f"confirm_stats_checkbox_{_cb_ver}"
             )
-            if has_zero_stats and confirm_checked:
-                st.warning("You are submitting one or more stats with a value of 0. Make sure this is intentional.")
 
-            submitted = st.button("Submit Stats", disabled=not confirm_checked, key="submit_stats_button")
+            submitted = st.button("Submit Stats", disabled=not confirm_checked or _has_critical, key="submit_stats_button")
         if submitted:
             valid = False
             if is_new_installment_mode:
