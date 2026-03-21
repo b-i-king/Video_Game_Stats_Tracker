@@ -142,7 +142,8 @@ def get_color_palette(holiday=None):
         'Women\'s History Month': {
             'colors': ['#9370DB', '#DA70D6', '#DDA0DD'],  # Purple, Orchid, Plum
             'name': 'Women\'s History Month',
-            'hashtag': '#WomensHistoryMonth'
+            'hashtag': '#WomensHistoryMonth',
+            'twitter_hashtag': '#WHM'
         },
         'Native American Heritage Month': {
             'colors': ['#8B4513', '#DAA520', '#CD853F'],  # Brown, Goldenrod, Peru (Earth tones)
@@ -157,7 +158,8 @@ def get_color_palette(holiday=None):
         'Valentine': {
             'colors': ['#FF1493', '#FF69B4', '#FFC0CB'],  # Deep pink, Hot pink, Light pink
             'name': 'Valentine\'s Day',
-            'hashtag': '#ValentinesDay'
+            'hashtag': '#ValentinesDay',
+            'twitter_hashtag': '#VDay'
         },
         'Easter': {
             'colors': ['#FFB6C1', '#87CEEB', '#98FB98'],  # Pastel pink, Sky blue, Pale green
@@ -177,7 +179,8 @@ def get_color_palette(holiday=None):
         'Independence Day': {
             'colors': ['#B22234', '#FFFFFF', '#3C3B6E'],  # Red, White, Blue
             'name': '4th of July',
-            'hashtag': '#IndependenceDay'
+            'hashtag': '#IndependenceDay',
+            'twitter_hashtag': '#July4'
         },
         'Labor Day': {
             'colors': ['#FF6B35', '#004E89', '#1A936F'],  # Orange, Navy, Green (work/industry)
@@ -257,9 +260,10 @@ def get_themed_colors():
     result = {
         'colors': palette['colors'],
         'theme_name': palette['name'],
-        'holiday': current_holiday,           # For logging/debugging
-        'show_in_title': show_in_title,       # Holiday name or heritage month name or None
-        'hashtag': palette.get('hashtag')     # From palette (works for both holidays and heritage months)
+        'holiday': current_holiday,               # For logging/debugging
+        'show_in_title': show_in_title,           # Holiday name or heritage month name or None
+        'hashtag': palette.get('hashtag'),        # Full hashtag (Instagram, default)
+        'twitter_hashtag': palette.get('twitter_hashtag')  # Shortened hashtag for Twitter (falls back to None)
     }
     
     # Log for debugging

@@ -1,0 +1,66 @@
+name: Refresh Instagram Access Token
+
+# Long-lived Instagram tokens expire every 60 days.
+# This workflow refreshes the token on the 1st of every month (~30-day cadence),
+# keeping it well within the 60-day window. On failure, GitHub sends an email
+# notification automatically so you're not surprised by an expired token.
+#
+# Manual token check: https://developers.facebook.com/tools/debug/accesstoken/
+
+on:
+  schedule:
+    # 1st of every month at 8:00 AM UTC (12:00 AM PST / 1:00 AM PDT)
+    - cron: '0 8 1 * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run — print current token info without refreshing (true/false)'
+        required: false
+        default: 'false'
+
+jobs:
+  refresh-token:
+    name: Refresh Instagram Token
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install boto3 requests
+
+      - name: Dry run — print current token info only
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_SECRETS }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_SECRETS }}
+        run: |
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, '.')
+          from utils.instagram_token_utils import get_current_secret
+
+          secret = get_current_secret()
+          token = secret['access_token']
+          print(f"Current token suffix: ...{token[-8:]}")
+          print("ℹ️  Dry run complete — no changes made.")
+          EOF
+
+      - name: Refresh token and update Secrets Manager
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_SECRETS }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_SECRETS }}
+        run: |
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, '.')
+          from utils.instagram_token_utils import run_token_refresh
+          run_token_refresh()
+          EOF

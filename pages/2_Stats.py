@@ -289,7 +289,27 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
             is_new_installment_mode = False
             selected_game_id = None
             final_game_installment = None
-        
+
+        # --- Credit Style ---
+        _CREDIT_STYLE_OPTIONS = {
+            'S/O (Shoutout)': 'shoutout',
+            'Game Credit':    'credit',
+            'Props To':       'props',
+            'Playing':        'playing',
+            'Respect':        'respect',
+            'Vibes':          'vibes',
+            'Powered By':     'powered',
+            'Courtesy Of':    'courtesy',
+            'ft.':            'ft',
+            'Brought To You By': 'brought',
+        }
+        _selected_credit_label = st.selectbox(
+            "Credit Style",
+            list(_CREDIT_STYLE_OPTIONS.keys()),
+            key="credit_style_select",
+            help="How the game is credited in your social media caption (e.g., 'S/O @CallOfDuty')."
+        )
+
         # --- Add/Delete Stat Buttons ---
         with st.container(border=True):
             col_add_stat, col_del_stat = st.columns([1, 1])
@@ -664,7 +684,8 @@ if st.session_state.player_name and st.session_state.is_trusted_user:
                            "player_name": st.session_state.player_name,
                            "stats": stats_list,
                            "is_live": st.session_state.is_live_streaming,
-                           "queue_mode": st.session_state.get('queue_mode', False)
+                           "queue_mode": st.session_state.get('queue_mode', False),
+                           "credit_style": _CREDIT_STYLE_OPTIONS.get(_selected_credit_label, 'shoutout')
                            }
                 auth_headers = get_auth_headers()
                 if auth_headers:

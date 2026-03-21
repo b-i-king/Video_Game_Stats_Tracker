@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "Video Game Stats Tracker",
+    "slug": "video-game-stats-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#C4A035"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.thebolgroup.videogamestatstracker",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera is not used by this app.",
+        "NSMicrophoneUsageDescription": "Microphone is not used by this app."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#C4A035"
+      },
+      "package": "com.thebolgroup.videogamestatstracker"
+    },
+    "web": {
+      "favicon": "./assets/icon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-notifications",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "notification": {
+      "icon": "./assets/icon.png",
+      "color": "#C4A035",
+      "androidMode": "default"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "65c8ee0d-3324-47af-a6cd-269db80709e7"
+      }
+    },
+    "owner": "the-bol-group"
+  }
+}

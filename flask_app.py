@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from flask_cors import CORS
 import atexit
-from utils.chart_utils import generate_bar_chart, generate_line_chart, get_stat_history_from_db
-from utils.gcs_utils import upload_chart_to_gcs
+from utils.chart_utils import generate_bar_chart, generate_line_chart, get_stat_history_from_db, generate_interactive_chart
+from utils.gcs_utils import upload_chart_to_gcs, upload_interactive_chart_to_gcs
 from utils.ifttt_utils import trigger_ifttt_post, generate_post_caption
 from utils.queue_utils import (
     ensure_post_queue_table, enqueue_post, get_oldest_pending,
@@ -469,6 +469,7 @@ def add_stats(user_email):
     stats = data.get('stats')
     is_live = data.get('is_live', False)
     queue_mode = data.get('queue_mode', False)
+    credit_style = data.get('credit_style', 'shoutout')
     conn = None
 
     # This is a sample of the data that's expected
@@ -640,6 +641,7 @@ def add_stats(user_email):
                     image_buffer_instagram = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='instagram', game_mode=batch_game_mode)
                     chart_type = 'bar'
                     stat_data_for_caption = stat_data  # already correct format
+                    _interactive_data = stat_data
 
                 elif games_played > 1:
                     # Generate LINE CHART (multiple games) — last 365 days
@@ -648,17 +650,42 @@ def add_stats(user_email):
                     image_buffer_instagram = generate_line_chart(stat_history, player_name, game_name, game_installment, size='instagram', game_mode=batch_game_mode)
                     chart_type = 'line'
 
-                    # Build caption stat_data from stat_history (latest vs previous value)
+                    # Build caption stat_data from stat_history (latest value)
+                    # prev_value is fetched directly from DB (same approach as bar chart)
+                    # to avoid date-aggregation artifacts where unrecorded stat dates
+                    # default to 0 via .get(date, 0), causing false "prev: 0" in captions.
                     stat_data_for_caption = {}
                     for i in range(1, 4):
                         key = f'stat{i}'
                         if key in stat_history and stat_history[key]:
                             vals = stat_history[key].get('values', [])
+                            stat_type_label = stat_history[key].get('label', '')
+                            cur.execute("""
+                                SELECT stat_value FROM fact.fact_game_stats
+                                WHERE player_id = %s AND game_id = %s AND stat_type = %s
+                                ORDER BY played_at DESC LIMIT 2;
+                            """, (player_id, game_id, stat_type_label))
+                            prev_rows = cur.fetchall()
                             stat_data_for_caption[key] = {
-                                'label': stat_history[key].get('label', ''),
+                                'label': stat_type_label,
                                 'value': vals[-1] if vals else 0,
-                                'prev_value': vals[-2] if len(vals) > 1 else None
+                                'prev_value': prev_rows[1][0] if len(prev_rows) > 1 else None
                             }
+                    _interactive_data = stat_history
+
+                # Generate interactive Plotly HTML (Twitter only) — single fixed file,
+                # overwritten on every submission. No additional DB queries.
+                interactive_url = None
+                try:
+                    _html = generate_interactive_chart(
+                        chart_type, _interactive_data, player_name, game_name,
+                        game_installment=game_installment, game_mode=batch_game_mode
+                    )
+                    interactive_url = upload_interactive_chart_to_gcs(
+                        _html, player_name, game_name, game_installment
+                    )
+                except Exception as _ie:
+                    print(f"⚠️  Interactive chart generation failed (non-fatal): {_ie}")
 
                 # Upload to GCS — Twitter (16:9, auto-post)
                 twitter_public_url = upload_chart_to_gcs(image_buffer_twitter, player_name, game_name, chart_type, platform='twitter')
@@ -677,7 +704,9 @@ def add_stats(user_email):
                         games_played,
                         platform='twitter',
                         is_live=is_live,
-                        game_mode=batch_game_mode
+                        credit_style=credit_style,
+                        game_mode=batch_game_mode,
+                        interactive_url=interactive_url
                     )
 
                     if queue_mode:
@@ -703,6 +732,7 @@ def add_stats(user_email):
                         games_played,
                         platform='instagram',
                         is_live=is_live,
+                        credit_style=credit_style,
                         game_mode=batch_game_mode
                     )
                     if queue_mode:

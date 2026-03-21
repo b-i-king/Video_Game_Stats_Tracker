@@ -182,7 +182,12 @@ def format_large_number(value):
     if not isinstance(value, (int, float)):
         return str(value)
     
-    if value >= 1_000_000:
+     
+    if value >= 1_000_000_000_000:
+        return f"{value/1_000_000_000:.1f}T"
+    elif value >= 1_000_000_000:
+        return f"{value/1_000_000_000:.1f}B"
+    elif value >= 1_000_000:
         return f"{value/1_000_000:.1f}M"
     elif value >= 1_000:
         return f"{value/1_000:.1f}k"
@@ -1072,3 +1077,135 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
         ]
 
     return stat_history
+
+
+def generate_interactive_chart(chart_type, data, player_name, game_name,
+                               game_installment=None, game_mode=None):
+    """Generate an interactive Plotly HTML chart from already-computed in-memory data.
+
+    No database queries — data must be pre-computed before calling this function.
+
+    Args:
+        chart_type: 'bar' (first game) or 'line' (multiple games)
+        data: stat_data dict for 'bar', stat_history dict for 'line'
+        player_name, game_name, game_installment, game_mode: metadata for titles
+
+    Returns:
+        bytes: UTF-8 encoded HTML (~15-25 KB with CDN plotly.js)
+    """
+    import plotly.graph_objects as go
+
+    game_label = f"{game_name}: {game_installment}" if game_installment else game_name
+    if game_mode:
+        game_label += f" — {game_mode}"
+    title = f"{player_name} · {game_label}"
+
+    bg_color = "#111111"
+    grid_color = "#2a2a2a"
+    text_color = "#e0e0e0"
+    theme = get_themed_colors()
+    accent_colors = theme['colors']  # Dynamically matches holiday_themes.py
+
+    fig = go.Figure()
+
+    if chart_type == 'bar':
+        labels, values = [], []
+        for i in range(1, 4):
+            key = f'stat{i}'
+            if key not in data or not data[key]:
+                continue
+            stat = data[key]
+            labels.append(stat.get('label', key))
+            values.append(stat.get('value', 0))
+
+        use_log = should_use_log_scale(values)
+        plot_values = [max(v, 0.001) for v in values] if use_log else values
+        formatted = [format_large_number(v) for v in values]
+
+        fig.add_trace(go.Bar(
+            x=plot_values,
+            y=labels,
+            orientation='h',
+            name='This Session',
+            marker_color=accent_colors[:len(labels)],
+            text=formatted,
+            textposition='outside',
+            textfont=dict(color='white', size=14),
+            customdata=formatted,
+            hovertemplate='%{y}<br>Value: %{customdata}<extra></extra>',
+        ))
+
+        x_axis_cfg = {}
+        if use_log:
+            x_axis_cfg['type'] = 'log'
+        elif any(v >= 1000 for v in values):
+            x_axis_cfg['tickformat'] = '.2s'
+        else:
+            x_axis_cfg['rangemode'] = 'tozero'
+
+        fig.update_layout(
+            bargap=0.3,
+            xaxis=x_axis_cfg,
+            yaxis=dict(autorange='reversed'),
+        )
+
+    else:  # line chart
+        dates = data.get('dates', [])
+        date_strings = [d.strftime('%b %d, %Y') if hasattr(d, 'strftime') else str(d)
+                        for d in dates]
+
+        all_line_values = []
+        for i in range(1, 4):
+            key = f'stat{i}'
+            if key in data and data[key]:
+                all_line_values.extend(data[key].get('values', []))
+        use_log = should_use_log_scale(all_line_values) if all_line_values else False
+
+        for i, color in enumerate(accent_colors, 1):
+            key = f'stat{i}'
+            if key not in data or not data[key]:
+                continue
+            series = data[key]
+            label = series.get('label', key)
+            vals = series.get('values', [])
+            if not any(v for v in vals):
+                continue
+
+            plot_vals = [max(v, 0.001) for v in vals] if use_log else vals
+            formatted_vals = [format_large_number(v) for v in vals]
+
+            fig.add_trace(go.Scatter(
+                x=date_strings,
+                y=plot_vals,
+                mode='lines+markers',
+                name=label,
+                line=dict(color=color, width=2),
+                marker=dict(size=6, color=color),
+                customdata=formatted_vals,
+                hovertemplate=f'{label}<br>%{{x}}<br>Value: %{{customdata}}<extra></extra>',
+            ))
+
+        if use_log:
+            fig.update_layout(yaxis=dict(type='log'))
+        else:
+            fig.update_layout(yaxis=dict(rangemode='tozero'))
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(color=text_color, size=16), x=0.5),
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
+        font=dict(color=text_color, family='monospace'),
+        xaxis=dict(gridcolor=grid_color, linecolor=grid_color, tickfont=dict(color=text_color)),
+        yaxis=dict(gridcolor=grid_color, linecolor=grid_color, tickfont=dict(color=text_color)),
+        legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color=text_color)),
+        margin=dict(t=60, b=60, l=60, r=40),
+        hovermode='x unified' if chart_type == 'line' else 'closest',
+        hoverlabel=dict(font_color='white', bgcolor='#1e1e1e', bordercolor='#444444'),
+    )
+
+    html = fig.to_html(
+        full_html=True,
+        include_plotlyjs='cdn',       # ~15 KB file vs ~3 MB self-contained
+        config={'displayModeBar': True, 'responsive': True},
+    )
+    return html.encode('utf-8')

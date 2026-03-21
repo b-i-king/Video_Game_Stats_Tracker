@@ -66,7 +66,8 @@ def trigger_ifttt_post(image_url, caption, platform='twitter'):
 
 
 def generate_post_caption(player_name, game_name, game_installment, stat_data, games_played,
-                         platform='twitter', is_live=False, credit_style='shoutout', game_mode=None):
+                         platform='twitter', is_live=False, credit_style='shoutout', game_mode=None,
+                         interactive_url=None):
     """
     Generate engaging caption for social media post.
     Now uses game_handles_utils for platform-specific handles and hashtags.
@@ -95,9 +96,13 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
     stat1_prev = stat_data.get('stat1', {}).get('prev_value')
 
     # Build optional previous-value comparison suffix
+    # Twitter uses compact form "(↑20)" to save characters; Instagram uses "(↑ prev: 20)"
     if stat1_prev is not None:
         _arrow = "↑" if stat1_value > stat1_prev else "↓" if stat1_value < stat1_prev else "→"
-        _prev_suffix = f" ({_arrow} prev: {stat1_prev})"
+        if platform == 'twitter':
+            _prev_suffix = f" ({_arrow}{stat1_prev})"
+        else:
+            _prev_suffix = f" ({_arrow} prev: {stat1_prev})"
     else:
         _prev_suffix = ""
     
@@ -130,7 +135,7 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
         # First game caption
         if is_live:
             caption = f"🔴 LIVE NOW! 🔴\n"
-            caption += f"🎮 First game on {full_game_name}! 🎮\n"
+            caption += f"🎮 {player_name}'s first game on {full_game_name}! 🎮\n"
             if game_handle:
                 caption += f"{credit_line}\n"
             caption += f"\n🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
@@ -148,7 +153,7 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
                 hashtags = ['#live', '#thebroadcast', '#gaming', '#livestream']
             
         else:
-            caption = f"🎮 First game on {full_game_name}! 🎮\n"
+            caption = f"🎮 {player_name}'s first game on {full_game_name}! 🎮\n"
             if game_handle:
                 caption += f"{credit_line}\n"
             caption += f"\n🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
@@ -163,34 +168,38 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
         # Multi-game caption
         if is_live:
             caption = f"🔴 LIVE NOW! 🔴\n"
-            caption += f"📊 {full_game_name} Progress Report! 📊\n"
+            caption += f"📊 {player_name}'s {full_game_name} Progress Report! 📊\n"
             if game_handle:
                 caption += f"{credit_line}\n"
-            caption += f"\nGames Played: {games_played}\n"
-            caption += f"🔥 Latest {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
+            # Twitter omits "Games Played" to save characters
+            if platform != 'twitter':
+                caption += f"\nGames Played: {games_played}\n"
+            caption += f"🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
 
             # Add stream link based on platform
             if platform == 'twitter':
-                caption += f"\nJoin the stream: twitch.tv/{os.environ.get('TWITCH_HANDLE', 'YourHandle')}\n"
+                caption += f"\nJoin: twitch.tv/{os.environ.get('TWITCH_HANDLE', 'YourHandle')}\n"
             else:  # Instagram
                 caption += f"\n🔗 Link in bio to join!\n"
-            
-            # Platform-specific base hashtags
-            if platform == 'twitter':
-                hashtags = ['#Live', '#TheBroadcast', '#Gaming', '#GamingAnalytics']
-            else:  # Instagram
-                hashtags = ['#live', '#thebroadcast', '#gaming', '#gaminganalytics']
-            
-        else:
-            caption = f"📊 {full_game_name} Progress Report! 📊\n"
-            if game_handle:
-                caption += f"{credit_line}\n"
-            caption += f"\nGames Played: {games_played}\n"
-            caption += f"🔥 Latest {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
 
             # Platform-specific base hashtags
             if platform == 'twitter':
-                hashtags = ['#Gaming', '#Stats', '#GamingAnalytics']
+                hashtags = ['#Live', '#TheBroadcast']
+            else:  # Instagram
+                hashtags = ['#live', '#thebroadcast', '#gaming', '#gaminganalytics']
+
+        else:
+            caption = f"📊 {player_name}'s {full_game_name} Progress Report! 📊\n"
+            if game_handle:
+                caption += f"{credit_line}\n"
+            # Twitter omits "Games Played" to save characters
+            if platform != 'twitter':
+                caption += f"\nGames Played: {games_played}\n"
+            caption += f"🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
+
+            # Platform-specific base hashtags
+            if platform == 'twitter':
+                hashtags = ['#Gaming', '#Stats']
             else:  # Instagram
                 hashtags = ['#gaming', '#stats', '#gaminganalytics']
     
@@ -198,13 +207,19 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
     if game_mode and game_mode.strip().lower() not in ('main', 'n/a', 'none', '-'):
         caption += f"Game Mode: {game_mode.strip()}\n"
 
-    # Add game-specific hashtags
+    # Add game-specific hashtags (Twitter: only first tag to save space)
     if game_hashtags:
-        hashtags.extend(game_hashtags)
-    
-    # Add heritage/holiday hashtag if present
+        if platform == 'twitter':
+            hashtags.append(game_hashtags[0])
+        else:
+            hashtags.extend(game_hashtags)
+
+    # Add heritage/holiday hashtag if present (Twitter uses shortened version when available)
     if theme.get('hashtag'):
-        hashtags.append(theme['hashtag'])
+        if platform == 'twitter' and theme.get('twitter_hashtag'):
+            hashtags.append(theme['twitter_hashtag'])
+        else:
+            hashtags.append(theme['hashtag'])
     
     # Remove duplicates while preserving order
     seen = set()
@@ -221,20 +236,29 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
         youtube_handle = os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')
         linktree_handle = os.environ.get('LINKTREE_HANDLE', 'TheBOLGroup')
         if platform == 'twitter':
-            footer = f"\n📺  YouTube: {youtube_handle} | Socials: linktr.ee/{linktree_handle}"
+            footer = f"\n🌐 linktr.ee/{linktree_handle}"  # Shortened — saves ~9 chars vs "Socials: linktr.ee/..."
         else:
-            footer = f"\n📺  YouTube: {youtube_handle} | Link in bio"
+            footer = f"\n📺 YouTube: {youtube_handle} | Link in bio"
 
     if platform == 'twitter':
-        # Smart hashtag trimming: remove tags from the end until the tweet fits 280 chars
+        # Twitter shortens every URL to exactly 23 chars via t.co.
+        # Reserve space for the interactive URL prefix + t.co link so hashtag
+        # trimming stays within budget before the URL is appended.
+        _url_reserve = (len("\n\n📈 Interactive Stats: ") + 23) if interactive_url else 0
+        _limit = 280 - _url_reserve
+
+        # Smart hashtag trimming: remove tags from the end until the tweet fits
         tags = list(unique_hashtags)
         while True:
             hashtag_str = f"\n{' '.join(tags)}\n" if tags else "\n"
             trial = caption + hashtag_str + footer
-            if len(trial) <= 280 or not tags:
-                caption = trial if len(trial) <= 280 else trial[:277] + "..."
+            if len(trial) <= _limit or not tags:
+                caption = trial if len(trial) <= _limit else trial[:_limit - 3] + "..."
                 break
             tags.pop()
+
+        if interactive_url:
+            caption += f"\n\n📈 Full interactive stats: {interactive_url}"
     else:
         caption += f"\n{' '.join(unique_hashtags)}\n"
         caption += footer

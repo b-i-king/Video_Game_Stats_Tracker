@@ -1,12 +1,16 @@
 # 🎮 Video Game Stats Tracker (Full Stack)
 
-A full-stack web application built to **log, track, and analyze video game statistics**.
+A full-stack application built to **log, track, and analyze video game statistics** — with automated social media posting, live stream overlays, and a mobile companion app.
 
 This app uses:
-- **Frontend:** Streamlit (Python)
-- **Backend:** Flask API
+- **Web Frontend:** Streamlit (Python)
+- **Mobile App:** React Native + Expo (iOS, Android, Web)
+- **Backend:** Flask API (hosted on Render)
 - **Database:** AWS Redshift Serverless (star schema)
+- **Queue Storage:** Neon Serverless Postgres (post queue)
+- **File Storage:** Google Cloud Storage (chart images, interactive charts)
 - **Overlay Dashboard:** GitHub Pages (HTML/CSS/JS)
+- **Social Media:** IFTTT webhooks → Twitter & Instagram
 
 ---
 
@@ -59,17 +63,36 @@ Watch the ESPN-style overlay in action during a live stream or recording:
 
 ## 🏩 Application Architecture
 
-**Frontend (Streamlit):**
+**Web Frontend (Streamlit):**
 - Python web app deployed on Streamlit Community Cloud.
 - Handles Google OAuth authentication (`st.login("google")`).
 - Manages UI, user sessions, and API communication.
 
+**Mobile App (React Native + Expo):**
+- Single codebase targeting iOS, Android, and web.
+- Stat entry, history, dashboard WebView, leaderboard (Supabase), and profile screens.
+- Push notifications via Expo Push (free).
+- JWT stored securely via `expo-secure-store`.
+- Source lives in `mobile/`.
+
 **Backend (Flask API):**
 - Python API hosted on Render.
 - Manages business logic, JWT-based authentication, and CRUD operations.
+- Generates static chart images (Matplotlib → GCS) and interactive charts (Plotly HTML → GCS).
 
 **Database (AWS Redshift Serverless):**
 - Stores all analytical data in a **star schema** with `dim` and `fact` tables.
+- Auto-pauses after inactivity to minimize RPU billing.
+
+**Post Queue (Neon Serverless Postgres):**
+- Posts submitted during business hours (9am–5pm PST, weekdays) are queued.
+- GitHub Actions cron releases queued posts every 30 minutes after 5pm.
+- Manual queue bypass toggle available for trusted users in the Streamlit sidebar.
+
+**Social Media Automation:**
+- IFTTT webhooks post chart images to Twitter and Instagram.
+- Twitter captions include a link to the interactive Plotly chart hosted on GCS.
+- Instagram 60-day access tokens are auto-refreshed monthly via GitHub Actions + AWS Secrets Manager.
 
 **Overlay Dashboard (GitHub Pages):**
 - HTML/CSS/JS static site hosted via GitHub Pages.
@@ -92,8 +115,12 @@ Watch the ESPN-style overlay in action during a live stream or recording:
 ## ✨ Key Features
 
 - 🔑 **Google Authentication** (with JWT + API Key security)
-- 🧩 **CRUD for Admins:**
-  - Add/edit/delete players, games, and stats
+- 📱 **Mobile App** — React Native + Expo for iOS, Android, and web
+- 🧩 **CRUD for Admins:** Add/edit/delete players, games, and stats
+- 📊 **Auto-Generated Charts:** Matplotlib bar/line charts + Plotly interactive charts uploaded to GCS
+- 📬 **Smart Post Queue:** Business-hours gating with 30-minute release intervals after 5pm PST
+- 🐦 **Twitter & Instagram Automation** via IFTTT webhooks with holiday-themed captions
+- 📈 **Interactive Stats Link** appended to every Twitter post (Plotly HTML on GCS)
 - 💫 **Star Schema Design** for analytics efficiency
 - ⚡ **Fast Backend Connections** with psycopg2 connection pooling
 - 🧠 **Smart UI:**
@@ -262,17 +289,39 @@ streamlit run streamlit_app.py
 
 ---
 
-## 🧱 Project Structure & New Pages
+## 🧱 Project Structure
 
-**`utils.py`** — Central utility module storing key functions, constants, and reusable variables for both backend and frontend logic.
-
-**Home Page** — A welcoming landing page that introduces users to the application, its purpose, and navigation links.
-
-**Stats Page** — Allows authenticated users to log, edit, and view video game statistics. Integrated with backend CRUD endpoints for dynamic updates.
-
-**Privacy Policy Page** — Provides details about user data handling and security, required for **Google OAuth verification**.
-
-**Terms of Service Page** — Outlines acceptable use, user responsibilities, and account management terms to comply with **Google API verification requirements**.
+```
+Game_Tracker/
+├── flask_app.py                  # Flask REST API
+├── pages/                        # Streamlit pages
+│   ├── 1_Home.py
+│   ├── 2_Stats.py                # Main stat entry UI
+│   └── ...
+├── utils/                        # Shared Python utilities
+│   ├── chart_utils.py            # Matplotlib + Plotly chart generation
+│   ├── gcs_utils.py              # Google Cloud Storage uploads
+│   ├── ifttt_utils.py            # Social media caption + webhook
+│   ├── queue_utils.py            # Neon Postgres post queue
+│   ├── instagram_token_utils.py  # Instagram token auto-refresh
+│   ├── game_handles_utils.py     # Game-specific handles + hashtags
+│   └── holiday_themes.py         # Holiday/heritage color themes
+├── mobile/                       # React Native + Expo mobile app
+│   ├── src/screens/              # App screens
+│   ├── src/components/           # Reusable UI components
+│   ├── src/hooks/                # useStats, useTicker
+│   ├── src/api/                  # Flask API wrappers
+│   ├── src/auth/                 # JWT auth context
+│   └── src/notifications/        # Expo push notifications
+├── .github/workflows/            # GitHub Actions
+│   ├── process_queue.yml         # Cron: release queued posts at 5pm PST
+│   ├── refresh_instagram_token.yml # Cron: refresh Instagram token monthly
+│   └── gcs_cleanup.yml           # Cron: clean up old GCS chart files
+├── docs/                         # Implementation guides and references
+│   └── bar_chart_race.md         # Animated stats visualization (Flourish / Power BI)
+├── assets/                       # README images, SQL, captions
+└── requirements.txt              # Python dependencies
+```
 
 ---
 

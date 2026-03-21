@@ -372,7 +372,12 @@ def get_stats_for_date_all_games(player_id, target_date):
 
 
 def get_game_mode_for_date(player_id, game_id, target_date):
-    """Return the most-played game mode on a specific date, or None if only 'Main' was played."""
+    """
+    Return the game mode if only one non-Main mode was played on this date.
+    Returns None when zero modes or multiple distinct modes were played — this
+    tells get_stats_for_date and get_match_count_for_date to aggregate across
+    all modes rather than silently excluding sessions.
+    """
     records = execute_query(
         """
         SELECT game_mode, COUNT(*) AS cnt
@@ -384,8 +389,8 @@ def get_game_mode_for_date(player_id, game_id, target_date):
           AND TRIM(game_mode) != ''
           AND LOWER(TRIM(game_mode)) != 'main'
         GROUP BY game_mode
-        ORDER BY cnt DESC
-        LIMIT 1;
+        ORDER BY cnt DESC, game_mode ASC
+        LIMIT 2;
         """,
         [
             {'name': 'player_id',   'value': str(player_id)},
@@ -394,7 +399,37 @@ def get_game_mode_for_date(player_id, game_id, target_date):
             {'name': 'target_date', 'value': str(target_date)},
         ]
     )
+    if len(records) > 1:
+        return None  # Multiple modes played — don't filter, include all sessions
     return get_field_value(records[0][0]) if records else None
+
+
+def get_all_modes_for_date(player_id, game_id, target_date):
+    """
+    Return all distinct non-Main game modes played for a game on a date,
+    sorted alphabetically.  Used for caption display only — does not affect
+    stat aggregation or chart generation.
+    """
+    records = execute_query(
+        """
+        SELECT DISTINCT game_mode
+        FROM fact.fact_game_stats
+        WHERE player_id = :player_id
+          AND game_id = :game_id
+          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date
+          AND game_mode IS NOT NULL
+          AND TRIM(game_mode) != ''
+          AND LOWER(TRIM(game_mode)) != 'main'
+        ORDER BY game_mode ASC;
+        """,
+        [
+            {'name': 'player_id',   'value': str(player_id)},
+            {'name': 'game_id',     'value': str(game_id)},
+            {'name': 'timezone',    'value': TIMEZONE_STR},
+            {'name': 'target_date', 'value': str(target_date)},
+        ]
+    )
+    return [get_field_value(row[0]) for row in records]
 
 
 def detect_anomalies(player_id, game_id, target_date):
@@ -525,7 +560,7 @@ def get_historical_records_all_games(player_id, posted_hashes, limit=10):
 # CAPTION GENERATION
 # ============================================================================
 
-def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies, game_mode=None, match_count=1):
+def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies, game_mode=None, match_count=1, game_modes=None):
     """
     Generate trendy caption with game-specific handle and hashtags.
     Now uses game_handles_utils for centralized social media data.
@@ -567,13 +602,13 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     # Build the main caption content
     if post_type == 'daily':
         emoji = "🔥"
-        hook = f"{emoji} Today's {full_game_name} Session {emoji}"
+        hook = f"{emoji} {player_name}'s Today's {full_game_name} Session {emoji}"
     elif post_type == 'recent':
         emoji = "📊"
-        hook = f"{emoji} Yesterday's {full_game_name} Highlights {emoji}"
+        hook = f"{emoji} {player_name}'s Yesterday's {full_game_name} Highlights {emoji}"
     else:  # historical
         emoji = "🏆"
-        hook = f"{emoji} {full_game_name} All-Time Records {emoji}"
+        hook = f"{emoji} {player_name}'s {full_game_name} All-Time Records {emoji}"
 
     caption_lines = [hook, day_tag, ""]
 
@@ -596,8 +631,11 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
                 caption_lines.append(f"• {anomaly['description']}")
             caption_lines.append("")
 
-    # Game mode (if applicable)
-    if game_mode and game_mode.strip().lower() not in ('main', 'n/a', 'none', '-'):
+    # Game mode(s)
+    if game_modes and len(game_modes) > 1:
+        caption_lines.append(f"🎮 Modes: {' · '.join(game_modes)}")
+        caption_lines.append("")
+    elif game_mode and game_mode.strip().lower() not in ('main', 'n/a', 'none', '-'):
         caption_lines.append(f"🎮 Game Mode: {game_mode.strip()}")
         caption_lines.append("")
 
@@ -1146,6 +1184,7 @@ def run_instagram_poster():
     game_info = {}
     anomalies = []
     game_mode = None
+    game_modes: list = []
     match_count = 1
     date_str = ""
     title = ""
@@ -1159,7 +1198,14 @@ def run_instagram_poster():
         multi_game_stats = get_stats_for_date_all_games(PLAYER_ID, today)
 
         if len(multi_game_stats) > 0:
-            first_game = multi_game_stats[0]
+            # Select the game with the most stat rows — best proxy for most
+            # sessions played when played_at is not available in this result set.
+            _game_counts: dict = {}
+            for _r in multi_game_stats:
+                _key = (_r['game'], _r['installment'])
+                _game_counts[_key] = _game_counts.get(_key, 0) + 1
+            _top_key = max(_game_counts, key=_game_counts.get)
+            first_game = {'game': _top_key[0], 'installment': _top_key[1]}
             game_info = {
                 'game_name': first_game['game'],
                 'game_installment': first_game['installment']
@@ -1172,6 +1218,7 @@ def run_instagram_poster():
             if game_id:
                 # Resolve mode first so stat aggregation can filter by it
                 game_mode = get_game_mode_for_date(PLAYER_ID, game_id, today)
+                game_modes = get_all_modes_for_date(PLAYER_ID, game_id, today)
                 stats = get_stats_for_date(PLAYER_ID, game_id, today, game_mode)
                 anomalies = detect_anomalies(PLAYER_ID, game_id, today)
                 match_count = get_match_count_for_date(PLAYER_ID, game_id, today, game_mode)
@@ -1193,7 +1240,14 @@ def run_instagram_poster():
         multi_game_stats = get_stats_for_date_all_games(PLAYER_ID, yesterday)
 
         if len(multi_game_stats) > 0:
-            first_game = multi_game_stats[0]
+            # Select the game with the most stat rows — best proxy for most
+            # sessions played when played_at is not available in this result set.
+            _game_counts: dict = {}
+            for _r in multi_game_stats:
+                _key = (_r['game'], _r['installment'])
+                _game_counts[_key] = _game_counts.get(_key, 0) + 1
+            _top_key = max(_game_counts, key=_game_counts.get)
+            first_game = {'game': _top_key[0], 'installment': _top_key[1]}
             game_info = {
                 'game_name': first_game['game'],
                 'game_installment': first_game['installment']
@@ -1205,6 +1259,7 @@ def run_instagram_poster():
 
             if game_id:
                 game_mode = get_game_mode_for_date(PLAYER_ID, game_id, yesterday)
+                game_modes = get_all_modes_for_date(PLAYER_ID, game_id, yesterday)
                 stats = get_stats_for_date(PLAYER_ID, game_id, yesterday, game_mode)
                 anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
                 match_count = get_match_count_for_date(PLAYER_ID, game_id, yesterday, game_mode)
@@ -1284,7 +1339,7 @@ def run_instagram_poster():
     # Generate caption
     caption = generate_trendy_caption(
         post_type, stats, game_info, player_name, day_of_week, anomalies,
-        game_mode=game_mode, match_count=match_count
+        game_mode=game_mode, match_count=match_count, game_modes=game_modes
     )
     logger.info(f"📝 Caption:\n{caption}\n")
 
@@ -1363,6 +1418,7 @@ def run_instagram_poster_for_queue():
     game_info = {}
     anomalies = []
     game_mode = None
+    game_modes: list = []
     match_count = 1
     date_str = ""
     title = ""
@@ -1376,7 +1432,14 @@ def run_instagram_poster_for_queue():
         multi_game_stats = get_stats_for_date_all_games(PLAYER_ID, today)
 
         if len(multi_game_stats) > 0:
-            first_game = multi_game_stats[0]
+            # Select the game with the most stat rows — best proxy for most
+            # sessions played when played_at is not available in this result set.
+            _game_counts: dict = {}
+            for _r in multi_game_stats:
+                _key = (_r['game'], _r['installment'])
+                _game_counts[_key] = _game_counts.get(_key, 0) + 1
+            _top_key = max(_game_counts, key=_game_counts.get)
+            first_game = {'game': _top_key[0], 'installment': _top_key[1]}
             game_info = {
                 'game_name': first_game['game'],
                 'game_installment': first_game['installment']
@@ -1388,6 +1451,7 @@ def run_instagram_poster_for_queue():
 
             if game_id:
                 game_mode = get_game_mode_for_date(PLAYER_ID, game_id, today)
+                game_modes = get_all_modes_for_date(PLAYER_ID, game_id, today)
                 stats = get_stats_for_date(PLAYER_ID, game_id, today, game_mode)
                 anomalies = detect_anomalies(PLAYER_ID, game_id, today)
                 match_count = get_match_count_for_date(PLAYER_ID, game_id, today, game_mode)
@@ -1409,7 +1473,14 @@ def run_instagram_poster_for_queue():
         multi_game_stats = get_stats_for_date_all_games(PLAYER_ID, yesterday)
 
         if len(multi_game_stats) > 0:
-            first_game = multi_game_stats[0]
+            # Select the game with the most stat rows — best proxy for most
+            # sessions played when played_at is not available in this result set.
+            _game_counts: dict = {}
+            for _r in multi_game_stats:
+                _key = (_r['game'], _r['installment'])
+                _game_counts[_key] = _game_counts.get(_key, 0) + 1
+            _top_key = max(_game_counts, key=_game_counts.get)
+            first_game = {'game': _top_key[0], 'installment': _top_key[1]}
             game_info = {
                 'game_name': first_game['game'],
                 'game_installment': first_game['installment']
@@ -1421,6 +1492,7 @@ def run_instagram_poster_for_queue():
 
             if game_id:
                 game_mode = get_game_mode_for_date(PLAYER_ID, game_id, yesterday)
+                game_modes = get_all_modes_for_date(PLAYER_ID, game_id, yesterday)
                 stats = get_stats_for_date(PLAYER_ID, game_id, yesterday, game_mode)
                 anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
                 match_count = get_match_count_for_date(PLAYER_ID, game_id, yesterday, game_mode)
@@ -1500,7 +1572,7 @@ def run_instagram_poster_for_queue():
     # Generate caption
     caption = generate_trendy_caption(
         post_type, stats, game_info, player_name, day_of_week, anomalies,
-        game_mode=game_mode, match_count=match_count
+        game_mode=game_mode, match_count=match_count, game_modes=game_modes
     )
     logger.info(f"📝 Caption generated ({len(caption)} chars)")
 
@@ -1537,7 +1609,14 @@ def run_tuesday_thursday_poster_for_queue():
     # Get comparison data
     data = get_tale_of_tape_data(PLAYER_ID)
     if data is None:
-        raise Exception("Insufficient data for Tale of the Tape (need 30+ samples per mode per stat)")
+        # Fallback 1: regular stats post (has duplicate filtering built in)
+        logger.warning("⚠️ No Tale of the Tape data — falling back to regular stats post...")
+        try:
+            return run_instagram_poster_for_queue()
+        except Exception as fallback_err:
+            # Fallback 2: nothing to post — return None so the caller can skip
+            logger.warning(f"⚠️ Regular stats fallback also failed: {fallback_err} — skipping post")
+            return None
 
     logger.info(f"🎮 Game: {data['game_name']} | Modes: {data['mode_1']} vs {data['mode_2']}")
 
@@ -1612,8 +1691,32 @@ def run_saturday_poster_for_queue():
 
     # Get weekly summary data
     summary = get_weekly_summary_data(PLAYER_ID, week_start, week_end)
+
     if summary is None:
-        raise Exception("Insufficient data for weekly summary")
+        # No gaming data this week — post "No Weekly Recap" placeholder
+        logger.info("📭 No gaming data this week — creating 'No Weekly Recap' placeholder post...")
+        image_buffer = create_no_weekly_recap_chart(player_name, use_holiday_theme)
+        caption = generate_no_weekly_recap_caption(player_name)
+        content_hash = hashlib.md5(f"no_recap_{week_start}".encode()).hexdigest()
+
+        gcs_url = None
+        try:
+            gcs_buffer = io.BytesIO(image_buffer.getvalue())
+            gcs_url = upload_instagram_poster_to_gcs(gcs_buffer, player_name, 'no_weekly_recap', 'weekly')
+            if gcs_url:
+                logger.info(f"✅ No-recap placeholder uploaded to GCS: {gcs_url}")
+        except Exception as gcs_error:
+            logger.warning(f"⚠️ GCS upload error for no-recap: {gcs_error}")
+
+        return {
+            'image_buffer': image_buffer,
+            'gcs_url': gcs_url,
+            'caption': caption,
+            'post_type': 'no_weekly_recap',
+            'game': 'No Weekly Recap',
+            'player': player_name,
+            'content_hash': content_hash
+        }
 
     logger.info(f"🎮 Games in summary: {summary.get('games_played', 0)}")
 
@@ -1722,9 +1825,22 @@ def run_new_years_poster_for_queue():
 
 def get_tale_of_tape_data(player_id):
     """
-    Find a game + two-mode pair where each mode has >= min_samples observations
-    per stat_type.  Returns dict or None when insufficient data exists.
+    Find the best comparison pair for Tale of the Tape.
+
+    Priority:
+    1. Within-game mode comparison — same game, two different modes, both with
+       >= 30 samples per stat_type.  When 3+ modes qualify, the pair with the
+       highest combined average stat value wins.
+    2. Cross-game stat comparison (fallback) — two different games that share
+       at least one stat_type (e.g., both track 'Score').  mode_1/mode_2 are
+       formatted as '<GameName> (<Mode>)' so the existing chart function works
+       without modification.
+
+    Returns dict or None when insufficient data exists.
     """
+    # ------------------------------------------------------------------
+    # PASS 1: within-game mode vs mode (original logic)
+    # ------------------------------------------------------------------
     records = execute_query(
         """
         WITH mode_stats AS (
@@ -1763,39 +1879,135 @@ def get_tale_of_tape_data(player_id):
         [{'name': 'player_id', 'value': str(player_id)}]
     )
 
-    if not records:
+    if records:
+        pairs = defaultdict(list)
+        for row in records:
+            key = (
+                get_field_value(row[0]),   # game_id
+                get_field_value(row[1]),   # mode_1
+                get_field_value(row[2]),   # mode_2
+            )
+            pairs[key].append({
+                'stat_type': get_field_value(row[3]),
+                'n1':    int(get_field_value(row[4]) or 0),
+                'mean1': float(get_field_value(row[5]) or 0),
+                'std1':  float(get_field_value(row[6]) or 0),
+                'n2':    int(get_field_value(row[7]) or 0),
+                'mean2': float(get_field_value(row[8]) or 0),
+                'std2':  float(get_field_value(row[9]) or 0),
+            })
+
+        for (game_id, mode_1, mode_2), stats_list in pairs.items():
+            game_records = execute_query(
+                "SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = :game_id;",
+                [{'name': 'game_id', 'value': str(game_id)}]
+            )
+            if game_records:
+                return {
+                    'game_id':          game_id,
+                    'game_name':        get_field_value(game_records[0][0]),
+                    'game_installment': get_field_value(game_records[0][1]),
+                    'mode_1':           mode_1,
+                    'mode_2':           mode_2,
+                    'stats':            stats_list[:3],
+                }
+
+    # ------------------------------------------------------------------
+    # PASS 2: cross-game shared stat_type comparison (fallback)
+    # Two different games that both track the same stat_type with >= 30
+    # samples each.  mode_1/mode_2 are labelled as "GameName (Mode)" so
+    # the existing create_tale_of_tape_chart renders them correctly.
+    # ------------------------------------------------------------------
+    logger.info("No within-game pairs found — trying cross-game stat comparison")
+    cross_records = execute_query(
+        """
+        WITH game_stats AS (
+            SELECT
+                f.game_id,
+                g.game_name,
+                g.game_installment,
+                f.game_mode,
+                f.stat_type,
+                COUNT(*)                            AS n,
+                AVG(CAST(f.stat_value AS FLOAT))    AS mean_val,
+                STDDEV(CAST(f.stat_value AS FLOAT)) AS std_val
+            FROM fact.fact_game_stats f
+            JOIN dim.dim_games g ON f.game_id = g.game_id
+            WHERE f.player_id = :player_id
+              AND f.game_mode IS NOT NULL
+              AND TRIM(f.game_mode) != ''
+            GROUP BY f.game_id, g.game_name, g.game_installment, f.game_mode, f.stat_type
+            HAVING COUNT(*) >= 30
+        )
+        SELECT
+            a.game_id                                           AS game_id_1,
+            a.game_name                                         AS game_name_1,
+            a.game_installment                                  AS installment_1,
+            a.game_mode                                         AS game_mode_1,
+            b.game_id                                           AS game_id_2,
+            b.game_name                                         AS game_name_2,
+            b.game_installment                                  AS installment_2,
+            b.game_mode                                         AS game_mode_2,
+            a.stat_type,
+            a.n          AS n1,
+            a.mean_val   AS mean1,
+            a.std_val    AS std1,
+            b.n          AS n2,
+            b.mean_val   AS mean2,
+            b.std_val    AS std2
+        FROM game_stats a
+        JOIN game_stats b
+          ON  a.stat_type = b.stat_type
+          AND a.game_id   < b.game_id
+        ORDER BY (a.mean_val + b.mean_val) DESC;
+        """,
+        [{'name': 'player_id', 'value': str(player_id)}]
+    )
+
+    if not cross_records:
         return None
 
-    pairs = defaultdict(list)
-    for row in records:
-        key = (
-            get_field_value(row[0]),   # game_id
-            get_field_value(row[1]),   # mode_1
-            get_field_value(row[2]),   # mode_2
-        )
-        pairs[key].append({
-            'stat_type': get_field_value(row[3]),
-            'n1':    int(get_field_value(row[4]) or 0),
-            'mean1': float(get_field_value(row[5]) or 0),
-            'std1':  float(get_field_value(row[6]) or 0),
-            'n2':    int(get_field_value(row[7]) or 0),
-            'mean2': float(get_field_value(row[8]) or 0),
-            'std2':  float(get_field_value(row[9]) or 0),
+    cross_pairs = defaultdict(list)
+    for row in cross_records:
+        game_id_1    = get_field_value(row[0])
+        game_name_1  = get_field_value(row[1])
+        install_1    = get_field_value(row[2])
+        game_mode_1  = get_field_value(row[3])
+        game_id_2    = get_field_value(row[4])
+        game_name_2  = get_field_value(row[5])
+        install_2    = get_field_value(row[6])
+        game_mode_2  = get_field_value(row[7])
+
+        # Label includes game name so the chart columns are identifiable
+        full_1 = f"{game_name_1}{': ' + install_1 if install_1 else ''} ({game_mode_1})"
+        full_2 = f"{game_name_2}{': ' + install_2 if install_2 else ''} ({game_mode_2})"
+        key = (game_id_1, game_id_2, full_1, full_2)
+
+        cross_pairs[key].append({
+            'stat_type': get_field_value(row[8]),
+            'n1':    int(get_field_value(row[9]) or 0),
+            'mean1': float(get_field_value(row[10]) or 0),
+            'std1':  float(get_field_value(row[11]) or 0),
+            'n2':    int(get_field_value(row[12]) or 0),
+            'mean2': float(get_field_value(row[13]) or 0),
+            'std2':  float(get_field_value(row[14]) or 0),
         })
 
-    for (game_id, mode_1, mode_2), stats_list in pairs.items():
+    for (game_id_1, game_id_2, label_1, label_2), stats_list in cross_pairs.items():
+        # Use game_id_1's info as the "game" header; labels carry the full context
         game_records = execute_query(
             "SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = :game_id;",
-            [{'name': 'game_id', 'value': str(game_id)}]
+            [{'name': 'game_id', 'value': str(game_id_1)}]
         )
         if game_records:
             return {
-                'game_id':          game_id,
+                'game_id':          game_id_1,
                 'game_name':        get_field_value(game_records[0][0]),
                 'game_installment': get_field_value(game_records[0][1]),
-                'mode_1':           mode_1,
-                'mode_2':           mode_2,
+                'mode_1':           label_1,   # "CoD: Warzone (Resurgence Casual)"
+                'mode_2':           label_2,   # "CoD: Black Ops 7 (Zombies)"
                 'stats':            stats_list[:3],
+                'cross_game':       True,      # flag for caption/logging
             }
 
     return None
@@ -2058,9 +2270,14 @@ def run_tuesday_thursday_poster():
 
     data = get_tale_of_tape_data(PLAYER_ID)
     if not data:
-        raise Exception(
-            "Insufficient data for Tale of the Tape — need 30+ samples per game mode per stat"
-        )
+        # Fallback 1: regular stats post
+        logger.warning("⚠️ No Tale of the Tape data — falling back to regular stats post...")
+        try:
+            return run_instagram_poster()
+        except Exception as fallback_err:
+            # Fallback 2: skip gracefully
+            logger.warning(f"⚠️ Regular stats fallback also failed: {fallback_err} — skipping post")
+            return {'posted': False, 'reason': 'No Tale of the Tape data and no recent stats'}
 
     logger.info(f"🎮 {data['game_name']} — {data['mode_1']} vs {data['mode_2']}")
     logger.info(f"📊 Stats: {[s['stat_type'] for s in data['stats']]}")
@@ -2175,6 +2392,74 @@ def get_weekly_summary_data(player_id, week_start, week_end):
         'week_start':     week_start,
         'week_end':       week_end,
     }
+
+
+_NO_RECAP_CAPTIONS = [
+    "Taking a break this week! 🕹️\n\nDrop a comment — what games are you playing right now? 👇",
+    "Week off from gaming! 😤\n\nWhat's the longest gaming session you've had this year? Let me know! 💬",
+    "No recap this week — life happened! 😅\n\nWhat's a game you keep meaning to play but never get around to? 🎮",
+    "Skipped the controller this week! 🎮\n\nWhat milestone did YOU hit in a game recently? Share it below! 👇",
+    "Rest week! 😴\n\nIf you could only play one game for the rest of the year, what would it be? 🔥",
+    "No games logged this week! 📊\n\nWhat's your go-to game when you only have 30 minutes? Comment below! ⏱️",
+    "Taking a breather this week! 🌬️\n\nWhat's the hardest game you've ever beaten? Brag a little! 💪",
+    "Week off from the grind! 🏃\n\nWhat game has the best soundtrack in your opinion? Drop it below! 🎵",
+    "No sessions this week! 📉\n\nBattle Royale or Resurgence — which do you prefer and why? 👇",
+    "Recharging for next week! 🔋\n\nWhat's a game you think is underrated that more people should try? 🎯",
+    "Off the sticks this week! 🕹️\n\nCo-op or solo — how do you prefer to play? Let me know! 🤝",
+    "No weekly recap this time! 📆\n\nWhat's your biggest gaming achievement of 2026 so far? Share below! 🏆",
+]
+
+
+def create_no_weekly_recap_chart(player_name, use_holiday_theme=False):
+    """Create a bold placeholder 'No Weekly Recap' chart (1080x1440)."""
+    theme = get_themed_colors()
+    accent = theme['colors'][0] if use_holiday_theme else '#00ff41'
+
+    fig = plt.figure(figsize=(10.8, 14.4), dpi=100)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    fig.patch.set_facecolor('#0a0a0a')
+
+    ax.text(0.5, 0.72, 'NO WEEKLY', ha='center', va='center',
+            fontsize=150, fontweight='bold', color=accent,
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.5, 0.56, 'RECAP', ha='center', va='center',
+            fontsize=150, fontweight='bold', color='white',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.5, 0.42, 'THIS WEEK', ha='center', va='center',
+            fontsize=64, fontweight='bold', color='#888888',
+            fontfamily='Fira Code', transform=ax.transAxes)
+
+    # Divider line
+    ax.plot([0.2, 0.8], [0.35, 0.35], color=accent, linewidth=2, transform=ax.transAxes)
+
+    ax.text(0.5, 0.25, f'— {player_name} —', ha='center', va='center',
+            fontsize=64, color='#555555', fontstyle='italic',
+            fontfamily='Fira Code', transform=ax.transAxes)
+    ax.text(0.5, 0.14, 'Back next week!', ha='center', va='center',
+            fontsize=52, color='#444444',
+            fontfamily='Fira Code', transform=ax.transAxes)
+
+    _add_branding(fig)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
+                facecolor='#0a0a0a', pad_inches=0.2)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def generate_no_weekly_recap_caption(player_name):
+    """Return a randomized engagement caption for a no-recap week."""
+    base = random.choice(_NO_RECAP_CAPTIONS)
+    return (
+        f"📊 {player_name}'s Weekly Recap 📊\n\n"
+        f"{base}\n\n"
+        f"#gaming #stats #gamingcommunity #WeeklyRecap #gamer"
+    )
 
 
 def create_weekly_summary_chart(summary, player_name, use_holiday_theme=False):
@@ -2299,33 +2584,38 @@ def run_saturday_poster():
     use_holiday_theme = is_exact_holiday() is not None
 
     summary = get_weekly_summary_data(PLAYER_ID, week_start, week_end)
-    if not summary:
-        raise Exception("No gaming data for the past week — skipping Saturday post")
 
-    logger.info(f"📈 Week summary: {summary}")
-    image_buffer = create_weekly_summary_chart(summary, player_name, use_holiday_theme)
+    if not summary:
+        logger.info("📭 No gaming data this week — posting 'No Weekly Recap' placeholder...")
+        image_buffer = create_no_weekly_recap_chart(player_name, use_holiday_theme)
+        caption = generate_no_weekly_recap_caption(player_name)
+    else:
+        logger.info(f"📈 Week summary: {summary}")
+        image_buffer = create_weekly_summary_chart(summary, player_name, use_holiday_theme)
+        caption = generate_weekly_caption(summary, player_name)
 
     try:
         gcs_buffer = io.BytesIO(image_buffer.getvalue())
         gcs_url = upload_instagram_poster_to_gcs(
-            gcs_buffer, player_name, 'weekly_summary', 'weekly'
+            gcs_buffer, player_name,
+            'no_weekly_recap' if not summary else 'weekly_summary', 'weekly'
         )
         if gcs_url:
             logger.info(f"✅ Backed up to GCS: {gcs_url}")
     except Exception as gcs_error:
         logger.warning(f"⚠️ GCS backup error: {gcs_error}")
 
-    caption = generate_weekly_caption(summary, player_name)
     logger.info(f"📝 Caption:\n{caption}\n")
 
     if not post_to_instagram(image_buffer, caption):
-        raise Exception("Failed to post weekly summary to Instagram")
+        raise Exception("Failed to post Saturday content to Instagram")
 
-    logger.info("✅ Weekly summary posted!")
+    post_type = 'weekly_summary' if summary else 'no_weekly_recap'
+    logger.info(f"✅ Saturday post ({post_type}) complete!")
     return {
-        'posted': True, 'post_type': 'weekly_summary',
-        'games_played': summary['games_played'],
-        'sessions': summary['sessions'], 'player': player_name,
+        'posted': True, 'post_type': post_type,
+        'games_played': summary['games_played'] if summary else 0,
+        'sessions': summary['sessions'] if summary else 0, 'player': player_name,
     }
 
 

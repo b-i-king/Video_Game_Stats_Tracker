@@ -144,6 +144,52 @@ def upload_chart_to_gcs(image_buffer, player_name, game_name, chart_type='bar', 
         return None
 
 
+def upload_interactive_chart_to_gcs(html_bytes, player_name, game_name, game_installment=None):
+    """Upload an interactive Plotly HTML chart to GCS using a fixed filename.
+
+    The file is overwritten on every stat submission — no accumulation over time.
+    Fixed path: twitter/interactive/{player_slug}_{game_slug}.html
+
+    Args:
+        html_bytes: UTF-8 encoded HTML from generate_interactive_chart()
+        player_name, game_name, game_installment: used to build the filename
+
+    Returns:
+        str: Public URL, or None if upload failed
+    """
+    bucket_name = os.environ.get('GCS_BUCKET_NAME')
+    if not bucket_name:
+        print("❌ GCS_BUCKET_NAME not set")
+        return None
+
+    client = get_gcs_client()
+    if not client:
+        return None
+
+    def _slug(s):
+        return s.lower().replace(' ', '_').replace(':', '').replace('/', '_') if s else ''
+
+    game_slug = _slug(game_name)
+    if game_installment:
+        game_slug += f"_{_slug(game_installment)}"
+    player_slug = _slug(player_name)
+
+    full_path = f"twitter/interactive/{player_slug}_{game_slug}.html"
+
+    try:
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(full_path)
+        blob.upload_from_string(html_bytes, content_type='text/html; charset=utf-8')
+        blob.make_public()
+        public_url = blob.public_url
+        print(f"✅ Interactive chart uploaded (overwrite): {full_path}")
+        print(f"   URL: {public_url}")
+        return public_url
+    except Exception as e:
+        print(f"❌ Failed to upload interactive chart: {e}")
+        return None
+
+
 def upload_instagram_poster_to_gcs(image_buffer, player_name, game_name, post_type='daily'):
     """
     Upload Instagram portrait poster (1080x1440) to Google Cloud Storage.

@@ -13,6 +13,7 @@ Shared utility modules used by both the Lambda functions and local development t
 | `app_utils.py` | Shared helpers for the Streamlit and Flask apps (API calls, session state helpers, business hours detection) |
 | `ifttt_utils.py` | IFTTT webhook integration and caption generation |
 | `queue_utils.py` | Post queue CRUD helpers backed by a persistent Postgres database (Neon) |
+| `instagram_token_utils.py` | Instagram long-lived access token refresh — reads/writes AWS Secrets Manager |
 | `fonts/` | Fira Code font files (TTF) used in chart generation |
 
 ---
@@ -93,6 +94,70 @@ Housekeeping (runs on every /api/process_queue call):
     → reset_stale_processing(minutes=10)   resets stuck 'processing' rows
     → purge_old_sent(days=7)               deletes sent rows older than 7 days
 ```
+
+### instagram_token_utils.py
+
+Instagram long-lived tokens expire every **60 days**. This module is used by
+`.github/workflows/refresh_instagram_token.yml` to refresh the token automatically.
+
+**Manual token check:** [Access Token Debugger](https://developers.facebook.com/tools/debug/accesstoken/)
+Use this to inspect your current token's expiry date, scopes, and validity at any time.
+
+**How the refresh works:**
+1. Reads the current token from AWS Secrets Manager (`instagram-poster/instagram`)
+2. Calls `GET https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=<token>`
+3. Writes the new token back to Secrets Manager, preserving `account_id` and other fields
+4. Lambda picks up the new token on its next invocation — no redeployment needed
+
+**Secret structure** (in AWS Secrets Manager):
+```json
+{
+  "access_token": "IGQVJVa...",
+  "account_id": "12345678"
+}
+```
+
+#### Required GitHub Secrets
+
+The workflow uses a **dedicated IAM user** with minimal permissions (read + update the token secret only). Add these to your GitHub repo secrets:
+
+| GitHub Secret | Value |
+|---|---|
+| `AWS_ACCESS_KEY_ID_SECRETS` | Access key ID for the token-refresh IAM user |
+| `AWS_SECRET_ACCESS_KEY_SECRETS` | Secret access key for the token-refresh IAM user |
+
+> Uses separate secret names (`_SECRETS` suffix) to avoid conflicts with any existing `AWS_ACCESS_KEY_ID` secret used by other workflows.
+
+#### IAM Policy for the Token-Refresh User
+
+Create an IAM user (e.g., `github-instagram-token-refresh`) with this inline policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:UpdateSecret"
+      ],
+      "Resource": "arn:aws:secretsmanager:us-west-1:YOUR_AWS_ACCOUNT_NUMBER:secret:instagram-poster/instagram-*"
+    }
+  ]
+}
+```
+
+#### Workflow Schedule
+
+The workflow runs on the **1st of every month** at 8:00 AM UTC — a ~30-day cadence that keeps the token well within its 60-day window. On failure, GitHub sends an email notification automatically.
+
+To trigger manually (e.g., to test or to force an early refresh):
+1. Go to **Actions** → **Refresh Instagram Access Token** → **Run workflow**
+2. Set `dry_run = true` to print token info without making changes
+3. Set `dry_run = false` (or leave blank) to perform the actual refresh
+
+---
 
 ### holiday_themes.py
 
