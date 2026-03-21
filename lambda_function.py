@@ -276,6 +276,27 @@ def post_to_instagram(image_url, caption):
         media_id = response_data['id']
         logger.info(f"✅ Media container created: {media_id}")
 
+        # Poll until Instagram finishes processing the image (error 2207027 if skipped)
+        import time
+        status_url = f"https://graph.facebook.com/v24.0/{media_id}"
+        max_attempts = 10
+        for attempt in range(1, max_attempts + 1):
+            time.sleep(5)
+            status_resp = requests.get(
+                status_url,
+                params={'fields': 'status_code', 'access_token': INSTAGRAM_ACCESS_TOKEN},
+                timeout=15
+            )
+            status_data = status_resp.json()
+            status_code = status_data.get('status_code', 'UNKNOWN')
+            logger.info(f"⏳ Container status ({attempt}/{max_attempts}): {status_code}")
+            if status_code == 'FINISHED':
+                break
+            if status_code == 'ERROR':
+                raise Exception(f"Instagram media processing failed: {status_data}")
+        else:
+            raise Exception(f"Instagram container not ready after {max_attempts * 5}s (last status: {status_code})")
+
         logger.info("📤 Publishing Instagram post...")
 
         publish_url = f"https://graph.facebook.com/v24.0/{INSTAGRAM_ACCOUNT_ID}/media_publish"

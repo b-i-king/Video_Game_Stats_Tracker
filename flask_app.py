@@ -385,11 +385,18 @@ def add_user():
     if not user_email:
         return jsonify({"error": "Email is required"}), 400
 
+    # Cache "already exists" responses for 6 hours — known users never disappear,
+    # so repeated calls (e.g. every 5 min keep-alive) skip Redshift entirely.
+    cache_key = f"add_user:{user_email}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached[0]), cached[1]
+
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        
+
         cur.execute("SELECT 1 FROM dim.dim_users WHERE user_email = %s;", (user_email,))
         exists = cur.fetchone()
 
@@ -400,7 +407,9 @@ def add_user():
             return jsonify({"message": f"User {user_email} registered successfully."}), 201
         else:
              print(f"Guest user {user_email} already exists.")
-             return jsonify({"message": f"User {user_email} already exists."}), 200
+             resp = {"message": f"User {user_email} already exists."}
+             _cache_set(cache_key, resp, 200, ttl_seconds=21600)  # 6 hours
+             return jsonify(resp), 200
 
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error while adding user: {error}")
