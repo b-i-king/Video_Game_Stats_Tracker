@@ -173,7 +173,7 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
                 caption += f"{credit_line}\n"
             # Twitter omits "Games Played" to save characters
             if platform != 'twitter':
-                caption += f"\nGames Played: {games_played}\n"
+                caption += f"\n#️⃣ Games Played: {games_played}\n"
             caption += f"🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
 
             # Add stream link based on platform
@@ -194,7 +194,9 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
                 caption += f"{credit_line}\n"
             # Twitter omits "Games Played" to save characters
             if platform != 'twitter':
-                caption += f"\nGames Played: {games_played}\n"
+                caption += f"\n#️⃣ Games Played: {games_played}\n"
+            else:
+                caption += f"#️⃣ Sessions: {games_played}\n"
             caption += f"🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
 
             # Platform-specific base hashtags
@@ -258,7 +260,7 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
             tags.pop()
 
         if interactive_url:
-            caption += f"\n\n📈 Full interactive stats: {interactive_url}"
+            caption += f"\n\n📈 Interactive Stats: {interactive_url}"
     else:
         caption += f"\n{' '.join(unique_hashtags)}\n"
         caption += footer
