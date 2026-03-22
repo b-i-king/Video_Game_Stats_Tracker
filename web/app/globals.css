@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark background to match the Streamlit app's dark theme */
+:root {
+  --bg: #0e1117;
+  --surface: #1a1d26;
+  --border: #2e3244;
+  --gold: #c8ac44;
+  --text: #e8e8e8;
+  --muted: #888;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* ── Reusable utility classes (used in StatsForm, EditTab, etc.) ───────────── */
+@layer components {
+  .input {
+    @apply w-full rounded border border-[#2e3244] bg-[#1a1d26] px-3 py-1.5 text-sm text-[#e8e8e8]
+           focus:outline-none focus:border-[#c8ac44] transition-colors;
+  }
+
+  .label {
+    @apply block text-xs text-[#888] mb-1;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 rounded bg-[#c8ac44] text-black text-sm font-semibold
+           hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1 rounded border border-[#2e3244] text-sm text-[#e8e8e8]
+           hover:border-[#c8ac44] hover:text-[#c8ac44] transition-colors disabled:opacity-40;
+  }
+}
