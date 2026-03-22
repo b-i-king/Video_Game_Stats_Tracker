@@ -1,5 +1,6 @@
 import os
 import time
+import threading
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 from flask import Flask, request, jsonify, send_file
@@ -460,6 +461,144 @@ def add_trusted_user():
         release_db_connection(conn)
         
 # --- Stat Management Endpoints (add, delete, update) ---
+def _social_media_pipeline(player_id, player_name, game_id, game_name,
+                            game_installment, stats, is_live, credit_style, queue_mode):
+    """Run chart generation, GCS upload, and IFTTT trigger in a background thread.
+    Uses its own DB connection so the main request can return immediately."""
+    import traceback
+    conn2 = None
+    try:
+        conn2 = get_db_connection()
+        cur2 = conn2.cursor()
+
+        batch_game_mode = next(
+            (s.get('game_mode') for s in stats if s.get('game_mode') and s['game_mode'].strip()),
+            None
+        )
+
+        cur2.execute("""
+            SELECT COUNT(DISTINCT played_at) as games_played
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s;
+        """, (player_id, game_id))
+        games_played = cur2.fetchone()[0]
+
+        print(f"📊 [bg] Generating chart for social media (Games played: {games_played})...")
+
+        cur2.execute("""
+            SELECT stat_type, AVG(stat_value) as avg_value
+            FROM fact.fact_game_stats
+            WHERE game_id = %s AND player_id = %s AND stat_type IS NOT NULL
+            GROUP BY stat_type
+            HAVING AVG(stat_value) > 0
+            ORDER BY avg_value ASC
+            LIMIT 3;
+        """, (game_id, player_id))
+        top_stats = [row[0] for row in cur2.fetchall()]
+
+        if games_played == 1:
+            stat_data = {}
+            for i, stat_record in enumerate(stats[:3], 1):
+                stat_type = stat_record.get('stat_type')
+                if not stat_type:
+                    continue
+                stat_data[f'stat{i}'] = {
+                    'label': stat_type,
+                    'value': stat_record.get('stat_value', 0),
+                    'prev_value': None
+                }
+                cur2.execute("""
+                    SELECT stat_value FROM fact.fact_game_stats
+                    WHERE player_id = %s AND game_id = %s AND stat_type = %s
+                    ORDER BY played_at DESC LIMIT 2;
+                """, (player_id, game_id, stat_type))
+                prev_rows = cur2.fetchall()
+                if len(prev_rows) > 1:
+                    stat_data[f'stat{i}']['prev_value'] = prev_rows[1][0]
+
+            image_buffer_twitter = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='twitter', game_mode=batch_game_mode)
+            image_buffer_instagram = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='instagram', game_mode=batch_game_mode)
+            chart_type = 'bar'
+            stat_data_for_caption = stat_data
+            _interactive_data = stat_data
+
+        elif games_played > 1:
+            stat_history = get_stat_history_from_db(cur2, player_id, game_id, top_stats, days_back=365)
+            image_buffer_twitter = generate_line_chart(stat_history, player_name, game_name, game_installment, size='twitter', game_mode=batch_game_mode)
+            image_buffer_instagram = generate_line_chart(stat_history, player_name, game_name, game_installment, size='instagram', game_mode=batch_game_mode)
+            chart_type = 'line'
+            stat_data_for_caption = {}
+            for i in range(1, 4):
+                key = f'stat{i}'
+                if key in stat_history and stat_history[key]:
+                    vals = stat_history[key].get('values', [])
+                    stat_type_label = stat_history[key].get('label', '')
+                    cur2.execute("""
+                        SELECT stat_value FROM fact.fact_game_stats
+                        WHERE player_id = %s AND game_id = %s AND stat_type = %s
+                        ORDER BY played_at DESC LIMIT 2;
+                    """, (player_id, game_id, stat_type_label))
+                    prev_rows = cur2.fetchall()
+                    stat_data_for_caption[key] = {
+                        'label': stat_type_label,
+                        'value': vals[-1] if vals else 0,
+                        'prev_value': prev_rows[1][0] if len(prev_rows) > 1 else None
+                    }
+            _interactive_data = stat_history
+        else:
+            return
+
+        interactive_url = None
+        try:
+            _html = generate_interactive_chart(
+                chart_type, _interactive_data, player_name, game_name,
+                game_installment=game_installment, game_mode=batch_game_mode
+            )
+            interactive_url = upload_interactive_chart_to_gcs(
+                _html, player_name, game_name, game_installment
+            )
+        except Exception as _ie:
+            print(f"⚠️  [bg] Interactive chart generation failed (non-fatal): {_ie}")
+
+        twitter_public_url = upload_chart_to_gcs(image_buffer_twitter, player_name, game_name, chart_type, platform='twitter')
+        instagram_url_week = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='week')
+        instagram_url_game = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='game', game_installment=game_installment, game_mode=batch_game_mode)
+
+        if twitter_public_url:
+            caption = generate_post_caption(
+                player_name, game_name, game_installment, stat_data_for_caption,
+                games_played, platform='twitter', is_live=is_live,
+                credit_style=credit_style, game_mode=batch_game_mode,
+                interactive_url=interactive_url
+            )
+            if queue_mode:
+                qid = enqueue_post(player_id, 'twitter', twitter_public_url, caption)
+                print(f"📥 [bg] Twitter post queued (queue_id={qid})")
+            else:
+                success = trigger_ifttt_post(twitter_public_url, caption, 'twitter')
+                print(f"{'✅' if success else '⚠️'} [bg] Twitter post {'triggered' if success else 'failed'}")
+        else:
+            print("⚠️ [bg] Failed to upload Twitter chart")
+
+        instagram_url = instagram_url_game or instagram_url_week
+        if instagram_url:
+            instagram_caption = generate_post_caption(
+                player_name, game_name, game_installment, stat_data_for_caption,
+                games_played, platform='instagram', is_live=is_live,
+                credit_style=credit_style, game_mode=batch_game_mode
+            )
+            if queue_mode:
+                qid = enqueue_post(player_id, 'instagram', instagram_url, instagram_caption)
+                print(f"📥 [bg] Instagram post queued (queue_id={qid})")
+
+    except Exception as e:
+        print(f"⚠️ [bg] Social media pipeline error (stats already saved): {e}")
+        traceback.print_exc()
+    finally:
+        if conn2:
+            release_db_connection(conn2)
+
+
 # These now rely solely on the JWT for authentication and the DB for authorization (is_trusted check)
 
 @app.route('/api/add_stats', methods=['POST'])
@@ -592,171 +731,26 @@ def add_stats(user_email):
             print(f"✅ {successful_inserts} stats inserted successfully")
             _cache_invalidate_obs()  # push fresh data to OBS on next poll
 
-            # --- SOCIAL MEDIA INTEGRATION ---
-            try:
-                # Capture batch game_mode (all stats in a session share the same mode)
-                batch_game_mode = next(
-                    (s.get('game_mode') for s in stats if s.get('game_mode') and s['game_mode'].strip()),
-                    None
-                )
+            # --- SOCIAL MEDIA INTEGRATION (background thread) ---
+            # Capture all request-scoped data before releasing the DB connection.
+            _bg_args = {
+                'player_id': player_id,
+                'player_name': player_name,
+                'game_id': game_id,
+                'game_name': game_name,
+                'game_installment': game_installment,
+                'stats': list(stats),
+                'is_live': is_live,
+                'credit_style': credit_style,
+                'queue_mode': queue_mode,
+            }
+            threading.Thread(
+                target=_social_media_pipeline,
+                kwargs=_bg_args,
+                daemon=True
+            ).start()
 
-                # Count total games played for this player/game
-                cur.execute("""
-                    SELECT COUNT(DISTINCT played_at) as games_played
-                    FROM fact.fact_game_stats
-                    WHERE player_id = %s AND game_id = %s;
-                """, (player_id, game_id))
-                games_played = cur.fetchone()[0]
-                
-                print(f"📊 Generating chart for social media (Games played: {games_played})...")
-                
-                # Get top 3 stat types for this player+game (player_id scopes the scan)
-                cur.execute("""
-                    SELECT stat_type, AVG(stat_value) as avg_value
-                    FROM fact.fact_game_stats
-                    WHERE game_id = %s AND player_id = %s AND stat_type IS NOT NULL
-                    GROUP BY stat_type
-                    HAVING AVG(stat_value) > 0
-                    ORDER BY avg_value ASC
-                    LIMIT 3;
-                """, (game_id, player_id))
-                top_stats = [row[0] for row in cur.fetchall()]
-                
-                if games_played == 1:
-                    # Generate BAR CHART (first game)
-                    # Build stat_data directly from the submitted stats — authoritative
-                    # for the current session (avoids stale DB reads or ordering issues).
-                    stat_data = {}
-                    for i, stat_record in enumerate(stats[:3], 1):
-                        stat_type = stat_record.get('stat_type')
-                        if not stat_type:
-                            continue
-                        stat_data[f'stat{i}'] = {
-                            'label': stat_type,
-                            'value': stat_record.get('stat_value', 0),
-                            'prev_value': None
-                        }
-                        # Fetch the 2 most recent values; index [1] = previous session
-                        cur.execute("""
-                            SELECT stat_value FROM fact.fact_game_stats
-                            WHERE player_id = %s AND game_id = %s AND stat_type = %s
-                            ORDER BY played_at DESC LIMIT 2;
-                        """, (player_id, game_id, stat_type))
-                        prev_rows = cur.fetchall()
-                        if len(prev_rows) > 1:
-                            stat_data[f'stat{i}']['prev_value'] = prev_rows[1][0]
-
-                    image_buffer_twitter = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='twitter', game_mode=batch_game_mode)
-                    image_buffer_instagram = generate_bar_chart(stat_data, player_name, game_name, game_installment, size='instagram', game_mode=batch_game_mode)
-                    chart_type = 'bar'
-                    stat_data_for_caption = stat_data  # already correct format
-                    _interactive_data = stat_data
-
-                elif games_played > 1:
-                    # Generate LINE CHART (multiple games) — last 365 days
-                    stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats, days_back=365)
-                    image_buffer_twitter = generate_line_chart(stat_history, player_name, game_name, game_installment, size='twitter', game_mode=batch_game_mode)
-                    image_buffer_instagram = generate_line_chart(stat_history, player_name, game_name, game_installment, size='instagram', game_mode=batch_game_mode)
-                    chart_type = 'line'
-
-                    # Build caption stat_data from stat_history (latest value)
-                    # prev_value is fetched directly from DB (same approach as bar chart)
-                    # to avoid date-aggregation artifacts where unrecorded stat dates
-                    # default to 0 via .get(date, 0), causing false "prev: 0" in captions.
-                    stat_data_for_caption = {}
-                    for i in range(1, 4):
-                        key = f'stat{i}'
-                        if key in stat_history and stat_history[key]:
-                            vals = stat_history[key].get('values', [])
-                            stat_type_label = stat_history[key].get('label', '')
-                            cur.execute("""
-                                SELECT stat_value FROM fact.fact_game_stats
-                                WHERE player_id = %s AND game_id = %s AND stat_type = %s
-                                ORDER BY played_at DESC LIMIT 2;
-                            """, (player_id, game_id, stat_type_label))
-                            prev_rows = cur.fetchall()
-                            stat_data_for_caption[key] = {
-                                'label': stat_type_label,
-                                'value': vals[-1] if vals else 0,
-                                'prev_value': prev_rows[1][0] if len(prev_rows) > 1 else None
-                            }
-                    _interactive_data = stat_history
-
-                # Generate interactive Plotly HTML (Twitter only) — single fixed file,
-                # overwritten on every submission. No additional DB queries.
-                interactive_url = None
-                try:
-                    _html = generate_interactive_chart(
-                        chart_type, _interactive_data, player_name, game_name,
-                        game_installment=game_installment, game_mode=batch_game_mode
-                    )
-                    interactive_url = upload_interactive_chart_to_gcs(
-                        _html, player_name, game_name, game_installment
-                    )
-                except Exception as _ie:
-                    print(f"⚠️  Interactive chart generation failed (non-fatal): {_ie}")
-
-                # Upload to GCS — Twitter (16:9, auto-post)
-                twitter_public_url = upload_chart_to_gcs(image_buffer_twitter, player_name, game_name, chart_type, platform='twitter')
-
-                # Upload to GCS — Instagram (1080x1080) organized by week AND by game
-                instagram_url_week = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='week')
-                instagram_url_game = upload_chart_to_gcs(image_buffer_instagram, player_name, game_name, chart_type, platform='instagram', storage_option='game', game_installment=game_installment, game_mode=batch_game_mode)
-
-                if twitter_public_url:
-                    # Generate caption with current + previous stat values
-                    caption = generate_post_caption(
-                        player_name,
-                        game_name,
-                        game_installment,
-                        stat_data_for_caption,
-                        games_played,
-                        platform='twitter',
-                        is_live=is_live,
-                        credit_style=credit_style,
-                        game_mode=batch_game_mode,
-                        interactive_url=interactive_url
-                    )
-
-                    if queue_mode:
-                        qid = enqueue_post(player_id, 'twitter', twitter_public_url, caption)
-                        print(f"📥 Twitter post queued (queue_id={qid})")
-                    else:
-                        success = trigger_ifttt_post(twitter_public_url, caption, 'twitter')
-                        if success:
-                            print(f"✅ Twitter post triggered successfully!")
-                        else:
-                            print(f"⚠️ Twitter post failed, but stats were saved")
-                else:
-                    print(f"⚠️ Failed to upload Twitter chart, but stats were saved")
-
-                # Instagram — queue or log URL (no immediate IFTTT post for Instagram)
-                instagram_url = instagram_url_game or instagram_url_week
-                if instagram_url:
-                    instagram_caption = generate_post_caption(
-                        player_name,
-                        game_name,
-                        game_installment,
-                        stat_data_for_caption,
-                        games_played,
-                        platform='instagram',
-                        is_live=is_live,
-                        credit_style=credit_style,
-                        game_mode=batch_game_mode
-                    )
-                    if queue_mode:
-                        qid = enqueue_post(player_id, 'instagram', instagram_url, instagram_caption)
-                        print(f"📥 Instagram post queued (queue_id={qid})")
-                elif not instagram_url_week and not instagram_url_game:
-                    print(f"⚠️ Failed to upload Instagram chart, but stats were saved")
-                    
-            except Exception as social_error:
-                # Don't fail the entire request if social media posting fails
-                import traceback
-                print(f"⚠️ Social media integration error (stats still saved): {social_error}")
-                traceback.print_exc()
-            
-            post_action = "queued" if queue_mode else "posted"
+            post_action = "queued" if queue_mode else "posting"
             return jsonify({
                 "message": f"Stats successfully added ({successful_inserts} records)!",
                 "social_media": post_action
