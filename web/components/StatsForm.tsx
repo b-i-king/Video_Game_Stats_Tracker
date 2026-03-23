@@ -86,7 +86,6 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   // ── Game context ──────────────────────────────────────────────────────────
   const [gameModes, setGameModes] = useState<string[]>(["Main"]);
   const [gameMode, setGameMode] = useState("Main");
-  const [gameModeOverride, setGameModeOverride] = useState("");
   const [prevStatTypes, setPrevStatTypes] = useState<string[]>([]);
 
   // ── Match details ─────────────────────────────────────────────────────────
@@ -130,10 +129,11 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
     loadTodayStats();
   }, [loadTodayStats]);
 
-  // ── Load players on mount ─────────────────────────────────────────────────
+  // ── Load players + franchises on mount (parallel) ────────────────────────
   useEffect(() => {
     if (!jwt || !isTrusted) return;
     getPlayers(jwt).then(setPlayers).catch(console.error);
+    getFranchises(jwt).then(setFranchises).catch(console.error);
     getObsStatus(jwt)
       .then((d) => {
         setObsActiveState(d.obs_active);
@@ -141,12 +141,6 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       })
       .catch(() => setObsLoaded(true));
   }, [jwt, isTrusted]);
-
-  // ── Load franchises once player is set ────────────────────────────────────
-  useEffect(() => {
-    if (!jwt || !playerName) return;
-    getFranchises(jwt).then(setFranchises).catch(console.error);
-  }, [jwt, playerName]);
 
   // ── Load installments when franchise changes ──────────────────────────────
   useEffect(() => {
@@ -164,9 +158,11 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
     if (!jwt || !selectedGameId || isNewInstallmentMode) {
       setGameRanks([]);
       setGameModes(["Main"]);
+      setGameMode("Main");
       setPrevStatTypes([]);
       return;
     }
+    setGameMode("Main");
     getGameRanks(jwt, selectedGameId).then(setGameRanks).catch(console.error);
     getGameModes(jwt, selectedGameId)
       .then((m) => setGameModes(m.length ? m : ["Main"]))
@@ -254,7 +250,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   const hasCritical = hasDuplicates;
 
   // ── Final derived values ──────────────────────────────────────────────────
-  const finalGameMode = gameModeOverride.trim() || gameMode;
+  const finalGameMode = gameMode.trim() || "Main";
   const finalFranchise = isNewFranchiseMode ? newFranchiseName.trim() : selectedFranchise;
   const finalInstallment =
     isNewInstallmentMode
@@ -702,29 +698,45 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
               </div>
             )}
 
-            {/* Game mode */}
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="label">Game Mode</label>
-                <select
-                  className="input"
-                  value={gameMode}
-                  onChange={(e) => setGameMode(e.target.value)}
-                >
-                  {gameModes.map((m) => (
-                    <option key={m}>{m}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">Game Mode Override (new / custom)</label>
+            {/* Game mode — dropdown for known games, free text for new games */}
+            <div className="sm:w-64">
+              <label className="label">Game Mode</label>
+              {isNewInstallmentMode || !selectedGameId ? (
                 <input
                   className="input"
-                  value={gameModeOverride}
-                  onChange={(e) => setGameModeOverride(e.target.value)}
-                  placeholder="Leave blank to use selection above"
+                  value={gameMode === "Main" ? "" : gameMode}
+                  onChange={(e) => setGameMode(e.target.value || "Main")}
+                  placeholder="e.g. Multiplayer, Battle Royale (default: Main)"
                 />
-              </div>
+              ) : (
+                <>
+                  <select
+                    className="input"
+                    value={gameModes.includes(gameMode) ? gameMode : "__custom__"}
+                    onChange={(e) => {
+                      if (e.target.value === "__custom__") {
+                        setGameMode("");
+                      } else {
+                        setGameMode(e.target.value);
+                      }
+                    }}
+                  >
+                    {gameModes.map((m) => (
+                      <option key={m}>{m}</option>
+                    ))}
+                    <option value="__custom__">(Enter Custom)</option>
+                  </select>
+                  {!gameModes.includes(gameMode) && (
+                    <input
+                      className="input mt-2"
+                      value={gameMode}
+                      onChange={(e) => setGameMode(e.target.value)}
+                      placeholder="Custom game mode…"
+                      autoFocus
+                    />
+                  )}
+                </>
+              )}
             </div>
 
             {/* Match type + win/loss */}

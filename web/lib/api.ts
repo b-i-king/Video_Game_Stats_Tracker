@@ -83,6 +83,14 @@ export interface AddStatsPayload {
   credit_style: string;
 }
 
+// ── Keep-alive ────────────────────────────────────────────────────────────────
+// Pings the public /health endpoint to wake Render before the user logs in.
+// No auth required — fire-and-forget from the root layout.
+export function pingHealth(): void {
+  if (!BASE) return;
+  fetch(`${BASE}/health`, { method: "GET" }).catch(() => {});
+}
+
 // ── Player endpoints ──────────────────────────────────────────────────────────
 
 export async function getPlayers(jwt: string): Promise<Player[]> {

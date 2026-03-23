@@ -24,6 +24,8 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write
 
     steps:
       - name: Checkout repository
@@ -40,7 +42,6 @@ jobs:
         run: npm ci
 
       - name: Run ESLint
-        id: eslint
         run: npm run lint
 
       - name: Notify Vercel — lint
@@ -48,13 +49,13 @@ jobs:
         uses: vercel/repository-dispatch/actions/status@v1
         with:
           name: 'Vercel - video-game-stats-tracker: lint'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          conclusion: ${{ steps.eslint.outcome == 'success' && 'success' || 'failure' }}
 
   # ── Job 2: TypeScript type check ─────────────────────────────────────────
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write
 
     steps:
       - name: Checkout repository
@@ -71,7 +72,6 @@ jobs:
         run: npm ci
 
       - name: TypeScript type check
-        id: tsc
         run: npx tsc --noEmit
 
       - name: Notify Vercel — typecheck
@@ -79,5 +79,3 @@ jobs:
         uses: vercel/repository-dispatch/actions/status@v1
         with:
           name: 'Vercel - video-game-stats-tracker: typecheck'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          conclusion: ${{ steps.tsc.outcome == 'success' && 'success' || 'failure' }}

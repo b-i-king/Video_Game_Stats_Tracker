@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import Providers from "@/components/Providers";
 import Navbar from "@/components/Navbar";
 import SocialLinks from "@/components/SocialLinks";
+import RenderWarmup from "@/components/RenderWarmup";
 
 // Fira Code — loaded via Next.js font optimization (no layout shift, cached by CDN)
 const firaCode = Fira_Code({
@@ -133,6 +134,7 @@ export default async function RootLayout({
       </head>
       <body className="min-h-screen flex flex-col font-mono">
         <Providers session={session}>
+          <RenderWarmup />
           <Navbar />
 
           <main className="flex-1 container mx-auto px-4 py-6 max-w-5xl">

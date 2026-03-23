@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 const JWT_KEY = 'gt_jwt_token';
 const USER_KEY = 'gt_user';
 
-interface User {
+export interface User {
   email: string;
   username: string;
   role: string;
@@ -14,6 +14,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
+  isTrusted: boolean;
   signIn: (token: string, user: User) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -54,7 +55,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
-  return createElement(AuthContext.Provider, { value: { user, token, isLoading, signIn, signOut } }, children);
+  const isTrusted = user?.role === 'trusted' || user?.role === 'admin';
+
+  return createElement(AuthContext.Provider, { value: { user, token, isLoading, isTrusted, signIn, signOut } }, children);
 }
 
 export function useAuth(): AuthContextType {

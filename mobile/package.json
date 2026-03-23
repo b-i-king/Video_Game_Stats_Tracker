@@ -11,6 +11,7 @@
     "build:production": "eas build --profile production --platform all"
   },
   "dependencies": {
+    "@expo-google-fonts/fira-code": "^0.4.1",
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.15.6",
@@ -25,6 +26,7 @@
     "expo-device": "~8.0.10",
     "expo-notifications": "~0.32.16",
     "expo-secure-store": "~15.0.8",
+    "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.10",
     "react": "19.1.0",
