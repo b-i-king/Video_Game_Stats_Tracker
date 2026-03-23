@@ -7,9 +7,7 @@ import {
   getPlayers,
   getFranchises,
   getInstallments,
-  getGameRanks,
-  getGameModes,
-  getGameStatTypes,
+  getGameContext,
   getObsStatus,
   setObsActive,
   setLiveState,
@@ -163,12 +161,12 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       return;
     }
     setGameMode("Main");
-    getGameRanks(jwt, selectedGameId).then(setGameRanks).catch(console.error);
-    getGameModes(jwt, selectedGameId)
-      .then((m) => setGameModes(m.length ? m : ["Main"]))
-      .catch(console.error);
-    getGameStatTypes(jwt, selectedGameId)
-      .then(setPrevStatTypes)
+    getGameContext(jwt, selectedGameId)
+      .then(({ ranks, modes, stat_types }) => {
+        setGameRanks(ranks);
+        setGameModes(modes.length ? modes : ["Main"]);
+        setPrevStatTypes(stat_types);
+      })
       .catch(console.error);
   }, [jwt, selectedGameId, isNewInstallmentMode]);
 
@@ -864,7 +862,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                   <button
                     className="btn-sm"
                     onClick={addStatRow}
-                    disabled={statRows.length >= 3}
+                    disabled={statRows.length >= 10}
                   >
                     ➕ Add Row
                   </button>
@@ -896,7 +894,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                       list="prev-stat-types"
                       value={row.type}
                       onChange={(e) => updateStatRow(i, "type", e.target.value)}
-                      placeholder="e.g. Kills, Points, Wins"
+                      placeholder="e.g. Eliminations, Points, Wins"
                     />
                   </div>
                   <div>

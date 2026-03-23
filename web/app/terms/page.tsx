@@ -17,7 +17,7 @@ export default function TermsPage() {
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Acceptance of Terms</h2>
         <p>
-          By using <strong>Video Game Stats Tracker</strong> ("the App") you
+          By using <strong>Video Game Stats Tracker</strong> (&quot;the App&quot;) you
           agree to these Terms of Service. If you do not agree, please do not
           use the App.
         </p>

@@ -15,7 +15,7 @@ export default function PrivacyPage() {
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Introduction</h2>
         <p>
-          Welcome to <strong>Video Game Stats Tracker</strong> ("the App"),
+          Welcome to <strong>Video Game Stats Tracker</strong> (&quot;the App&quot;),
           operated by <strong>BOL Group LLC</strong>. This Privacy Policy
           describes how we collect, use, and share information when you use our
           application.

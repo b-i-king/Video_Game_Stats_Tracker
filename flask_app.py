@@ -56,6 +56,22 @@ def _cache_invalidate_obs():
         if k.startswith(('dash_', 'ticker_')):
             _endpoint_cache.pop(k, None)
 
+# ---------------------------------------------------------------------------
+# Lightweight user record cache — avoids a Redshift round-trip on repeat logins.
+# Keys: user_email  →  (user_id, is_trusted, expires_at_monotonic)
+# ---------------------------------------------------------------------------
+_user_cache: dict = {}
+
+def _user_cache_get(email: str):
+    entry = _user_cache.get(email)
+    if entry and time.monotonic() < entry[2]:
+        return entry[0], entry[1]  # (user_id, is_trusted)
+    _user_cache.pop(email, None)
+    return None
+
+def _user_cache_set(email: str, user_id, is_trusted: bool, ttl: int = 300):
+    _user_cache[email] = (user_id, is_trusted, time.monotonic() + ttl)
+
 # --- Environment Variable Check ---
 DB_URL = os.environ.get("DB_URL")
 DB_NAME = os.environ.get("DB_NAME")
@@ -328,6 +344,23 @@ def login():
         # Determine if this email SHOULD be trusted based on environment variable
         should_be_trusted = user_email in TRUSTED_EMAILS_LIST
 
+        # Fast path: user is cached and trust status hasn't changed — skip Redshift
+        cached_user = _user_cache_get(user_email)
+        if cached_user:
+            user_id, db_is_trusted = cached_user
+            if should_be_trusted == db_is_trusted:
+                payload = {
+                    'email': user_email,
+                    'user_id': user_id,
+                    'is_trusted': db_is_trusted,
+                    'exp': datetime.now(timezone.utc) + timedelta(minutes=60)
+                }
+                access_token = jwt.encode(payload, JWT_SECRET_KEY, algorithm='HS256')
+                print(f"JWT generated for {user_email} (cached), Trusted: {db_is_trusted}")
+                release_db_connection(conn)
+                conn = None
+                return jsonify(token=access_token, is_trusted=db_is_trusted), 200
+
         with conn.cursor() as cur:
             # Check if user exists
             cur.execute("SELECT user_id, is_trusted FROM dim.dim_users WHERE user_email = %s;", (user_email,))
@@ -358,6 +391,8 @@ def login():
                     cur.execute("UPDATE dim.dim_users SET is_trusted = %s WHERE user_id = %s;", (should_be_trusted, user_id))
                     conn.commit()
                     db_is_trusted = should_be_trusted # Update local variable to reflect change
+
+            _user_cache_set(user_email, user_id, db_is_trusted)
 
             # Generate JWT with the *final confirmed* trust status (db_is_trusted)
             payload = {
@@ -1364,6 +1399,66 @@ def get_game_stat_types(game_id, user_email):
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error fetching stat types for game {game_id}: {error}")
         return jsonify({"error": "An error occurred fetching stat types."}), 500
+    finally:
+        release_db_connection(conn)
+
+
+@app.route('/api/get_game_context/<int:game_id>', methods=['GET'])
+@requires_jwt_auth
+def get_game_context(game_id, user_email):
+    """Returns ranks, modes, and stat types for a game in a single DB connection.
+    Replaces three separate API calls from the web/mobile client."""
+    cache_key = f"context_{user_email}_{game_id}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached[0]), cached[1]
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT DISTINCT rank_value FROM (
+                SELECT pre_match_rank_value AS rank_value FROM fact.fact_game_stats gs
+                JOIN dim.dim_players p ON gs.player_id = p.player_id
+                WHERE gs.game_id = %s AND gs.ranked = 1 AND gs.pre_match_rank_value IS NOT NULL
+                AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = %s)
+                UNION
+                SELECT post_match_rank_value AS rank_value FROM fact.fact_game_stats gs
+                JOIN dim.dim_players p ON gs.player_id = p.player_id
+                WHERE gs.game_id = %s AND gs.ranked = 1 AND gs.post_match_rank_value IS NOT NULL
+                AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = %s)
+            ) AS combined_ranks
+            WHERE rank_value IS NOT NULL AND rank_value != ''
+            ORDER BY rank_value;
+        """, (game_id, user_email, game_id, user_email))
+        ranks = [row[0] for row in cur.fetchall()]
+
+        cur.execute("""
+            SELECT DISTINCT game_mode FROM fact.fact_game_stats gs
+            JOIN dim.dim_players p ON gs.player_id = p.player_id
+            WHERE gs.game_id = %s AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = %s)
+            AND gs.game_mode IS NOT NULL AND gs.game_mode != ''
+            ORDER BY game_mode;
+        """, (game_id, user_email))
+        modes = [row[0] for row in cur.fetchall()]
+
+        cur.execute("""
+            SELECT DISTINCT gs.stat_type FROM fact.fact_game_stats gs
+            JOIN dim.dim_players p ON gs.player_id = p.player_id
+            WHERE gs.game_id = %s AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = %s)
+            AND gs.stat_type IS NOT NULL AND gs.stat_type != ''
+            ORDER BY stat_type;
+        """, (game_id, user_email))
+        stat_types = [row[0] for row in cur.fetchall()]
+
+        result = {"ranks": ranks, "modes": modes, "stat_types": stat_types}
+        _cache_set(cache_key, result, 200, 600)  # Cache for 10 minutes
+        return jsonify(result), 200
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error fetching game context for game {game_id}: {error}")
+        return jsonify({"error": "An error occurred fetching game context."}), 500
     finally:
         release_db_connection(conn)
 

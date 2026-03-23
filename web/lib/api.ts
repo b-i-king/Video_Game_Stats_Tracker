@@ -159,6 +159,17 @@ export async function getGameStatTypes(
   return res.json();
 }
 
+export async function getGameContext(
+  jwt: string,
+  gameId: number
+): Promise<{ ranks: string[]; modes: string[]; stat_types: string[] }> {
+  const res = await fetch(`${BASE}/api/get_game_context/${gameId}`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) return { ranks: [], modes: ["Main"], stat_types: [] };
+  return res.json();
+}
+
 export async function getGameDetails(
   jwt: string,
   gameId: number
