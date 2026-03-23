@@ -282,11 +282,7 @@ function DeleteStat({ jwt }: Props) {
       <p className="text-sm text-[var(--muted)]">
         Delete individual stat entries (e.g. a single match).
       </p>
-      <div className="text-xs text-yellow-300 bg-yellow-900/20 border border-yellow-700 rounded px-3 py-2">
-        ⚠️ This feature requires a{" "}
-        <code>GET /api/get_recent_stats</code> endpoint in Flask — see{" "}
-        <code>lib/api.ts</code> for details.
-      </div>
+
       <button className="btn-sm" onClick={load}>
         {loaded ? "Reload Stats" : "Load Data for Deletion"}
       </button>

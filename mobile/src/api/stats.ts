@@ -37,6 +37,22 @@ export interface StatHistoryPoint {
   stat_value: number;
 }
 
+export interface RecentStatEntry {
+  stat_id: number;
+  player_name: string;
+  game_name: string;
+  game_id: number;
+  stat_type: string;
+  stat_value: number;
+  game_mode?: string;
+  game_level?: number;
+  win?: number;
+  ranked?: number;
+  pre_match_rank_value?: string;
+  post_match_rank_value?: string;
+  played_at: string;
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export async function addStats(jwt: string, payload: AddStatsPayload): Promise<{ message: string }> {
@@ -76,6 +92,45 @@ export async function getStats(
     throw new Error(err.error ?? `Failed to fetch stats (${res.status})`);
   }
   return res.json();
+}
+
+export async function getRecentStats(jwt: string): Promise<RecentStatEntry[]> {
+  const res = await fetch(`${API_URL}/api/get_recent_stats`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? `Failed to fetch recent stats (${res.status})`);
+  }
+  const data = await res.json();
+  return data.stats ?? [];
+}
+
+export async function deleteStatEntry(jwt: string, statId: number): Promise<void> {
+  const res = await fetch(`${API_URL}/api/delete_stats/${statId}`, {
+    method: 'DELETE',
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? `Delete failed (${res.status})`);
+  }
+}
+
+export async function updateStatEntry(
+  jwt: string,
+  statId: number,
+  payload: Partial<RecentStatEntry>
+): Promise<void> {
+  const res = await fetch(`${API_URL}/api/update_stats/${statId}`, {
+    method: 'PUT',
+    headers: authHeaders(jwt),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? `Update failed (${res.status})`);
+  }
 }
 
 export async function getStatTicker(

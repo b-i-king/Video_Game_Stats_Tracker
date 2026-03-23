@@ -1,16 +1,15 @@
 "use client";
-// Queue Mode sidebar panel — mirrors the sidebar queue section in 2_Stats.py.
-// Only visible to trusted users.
 
 import { useEffect, useState, useCallback } from "react";
 import { getQueueStatus, retryFailed } from "@/lib/api";
 
 interface Props {
   jwt: string;
+  queueMode: boolean;
+  setQueueMode: (val: boolean) => void;
 }
 
-export default function QueuePanel({ jwt }: Props) {
-  const [queueMode, setQueueMode] = useState(false);
+export default function QueuePanel({ jwt, queueMode, setQueueMode }: Props) {
   const [counts, setCounts] = useState({
     pending: 0,
     processing: 0,
@@ -28,11 +27,6 @@ export default function QueuePanel({ jwt }: Props) {
   useEffect(() => {
     loadCounts();
   }, [loadCounts]);
-
-  // Expose queueMode to parent via storage so StatsForm can read it
-  useEffect(() => {
-    sessionStorage.setItem("queueMode", String(queueMode));
-  }, [queueMode]);
 
   async function handleRetry() {
     setRetrying(true);
@@ -52,7 +46,7 @@ export default function QueuePanel({ jwt }: Props) {
       {/* Queue mode toggle */}
       <label className="flex items-center gap-2 cursor-pointer text-sm">
         <div
-          onClick={() => setQueueMode((v) => !v)}
+          onClick={() => setQueueMode(!queueMode)}
           className={`relative w-10 h-5 rounded-full transition-colors ${
             queueMode ? "bg-[var(--gold)]" : "bg-[var(--border)]"
           }`}
@@ -85,11 +79,7 @@ export default function QueuePanel({ jwt }: Props) {
           <div className="text-xs text-[var(--muted)]">Sent</div>
         </div>
         <div className="rounded border border-[var(--border)] p-2 text-center">
-          <div
-            className={`text-lg font-bold ${
-              counts.failed > 0 ? "text-red-400" : ""
-            }`}
-          >
+          <div className={`text-lg font-bold ${counts.failed > 0 ? "text-red-400" : ""}`}>
             {counts.failed}
           </div>
           <div className="text-xs text-[var(--muted)]">Failed</div>

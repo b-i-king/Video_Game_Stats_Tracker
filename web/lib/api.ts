@@ -75,7 +75,6 @@ export interface AddStatsPayload {
   player_name: string;
   game_name: string;
   game_installment?: string | null;
-  game_series?: string | null;
   game_genre?: string | null;
   game_subgenre?: string | null;
   stats: StatRow[];
@@ -91,7 +90,8 @@ export async function getPlayers(jwt: string): Promise<Player[]> {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load players (${res.status})`);
-  return res.json();
+  const data = await res.json();
+  return data.players ?? [];
 }
 
 // ── Game endpoints ────────────────────────────────────────────────────────────
@@ -101,7 +101,8 @@ export async function getFranchises(jwt: string): Promise<string[]> {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load franchises (${res.status})`);
-  return res.json();
+  const data = await res.json();
+  return data.game_franchises ?? [];
 }
 
 export async function getInstallments(
@@ -113,7 +114,8 @@ export async function getInstallments(
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load installments (${res.status})`);
-  return res.json();
+  const data = await res.json();
+  return data.game_installments ?? [];
 }
 
 export async function getGameRanks(
@@ -165,7 +167,8 @@ export async function getAllGames(jwt: string): Promise<GameDetails[]> {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load games (${res.status})`);
-  return res.json();
+  const data = await res.json();
+  return data.games ?? [];
 }
 
 // ── Stats endpoints ───────────────────────────────────────────────────────────
@@ -188,16 +191,13 @@ export async function addStats(
   return res.json();
 }
 
-// NOTE: Flask does not yet have a GET /api/get_recent_stats endpoint.
-// To use the Edit / Delete stat tabs you will need to add one to flask_app.py.
-// It should return the 50 most recent stat rows for the logged-in user,
-// equivalent to what get_recent_stats_for_display() does in app_utils.py.
 export async function getRecentStats(jwt: string): Promise<StatEntry[]> {
   const res = await fetch(`${BASE}/api/get_recent_stats`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load recent stats (${res.status})`);
-  return res.json();
+  const data = await res.json();
+  return data.stats ?? [];
 }
 
 export async function deleteStats(jwt: string, statId: number): Promise<void> {
@@ -208,8 +208,6 @@ export async function deleteStats(jwt: string, statId: number): Promise<void> {
   if (!res.ok) throw new Error(`Delete failed (${res.status})`);
 }
 
-// NOTE: Flask does not yet have a PUT /api/update_stats/<id> endpoint.
-// Add it to flask_app.py to enable the Edit stat feature.
 export async function updateStats(
   jwt: string,
   statId: number,
@@ -283,6 +281,18 @@ export async function getObsStatus(
   });
   if (!res.ok) return { obs_active: false };
   return res.json();
+}
+
+export async function setLiveState(
+  jwt: string,
+  playerId: number,
+  gameId: number
+): Promise<void> {
+  await fetch(`${BASE}/api/set_live_state`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ player_id: playerId, game_id: gameId }),
+  });
 }
 
 export async function setObsActive(

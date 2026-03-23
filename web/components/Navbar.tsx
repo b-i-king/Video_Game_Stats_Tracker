@@ -13,9 +13,10 @@ export default function Navbar() {
         {/* Logo / Home link */}
         <Link
           href="/"
-          className="text-[var(--gold)] font-bold text-lg tracking-wide hover:opacity-80"
+          className="text-[var(--gold)] font-bold text-xl hover:opacity-80"
+          aria-label="Home"
         >
-          🎮 Game Tracker
+          🎮
         </Link>
 
         {/* Navigation links */}

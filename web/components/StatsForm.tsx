@@ -12,10 +12,13 @@ import {
   getGameStatTypes,
   getObsStatus,
   setObsActive,
+  setLiveState,
+  getRecentStats,
   addStats,
   type Player,
   type Installment,
   type StatRow,
+  type StatEntry,
 } from "@/lib/api";
 import {
   GENRES,
@@ -31,6 +34,7 @@ import {
 interface Props {
   jwt: string;
   isTrusted: boolean;
+  queueMode: boolean;
 }
 
 interface StatInput {
@@ -38,7 +42,7 @@ interface StatInput {
   value: number;
 }
 
-export default function StatsForm({ jwt, isTrusted }: Props) {
+export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   // ── Player state ──────────────────────────────────────────────────────────
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerName, setPlayerName] = useState("");
@@ -69,6 +73,7 @@ export default function StatsForm({ jwt, isTrusted }: Props) {
   const [isLive, setIsLive] = useState(false);
   const [obsActive, setObsActiveState] = useState(false);
   const [obsLoaded, setObsLoaded] = useState(false);
+  const [liveSetMsg, setLiveSetMsg] = useState<string | null>(null);
 
   // ── Rank state ────────────────────────────────────────────────────────────
   const [isRanked, setIsRanked] = useState(false);
@@ -105,6 +110,25 @@ export default function StatsForm({ jwt, isTrusted }: Props) {
     ok: boolean;
     msg: string;
   } | null>(null);
+
+  // ── Today's stats (client-side filter — no extra Redshift query) ──────────
+  const [todayStats, setTodayStats] = useState<StatEntry[]>([]);
+
+  // ── Today's stats loader (client-side filter, no extra Redshift query) ───
+  const loadTodayStats = useCallback(async () => {
+    if (!jwt) return;
+    try {
+      const all = await getRecentStats(jwt);
+      const today = new Date().toISOString().slice(0, 10);
+      setTodayStats(all.filter((s) => s.played_at.startsWith(today)));
+    } catch {
+      /* silently ignore */
+    }
+  }, [jwt]);
+
+  useEffect(() => {
+    loadTodayStats();
+  }, [loadTodayStats]);
 
   // ── Load players on mount ─────────────────────────────────────────────────
   useEffect(() => {
@@ -247,8 +271,6 @@ export default function StatsForm({ jwt, isTrusted }: Props) {
     if (!confirmed || hasCritical || !playerName || !finalFranchise || filledStats.length === 0)
       return;
 
-    const queueMode = sessionStorage.getItem("queueMode") === "true";
-
     const statsPayload: StatRow[] = filledStats.map((s) => ({
       stat_type: s.type.trim(),
       stat_value: s.value,
@@ -275,7 +297,6 @@ export default function StatsForm({ jwt, isTrusted }: Props) {
         player_name: playerName,
         game_name: finalFranchise,
         game_installment: finalInstallment,
-        game_series: null,
         game_genre: isNewInstallmentMode ? gameGenre : null,
         game_subgenre: isNewInstallmentMode ? gameSubgenre : null,
         stats: statsPayload,
@@ -288,6 +309,7 @@ export default function StatsForm({ jwt, isTrusted }: Props) {
       setConfirmed(false);
       // Preserve stat types, reset values
       setStatRows((rows) => rows.map((r) => ({ ...r, value: 0 })));
+      loadTodayStats();
     } catch (err) {
       setSubmitResult({
         ok: false,
@@ -548,6 +570,29 @@ export default function StatsForm({ jwt, isTrusted }: Props) {
                 </span>
               )}
             </p>
+
+            {/* Set Live Game for OBS — only shown when player + game are both selected */}
+            {playerId !== null && selectedGameId !== null && (
+              <div className="pt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
+                <button
+                  className="btn-sm"
+                  onClick={async () => {
+                    try {
+                      await setLiveState(jwt, playerId, selectedGameId);
+                      setLiveSetMsg("✅ OBS dashboard updated.");
+                    } catch {
+                      setLiveSetMsg("❌ Failed to update OBS.");
+                    }
+                    setTimeout(() => setLiveSetMsg(null), 3000);
+                  }}
+                >
+                  📺 Set as Live Game for OBS
+                </button>
+                {liveSetMsg && (
+                  <span className="text-xs text-[var(--muted)]">{liveSetMsg}</span>
+                )}
+              </div>
+            )}
           </Section>
 
           {/* ── Rank ────────────────────────────────────────────────────── */}
@@ -821,12 +866,22 @@ export default function StatsForm({ jwt, isTrusted }: Props) {
                 </div>
               </div>
 
+              {/* Datalist feeds the stat type inputs with previously used types */}
+              {prevStatTypes.length > 0 && (
+                <datalist id="prev-stat-types">
+                  {prevStatTypes.map((t) => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
+              )}
+
               {statRows.map((row, i) => (
                 <div key={i} className="grid sm:grid-cols-2 gap-3">
                   <div>
                     <label className="label">Stat Type {i + 1}</label>
                     <input
                       className="input"
+                      list="prev-stat-types"
                       value={row.type}
                       onChange={(e) => updateStatRow(i, "type", e.target.value)}
                       placeholder="e.g. Kills, Points, Wins"
@@ -925,6 +980,46 @@ export default function StatsForm({ jwt, isTrusted }: Props) {
               {submitResult.ok ? "✅ " : "❌ "}
               {submitResult.msg}
             </div>
+          )}
+
+          {/* ── Today's stats (client-side filter, no extra query) ─────── */}
+          {todayStats.length > 0 && (
+            <details className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <summary className="px-4 py-3 cursor-pointer text-sm font-semibold">
+                📅 Today&apos;s entries ({todayStats.length})
+              </summary>
+              <div className="px-4 pb-3 overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="text-[var(--muted)] border-b border-[var(--border)]">
+                      <th className="text-left py-1 pr-3">Game</th>
+                      <th className="text-left py-1 pr-3">Stat</th>
+                      <th className="text-right py-1 pr-3">Value</th>
+                      <th className="text-left py-1">Mode</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {todayStats.map((s) => (
+                      <tr
+                        key={s.stat_id}
+                        className="border-b border-[var(--border)] last:border-0"
+                      >
+                        <td className="py-1 pr-3 text-[var(--muted)]">
+                          {s.game_name}
+                        </td>
+                        <td className="py-1 pr-3">{s.stat_type}</td>
+                        <td className="py-1 pr-3 text-right font-mono text-[var(--gold)]">
+                          {s.stat_value.toLocaleString()}
+                        </td>
+                        <td className="py-1 text-[var(--muted)]">
+                          {s.game_mode ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
           )}
         </>
       )}

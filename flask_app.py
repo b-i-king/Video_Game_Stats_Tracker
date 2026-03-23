@@ -18,7 +18,12 @@ from utils.queue_utils import (
 )
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=[
+    "https://video-game-stats-tracking.streamlit.app",  # Streamlit (keep running in parallel)
+    "https://video-game-stats-tracker.vercel.app",       # Next.js / Vercel
+    "http://localhost:3000",                              # Next.js local dev
+    "http://localhost:8501",                              # Streamlit local dev
+])
 
 # ---------------------------------------------------------------------------
 # Lightweight in-memory response cache (no extra dependencies)
@@ -1124,6 +1129,115 @@ def delete_stats(stat_id, user_email):
         return jsonify({"error": f"An error occurred while deleting the entry: {str(error)}"}), 500
     finally:
         release_db_connection(conn)
+
+@app.route('/api/get_recent_stats', methods=['GET'])
+@requires_jwt_auth
+def get_recent_stats(user_email):
+    """Returns the 50 most recent stat entries for the authenticated user."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                gs.stat_id,
+                p.player_name,
+                g.game_name,
+                g.game_id,
+                gs.stat_type,
+                gs.stat_value,
+                gs.game_mode,
+                gs.game_level,
+                gs.win,
+                gs.ranked,
+                gs.pre_match_rank_value,
+                gs.post_match_rank_value,
+                gs.played_at
+            FROM fact.fact_game_stats gs
+            JOIN dim.dim_players p ON gs.player_id = p.player_id
+            JOIN dim.dim_games g ON gs.game_id = g.game_id
+            WHERE p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = %s)
+            ORDER BY gs.played_at DESC
+            LIMIT 50;
+        """, (user_email,))
+        rows = cur.fetchall()
+        stats = [
+            {
+                "stat_id": row[0],
+                "player_name": row[1],
+                "game_name": row[2],
+                "game_id": row[3],
+                "stat_type": row[4],
+                "stat_value": row[5],
+                "game_mode": row[6],
+                "game_level": row[7],
+                "win": row[8],
+                "ranked": row[9],
+                "pre_match_rank_value": row[10],
+                "post_match_rank_value": row[11],
+                "played_at": row[12].isoformat() if row[12] else None,
+            }
+            for row in rows
+        ]
+        return jsonify({"stats": stats}), 200
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error fetching recent stats for {user_email}: {error}")
+        return jsonify({"error": "An error occurred while fetching stats."}), 500
+    finally:
+        release_db_connection(conn)
+
+
+@app.route('/api/update_stats/<int:stat_id>', methods=['PUT'])
+@requires_jwt_auth
+def update_stats(stat_id, user_email):
+    """Updates an individual stat entry. User must be trusted and own the stat."""
+    data = request.json or {}
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        # Verify caller is trusted and owns this stat
+        cur.execute("""
+            SELECT gs.stat_id
+            FROM fact.fact_game_stats gs
+            JOIN dim.dim_players p ON gs.player_id = p.player_id
+            JOIN dim.dim_users u ON p.user_id = u.user_id
+            WHERE gs.stat_id = %s AND u.user_email = %s AND u.is_trusted = TRUE;
+        """, (stat_id, user_email))
+        if not cur.fetchone():
+            return jsonify({"error": "Stat not found or not authorized."}), 404
+
+        cur.execute("""
+            UPDATE fact.fact_game_stats SET
+                stat_type              = COALESCE(%s, stat_type),
+                stat_value             = COALESCE(%s, stat_value),
+                game_mode              = COALESCE(%s, game_mode),
+                game_level             = %s,
+                win                    = %s,
+                ranked                 = COALESCE(%s, ranked),
+                pre_match_rank_value   = %s,
+                post_match_rank_value  = %s
+            WHERE stat_id = %s;
+        """, (
+            data.get('stat_type'),
+            data.get('stat_value'),
+            data.get('game_mode'),
+            data.get('game_level'),
+            data.get('win'),
+            data.get('ranked'),
+            data.get('pre_match_rank_value'),
+            data.get('post_match_rank_value'),
+            stat_id,
+        ))
+        conn.commit()
+        print(f"Stat {stat_id} updated by {user_email}")
+        return jsonify({"message": "Stat updated successfully."}), 200
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error updating stat {stat_id}: {error}"); conn.rollback()
+        return jsonify({"error": f"An error occurred: {str(error)}"}), 500
+    finally:
+        release_db_connection(conn)
+
 
 # --- Read Endpoints ---
 

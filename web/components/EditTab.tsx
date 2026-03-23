@@ -361,12 +361,7 @@ function EditStats({ jwt }: Props) {
       <p className="text-sm text-[var(--muted)]">
         Edit individual stat entries (e.g. a single match).
       </p>
-      <div className="text-xs text-yellow-300 bg-yellow-900/20 border border-yellow-700 rounded px-3 py-2">
-        ⚠️ This feature requires a{" "}
-        <code className="text-xs">GET /api/get_recent_stats</code> and{" "}
-        <code className="text-xs">PUT /api/update_stats/:id</code> endpoint in
-        Flask — see <code className="text-xs">lib/api.ts</code> for details.
-      </div>
+
 
       <button className="btn-sm" onClick={load}>
         {loaded ? "Reload Stats" : "Load Data for Editing"}

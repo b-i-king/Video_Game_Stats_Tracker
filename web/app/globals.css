@@ -15,7 +15,7 @@
 body {
   background-color: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-fira-code), "Fira Code", monospace;
 }
 
 /* ── Reusable utility classes (used in StatsForm, EditTab, etc.) ───────────── */

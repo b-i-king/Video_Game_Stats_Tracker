@@ -1,0 +1,83 @@
+name: Vercel Deployment Checks
+
+# Runs on every push/PR that touches the web/ folder.
+# Each job reports its own named status back to Vercel via the
+# repository-dispatch status action so Vercel can block or allow
+# the deployment in its UI.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/**'
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  # ── Job 1: ESLint ────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        id: eslint
+        run: npm run lint
+
+      - name: Notify Vercel — lint
+        if: always()
+        uses: vercel/repository-dispatch/actions/status@v1
+        with:
+          name: 'Vercel - video-game-stats-tracker: lint'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          conclusion: ${{ steps.eslint.outcome == 'success' && 'success' || 'failure' }}
+
+  # ── Job 2: TypeScript type check ─────────────────────────────────────────
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        id: tsc
+        run: npx tsc --noEmit
+
+      - name: Notify Vercel — typecheck
+        if: always()
+        uses: vercel/repository-dispatch/actions/status@v1
+        with:
+          name: 'Vercel - video-game-stats-tracker: typecheck'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          conclusion: ${{ steps.tsc.outcome == 'success' && 'success' || 'failure' }}
