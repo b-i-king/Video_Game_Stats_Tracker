@@ -2304,9 +2304,30 @@ def api_preview_instagram():
         if conn:
             conn.close()
 
+# Timestamp of the last Redshift warmup ping — throttled to once per 10 minutes
+# so bots/crawlers can't trigger repeated cold-start billing cycles.
+_last_redshift_warmup: float = 0.0
+_WARMUP_INTERVAL = 600  # seconds
+
 # Health check endpoint
 @app.route('/health', methods=['GET'])
 def health_check():
+    # Fire a background Redshift ping to pre-warm the connection pool.
+    # Throttled to once per 10 minutes to avoid unnecessary RPU billing.
+    global _last_redshift_warmup
+    now = time.monotonic()
+    if now - _last_redshift_warmup >= _WARMUP_INTERVAL:
+        _last_redshift_warmup = now
+        def _warm_redshift():
+            try:
+                conn = get_db_connection()
+                if conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                    release_db_connection(conn)
+            except Exception:
+                pass
+        threading.Thread(target=_warm_redshift, daemon=True).start()
     return jsonify({"status": "healthy"}), 200
 
 @app.route('/db_health', methods=['GET'])

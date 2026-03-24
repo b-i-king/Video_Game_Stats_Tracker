@@ -67,6 +67,11 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   // ── Credit style ──────────────────────────────────────────────────────────
   const [creditStyle, setCreditStyle] = useState("S/O (Shoutout)");
 
+  // ── Loading states ────────────────────────────────────────────────────────
+  const [playersLoading, setPlayersLoading] = useState(true);
+  const [franchisesLoading, setFranchisesLoading] = useState(true);
+  const [gameContextLoading, setGameContextLoading] = useState(false);
+
   // ── OBS / Live ────────────────────────────────────────────────────────────
   const [isLive, setIsLive] = useState(false);
   const [obsActive, setObsActiveState] = useState(false);
@@ -97,7 +102,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   const [overtime, setOvertime] = useState(false);
   const [firstSession, setFirstSession] = useState(true);
 
-  // ── Stat rows (1-3) ───────────────────────────────────────────────────────
+  // ── Stat rows (1-10) ──────────────────────────────────────────────────────
   const [statRows, setStatRows] = useState<StatInput[]>([{ type: "", value: 0 }]);
 
   // ── Submit state ──────────────────────────────────────────────────────────
@@ -130,8 +135,16 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   // ── Load players + franchises on mount (parallel) ────────────────────────
   useEffect(() => {
     if (!jwt || !isTrusted) return;
-    getPlayers(jwt).then(setPlayers).catch(console.error);
-    getFranchises(jwt).then(setFranchises).catch(console.error);
+    setPlayersLoading(true);
+    setFranchisesLoading(true);
+    getPlayers(jwt)
+      .then(setPlayers)
+      .catch(console.error)
+      .finally(() => setPlayersLoading(false));
+    getFranchises(jwt)
+      .then(setFranchises)
+      .catch(console.error)
+      .finally(() => setFranchisesLoading(false));
     getObsStatus(jwt)
       .then((d) => {
         setObsActiveState(d.obs_active);
@@ -161,13 +174,15 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       return;
     }
     setGameMode("Main");
+    setGameContextLoading(true);
     getGameContext(jwt, selectedGameId)
       .then(({ ranks, modes, stat_types }) => {
         setGameRanks(ranks);
         setGameModes(modes.length ? modes : ["Main"]);
         setPrevStatTypes(stat_types);
       })
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => setGameContextLoading(false));
   }, [jwt, selectedGameId, isNewInstallmentMode]);
 
   // ── OBS toggle handler ────────────────────────────────────────────────────
@@ -206,7 +221,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
 
   // ── Stat row helpers ──────────────────────────────────────────────────────
   function addStatRow() {
-    if (statRows.length < 3) setStatRows((r) => [...r, { type: "", value: 0 }]);
+    if (statRows.length < 10) setStatRows((r) => [...r, { type: "", value: 0 }]);
   }
   function removeStatRow() {
     if (statRows.length > 1) setStatRows((r) => r.slice(0, -1));
@@ -329,6 +344,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
               <label className="label">Player Name</label>
               <select
                 className="input"
+                disabled={playersLoading}
                 value={addingNewPlayer ? "__new__" : playerName}
                 onChange={(e) => {
                   if (e.target.value === "__new__") {
@@ -343,13 +359,17 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                   }
                 }}
               >
-                <option value="">— Select player —</option>
+                <option value="">
+                  {playersLoading ? "Loading players…" : "— Select player —"}
+                </option>
                 {players.map((p) => (
                   <option key={p.player_id} value={p.player_name}>
                     {p.player_name}
                   </option>
                 ))}
-                <option value="__new__">Add a new player…</option>
+                {!playersLoading && (
+                  <option value="__new__">Add a new player…</option>
+                )}
               </select>
             </div>
 
@@ -407,16 +427,21 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
               <label className="label">Game Name (Franchise)</label>
               <select
                 className="input"
+                disabled={franchisesLoading}
                 value={isNewFranchiseMode ? "(Enter New Franchise)" : selectedFranchise}
                 onChange={(e) => handleFranchiseChange(e.target.value)}
               >
-                <option value="">— Select Franchise —</option>
+                <option value="">
+                  {franchisesLoading ? "Loading franchises…" : "— Select Franchise —"}
+                </option>
                 {franchises.map((f) => (
                   <option key={f} value={f}>
                     {f}
                   </option>
                 ))}
-                <option value="(Enter New Franchise)">(Enter New Franchise)</option>
+                {!franchisesLoading && (
+                  <option value="(Enter New Franchise)">(Enter New Franchise)</option>
+                )}
               </select>
             </div>
 
@@ -706,6 +731,10 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                   onChange={(e) => setGameMode(e.target.value || "Main")}
                   placeholder="e.g. Multiplayer, Battle Royale (default: Main)"
                 />
+              ) : gameContextLoading ? (
+                <select className="input" disabled>
+                  <option>Loading modes…</option>
+                </select>
               ) : (
                 <>
                   <select
