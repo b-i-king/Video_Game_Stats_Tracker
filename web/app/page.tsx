@@ -42,7 +42,7 @@ const features = [
   {
     icon: "📈",
     title: "Weekly Recaps",
-    desc: "Automated Saturday recap posts summarise your week of gaming.",
+    desc: "Automated Saturday recap posts summarize your week of gaming.",
   },
 ];
 
