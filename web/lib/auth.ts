@@ -17,8 +17,23 @@ export const authOptions: AuthOptions = {
   // On first sign-in (account is defined), call Flask to get a JWT.
   callbacks: {
     async jwt({ token, account, user }) {
-      if (account && user) {
-        // First sign-in — exchange Google identity for a Flask JWT
+      // Decode Flask JWT expiry without a library (base64 payload, field: exp)
+      const flaskJwtExpired = (): boolean => {
+        if (!token.flaskJwt) return true;
+        try {
+          const payload = JSON.parse(
+            Buffer.from((token.flaskJwt as string).split(".")[1], "base64").toString()
+          );
+          // Refresh if expired or expiring within the next 5 minutes
+          return payload.exp < Math.floor(Date.now() / 1000) + 300;
+        } catch {
+          return true;
+        }
+      };
+
+      // Exchange Google identity for a Flask JWT on first sign-in OR when expired
+      if ((account && user) || flaskJwtExpired()) {
+        const email = user?.email ?? token.email;
         try {
           const res = await fetch(
             `${process.env.FLASK_API_URL}/api/login`,
@@ -28,7 +43,7 @@ export const authOptions: AuthOptions = {
                 "Content-Type": "application/json",
                 "X-API-KEY": process.env.FLASK_API_KEY!,
               },
-              body: JSON.stringify({ email: user.email }),
+              body: JSON.stringify({ email }),
             }
           );
 
