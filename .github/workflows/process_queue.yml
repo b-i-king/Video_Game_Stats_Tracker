@@ -18,6 +18,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Wake Render (pre-warm before queue call)
+        env:
+          WEB_SERVICE_URL: ${{ secrets.WEB_SERVICE_URL }}
+        run: |
+          echo "Pinging /health to wake Render at $(date -u)..."
+          for i in 1 2 3 4 5; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+              "$WEB_SERVICE_URL/health" --max-time 15)
+            echo "Attempt $i: /health returned $HTTP"
+            if [ "$HTTP" = "200" ]; then
+              echo "Render is awake."
+              break
+            fi
+            sleep 10
+          done
+
       - name: Process oldest pending post
         env:
           WEB_SERVICE_URL: ${{ secrets.WEB_SERVICE_URL }}
@@ -38,7 +54,7 @@ jobs:
           HTTP_CODE=$(curl -s -o /tmp/queue_response.json -w "%{http_code}" \
             -X POST "$WEB_SERVICE_URL/api/process_queue" \
             -H "X-Cron-Secret: $CRON_SECRET" \
-            --max-time 30)
+            --max-time 60)
 
           echo "HTTP status: $HTTP_CODE"
           echo "Response: $(cat /tmp/queue_response.json)"

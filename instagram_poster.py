@@ -269,12 +269,17 @@ def get_player_info(player_id):
     return get_field_value(records[0][0]) if records else None
 
 
-def get_stats_for_date(player_id, game_id, target_date, game_mode=None):
+def get_stats_for_date(player_id, game_id, target_date, game_mode=None, aggregate='max'):
     """
-    Get best (MAX) value per stat type for a game on a date, aggregated across
-    all matches played that day.  Passing game_mode restricts results to that
-    mode only (use when all sessions share the same mode).
+    Get aggregated stat values per stat type for a game on a date.
+
+    aggregate='max': MAX per stat type (single-session or historical display)
+    aggregate='avg': ROUND(AVG()) per stat type (multi-session daily/yesterday/recent posts)
+
+    Passing game_mode restricts results to that mode only (use when all sessions
+    share the same mode).
     """
+    agg_expr = 'ROUND(AVG(stat_value))' if aggregate == 'avg' else 'MAX(stat_value)'
     params = [
         {'name': 'player_id',   'value': str(player_id)},
         {'name': 'game_id',     'value': str(game_id)},
@@ -290,14 +295,14 @@ def get_stats_for_date(player_id, game_id, target_date, game_mode=None):
         f"""
         SELECT
             stat_type,
-            MAX(stat_value) AS best_value
+            {agg_expr} AS agg_value
         FROM fact.fact_game_stats
         WHERE player_id = :player_id
           AND game_id = :game_id
           AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date
           {mode_clause}
         GROUP BY stat_type
-        ORDER BY best_value DESC
+        ORDER BY agg_value DESC
         LIMIT 5;
         """,
         params
@@ -339,6 +344,37 @@ def get_match_count_for_date(player_id, game_id, target_date, game_mode=None):
     except Exception as e:
         logger.warning(f"⚠️ Could not get match count: {e}")
         return 1
+
+
+def get_most_recent_date_in_range(player_id, date_min, date_max):
+    """
+    Find the most recent local date (in TIMEZONE_STR) on which the player has
+    game stats, searching within [date_min, date_max] inclusive.
+    Returns a date object or None if no games found in that range.
+    """
+    try:
+        records = execute_query(
+            """
+            SELECT MAX(CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)) AS most_recent
+            FROM fact.fact_game_stats
+            WHERE player_id = :player_id
+              AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
+                  BETWEEN :date_min AND :date_max;
+            """,
+            [
+                {'name': 'player_id', 'value': str(player_id)},
+                {'name': 'timezone',  'value': TIMEZONE_STR},
+                {'name': 'date_min',  'value': str(date_min)},
+                {'name': 'date_max',  'value': str(date_max)},
+            ]
+        )
+        val = get_field_value(records[0][0]) if records else None
+        if not val:
+            return None
+        return datetime.strptime(str(val)[:10], '%Y-%m-%d').date()
+    except Exception as e:
+        logger.warning(f"⚠️ get_most_recent_date_in_range failed: {e}")
+        return None
 
 
 def get_stats_for_date_all_games(player_id, target_date):
@@ -502,6 +538,7 @@ def get_historical_records_all_games(player_id, posted_hashes, limit=10):
             FROM fact.fact_game_stats f
             JOIN dim.dim_games g ON f.game_id = g.game_id
             WHERE f.player_id = :player_id
+              AND f.played_at >= DATEADD(day, -365, GETDATE())
             GROUP BY g.game_name, g.game_installment, f.stat_type
         )
         SELECT
@@ -560,18 +597,19 @@ def get_historical_records_all_games(player_id, posted_hashes, limit=10):
 # CAPTION GENERATION
 # ============================================================================
 
-def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies, game_mode=None, match_count=1, game_modes=None):
+def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_week, anomalies, game_mode=None, match_count=1, game_modes=None, is_averaged=False):
     """
     Generate trendy caption with game-specific handle and hashtags.
     Now uses game_handles_utils for centralized social media data.
 
     Args:
-        post_type: str ('daily', 'recent', 'historical')
+        post_type: str ('daily', 'yesterday', 'recent', 'historical')
         stats: list of tuples [(stat_name, value), ...]
         game_info: dict {'game_name': str, 'game_installment': str or None}
         player_name: str
         day_of_week: str
         anomalies: list of dicts [{'description': str}, ...]
+        is_averaged: bool — True when stats are AVG across multiple sessions
 
     Returns:
         str: Caption text for Instagram
@@ -603,9 +641,12 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     if post_type == 'daily':
         emoji = "🔥"
         hook = f"{emoji} {player_name}'s Today's {full_game_name} Session {emoji}"
-    elif post_type == 'recent':
+    elif post_type == 'yesterday':
         emoji = "📊"
         hook = f"{emoji} {player_name}'s Yesterday's {full_game_name} Highlights {emoji}"
+    elif post_type == 'recent':
+        emoji = "🎮"
+        hook = f"{emoji} {player_name}'s Recent {full_game_name} Performance {emoji}"
     else:  # historical
         emoji = "🏆"
         hook = f"{emoji} {player_name}'s {full_game_name} All-Time Records {emoji}"
@@ -617,15 +658,28 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
         caption_lines.append(f"#️⃣ {match_count} matches played")
         caption_lines.append("")
 
+    # Stats where a higher MAX value is NOT a good thing — skip "Best" prefix
+    _lower_is_better = {'respawn', 'damage taken', 'loss', 'missed'}
+
+    def _stat_label(name, ptype, averaged):
+        if ptype == 'historical':
+            if any(kw in name.lower() for kw in _lower_is_better):
+                return name  # e.g. "Respawns: 1" not "Best Respawns: 1"
+            return f"Best {name}"
+        if averaged:
+            return f"Average {name}"
+        return name
+
     # Add top stats (limit to top 3 for brevity)
     for stat_name, stat_value in stats[:3]:
-        caption_lines.append(f"• {stat_name}: {stat_value}")
+        label = _stat_label(stat_name, post_type, is_averaged)
+        caption_lines.append(f"• {label}: {stat_value}")
 
     caption_lines.append("")
 
     # Add anomaly callouts if present
     if anomalies:
-        if post_type in ['daily', 'recent']:
+        if post_type in ['daily', 'yesterday', 'recent']:
             caption_lines.append("⚡ Notable:")
             for anomaly in anomalies[:2]:  # Limit to 2 for brevity
                 caption_lines.append(f"• {anomaly['description']}")
@@ -644,7 +698,7 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
         caption_lines.append(f"Playing {game_handle}")
         caption_lines.append("")
     else:
-        if post_type in ['daily', 'recent']:
+        if post_type in ['daily', 'yesterday', 'recent']:
             caption_lines.append(f"Playing {full_game_name}")
             caption_lines.append("")
         else:
@@ -655,9 +709,12 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     if post_type == 'daily':
         caption_lines.append("💬 What was your best match today? Drop it below 👇")
         caption_lines.append("❤️ Like if you're grinding today & 🔁 repost to display match results!")
+    elif post_type == 'yesterday':
+        caption_lines.append("💬 Can you beat yesterday's score? Let us know 👇")
+        caption_lines.append("❤️ Like if you can beat this score & 🔁 repost to challenge the community!")
     elif post_type == 'recent':
-        caption_lines.append("💬 Can you beat this score? Let us know 👇")
-        caption_lines.append("❤️ Like if this you can beat this score & 🔁 repost to challenge the community!")
+        caption_lines.append("💬 Can you top these recent stats? Drop it below 👇")
+        caption_lines.append("❤️ Like if you're on the grind & 🔁 repost to see who can match it!")
     else:  # historical
         caption_lines.append("💬 Think you can top this all-time record? 👇")
         caption_lines.append("❤️ Like if you respect the grind & 🔁 repost to see if anyone can match it!")
@@ -668,8 +725,8 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     # Build hashtag list
     base_hashtags = ['#gaming', '#esports', '#casual', '#gamer', '#gamingcommunity']
 
-    # Add day-specific hashtags for daily/recent posts
-    if post_type in ['daily', 'recent']:
+    # Add day-specific hashtags for daily/yesterday/recent posts
+    if post_type in ['daily', 'yesterday', 'recent']:
         if day_of_week in ['Monday', 'Wednesday', 'Friday']:
             base_hashtags.append('#dailygamer')
 
@@ -1186,47 +1243,54 @@ def run_instagram_poster():
     game_mode = None
     game_modes: list = []
     match_count = 1
+    is_averaged = False
     date_str = ""
     title = ""
     subtitle = None
     content_hash = None
 
+    def _resolve_game_for_date(target_date):
+        """
+        Shared helper: pick the game with the most stat rows on target_date,
+        resolve its game_id, mode, stats, and match count.
+        Returns (game_info, game_id, game_mode, game_modes, stats, anomalies, match_count)
+        or None if no data found.
+        """
+        multi = get_stats_for_date_all_games(PLAYER_ID, target_date)
+        if not multi:
+            return None
+        _counts: dict = {}
+        for _r in multi:
+            _key = (_r['game'], _r['installment'])
+            _counts[_key] = _counts.get(_key, 0) + 1
+        _top = max(_counts, key=_counts.get)
+        _game_info = {'game_name': _top[0], 'game_installment': _top[1]}
+        _game_id = next(
+            (g['game_id'] for g in all_games
+             if g['game_name'] == _top[0] and g['game_installment'] == _top[1]),
+            None
+        )
+        if not _game_id:
+            logger.warning(f"⚠️ game_id not found for {_top[0]} {_top[1]}")
+            return None
+        _mode = get_game_mode_for_date(PLAYER_ID, _game_id, target_date)
+        _modes = get_all_modes_for_date(PLAYER_ID, _game_id, target_date)
+        _count = get_match_count_for_date(PLAYER_ID, _game_id, target_date, _mode)
+        # Use AVG when multiple sessions; MAX when single session
+        _agg = 'avg' if _count > 1 else 'max'
+        _stats = get_stats_for_date(PLAYER_ID, _game_id, target_date, _mode, aggregate=_agg)
+        _anomalies = detect_anomalies(PLAYER_ID, _game_id, target_date)
+        return _game_info, _game_id, _mode, _modes, _stats, _anomalies, _count
+
     # PRIORITY 1: Games played today
     if check_games_on_date(PLAYER_ID, today):
         logger.info(f"✅ Games found today ({today})")
-
-        multi_game_stats = get_stats_for_date_all_games(PLAYER_ID, today)
-
-        if len(multi_game_stats) > 0:
-            # Select the game with the most stat rows — best proxy for most
-            # sessions played when played_at is not available in this result set.
-            _game_counts: dict = {}
-            for _r in multi_game_stats:
-                _key = (_r['game'], _r['installment'])
-                _game_counts[_key] = _game_counts.get(_key, 0) + 1
-            _top_key = max(_game_counts, key=_game_counts.get)
-            first_game = {'game': _top_key[0], 'installment': _top_key[1]}
-            game_info = {
-                'game_name': first_game['game'],
-                'game_installment': first_game['installment']
-            }
-
-            game_id = next((g['game_id'] for g in all_games
-                           if g['game_name'] == first_game['game']
-                           and g['game_installment'] == first_game['installment']), None)
-
-            if game_id:
-                # Resolve mode first so stat aggregation can filter by it
-                game_mode = get_game_mode_for_date(PLAYER_ID, game_id, today)
-                game_modes = get_all_modes_for_date(PLAYER_ID, game_id, today)
-                stats = get_stats_for_date(PLAYER_ID, game_id, today, game_mode)
-                anomalies = detect_anomalies(PLAYER_ID, game_id, today)
-                match_count = get_match_count_for_date(PLAYER_ID, game_id, today, game_mode)
-                if match_count > 1:
-                    logger.info(f"🔁 {match_count} matches for {game_info['game_name']} today (mode: {game_mode or 'all'})")
-            else:
-                logger.warning(f"⚠️ game_id not found for {first_game['game']} {first_game['installment']}")
-
+        result = _resolve_game_for_date(today)
+        if result:
+            game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
+            is_averaged = match_count > 1
+            if match_count > 1:
+                logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
             post_type = 'daily'
             date_str = today.strftime('%A, %B %d')
             title = "Today's Performance"
@@ -1236,47 +1300,40 @@ def run_instagram_poster():
     # PRIORITY 2: Games played yesterday
     elif check_games_on_date(PLAYER_ID, yesterday):
         logger.info(f"✅ Games found yesterday ({yesterday})")
-
-        multi_game_stats = get_stats_for_date_all_games(PLAYER_ID, yesterday)
-
-        if len(multi_game_stats) > 0:
-            # Select the game with the most stat rows — best proxy for most
-            # sessions played when played_at is not available in this result set.
-            _game_counts: dict = {}
-            for _r in multi_game_stats:
-                _key = (_r['game'], _r['installment'])
-                _game_counts[_key] = _game_counts.get(_key, 0) + 1
-            _top_key = max(_game_counts, key=_game_counts.get)
-            first_game = {'game': _top_key[0], 'installment': _top_key[1]}
-            game_info = {
-                'game_name': first_game['game'],
-                'game_installment': first_game['installment']
-            }
-
-            game_id = next((g['game_id'] for g in all_games
-                           if g['game_name'] == first_game['game']
-                           and g['game_installment'] == first_game['installment']), None)
-
-            if game_id:
-                game_mode = get_game_mode_for_date(PLAYER_ID, game_id, yesterday)
-                game_modes = get_all_modes_for_date(PLAYER_ID, game_id, yesterday)
-                stats = get_stats_for_date(PLAYER_ID, game_id, yesterday, game_mode)
-                anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
-                match_count = get_match_count_for_date(PLAYER_ID, game_id, yesterday, game_mode)
-                if match_count > 1:
-                    logger.info(f"🔁 {match_count} matches for {game_info['game_name']} yesterday (mode: {game_mode or 'all'})")
-            else:
-                logger.warning(f"⚠️ game_id not found for {first_game['game']} {first_game['installment']}")
-
-            post_type = 'recent'
+        result = _resolve_game_for_date(yesterday)
+        if result:
+            game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
+            is_averaged = match_count > 1
+            if match_count > 1:
+                logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
+            post_type = 'yesterday'
             date_str = yesterday.strftime('%A, %B %d')
             title = "Yesterday's Performance"
             subtitle = date_str
             content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
 
-    # PRIORITY 3: Historical records
+    # PRIORITY 3: Games in the past 2–7 days (most recent date in that window)
     else:
-        logger.info(f"📜 No recent games - fetching historical records")
+        week_min = today - timedelta(days=7)
+        week_max = today - timedelta(days=2)
+        recent_date = get_most_recent_date_in_range(PLAYER_ID, week_min, week_max)
+        if recent_date:
+            logger.info(f"✅ Recent games found on {recent_date}")
+            result = _resolve_game_for_date(recent_date)
+            if result:
+                game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
+                is_averaged = match_count > 1
+                if match_count > 1:
+                    logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
+                post_type = 'recent'
+                date_str = recent_date.strftime('%A, %B %d')
+                title = "Recent Performance"
+                subtitle = date_str
+                content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
+
+    # PRIORITY 4: Historical records (past 365 days, MAX)
+    if not post_type:
+        logger.info(f"📜 No games in past 7 days — fetching historical records (365-day window)")
 
         records = get_historical_records_all_games(PLAYER_ID, posted_hashes, limit=10)
 
@@ -1293,8 +1350,9 @@ def run_instagram_poster():
 
         stats = [(r['stat'], r['value']) for r in selected_records]
         post_type = 'historical'
+        is_averaged = False
         title = "Historical Records"
-        subtitle = "All-Time Bests"
+        subtitle = "Past Year Bests"
         content_hash = first_record['hash']
 
         anomalies = [{
@@ -1339,7 +1397,8 @@ def run_instagram_poster():
     # Generate caption
     caption = generate_trendy_caption(
         post_type, stats, game_info, player_name, day_of_week, anomalies,
-        game_mode=game_mode, match_count=match_count, game_modes=game_modes
+        game_mode=game_mode, match_count=match_count, game_modes=game_modes,
+        is_averaged=is_averaged,
     )
     logger.info(f"📝 Caption:\n{caption}\n")
 
@@ -1420,46 +1479,45 @@ def run_instagram_poster_for_queue():
     game_mode = None
     game_modes: list = []
     match_count = 1
+    is_averaged = False
     date_str = ""
     title = ""
     subtitle = None
     content_hash = None
 
+    def _resolve_game_for_date(target_date):
+        multi = get_stats_for_date_all_games(PLAYER_ID, target_date)
+        if not multi:
+            return None
+        _counts: dict = {}
+        for _r in multi:
+            _key = (_r['game'], _r['installment'])
+            _counts[_key] = _counts.get(_key, 0) + 1
+        _top = max(_counts, key=_counts.get)
+        _game_info = {'game_name': _top[0], 'game_installment': _top[1]}
+        _game_id = next(
+            (g['game_id'] for g in all_games
+             if g['game_name'] == _top[0] and g['game_installment'] == _top[1]),
+            None
+        )
+        if not _game_id:
+            logger.warning(f"⚠️ game_id not found for {_top[0]} {_top[1]}")
+            return None
+        _mode = get_game_mode_for_date(PLAYER_ID, _game_id, target_date)
+        _modes = get_all_modes_for_date(PLAYER_ID, _game_id, target_date)
+        _count = get_match_count_for_date(PLAYER_ID, _game_id, target_date, _mode)
+        _agg = 'avg' if _count > 1 else 'max'
+        _stats = get_stats_for_date(PLAYER_ID, _game_id, target_date, _mode, aggregate=_agg)
+        _anomalies = detect_anomalies(PLAYER_ID, _game_id, target_date)
+        return _game_info, _game_id, _mode, _modes, _stats, _anomalies, _count
+
     # PRIORITY 1: Games played today
     if check_games_on_date(PLAYER_ID, today):
         logger.info(f"✅ Games found today ({today})")
-
-        multi_game_stats = get_stats_for_date_all_games(PLAYER_ID, today)
-
-        if len(multi_game_stats) > 0:
-            # Select the game with the most stat rows — best proxy for most
-            # sessions played when played_at is not available in this result set.
-            _game_counts: dict = {}
-            for _r in multi_game_stats:
-                _key = (_r['game'], _r['installment'])
-                _game_counts[_key] = _game_counts.get(_key, 0) + 1
-            _top_key = max(_game_counts, key=_game_counts.get)
-            first_game = {'game': _top_key[0], 'installment': _top_key[1]}
-            game_info = {
-                'game_name': first_game['game'],
-                'game_installment': first_game['installment']
-            }
-
-            game_id = next((g['game_id'] for g in all_games
-                           if g['game_name'] == first_game['game']
-                           and g['game_installment'] == first_game['installment']), None)
-
-            if game_id:
-                game_mode = get_game_mode_for_date(PLAYER_ID, game_id, today)
-                game_modes = get_all_modes_for_date(PLAYER_ID, game_id, today)
-                stats = get_stats_for_date(PLAYER_ID, game_id, today, game_mode)
-                anomalies = detect_anomalies(PLAYER_ID, game_id, today)
-                match_count = get_match_count_for_date(PLAYER_ID, game_id, today, game_mode)
-                if match_count > 1:
-                    logger.info(f"🔁 {match_count} matches for {game_info['game_name']} today (mode: {game_mode or 'all'})")
-            else:
-                logger.warning(f"⚠️ game_id not found for {first_game['game']} {first_game['installment']}")
-
+        result = _resolve_game_for_date(today)
+        if result:
+            game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
+            is_averaged = match_count > 1
             post_type = 'daily'
             date_str = today.strftime('%A, %B %d')
             title = "Today's Performance"
@@ -1469,48 +1527,36 @@ def run_instagram_poster_for_queue():
     # PRIORITY 2: Games played yesterday
     elif check_games_on_date(PLAYER_ID, yesterday):
         logger.info(f"✅ Games found yesterday ({yesterday})")
-
-        multi_game_stats = get_stats_for_date_all_games(PLAYER_ID, yesterday)
-
-        if len(multi_game_stats) > 0:
-            # Select the game with the most stat rows — best proxy for most
-            # sessions played when played_at is not available in this result set.
-            _game_counts: dict = {}
-            for _r in multi_game_stats:
-                _key = (_r['game'], _r['installment'])
-                _game_counts[_key] = _game_counts.get(_key, 0) + 1
-            _top_key = max(_game_counts, key=_game_counts.get)
-            first_game = {'game': _top_key[0], 'installment': _top_key[1]}
-            game_info = {
-                'game_name': first_game['game'],
-                'game_installment': first_game['installment']
-            }
-
-            game_id = next((g['game_id'] for g in all_games
-                           if g['game_name'] == first_game['game']
-                           and g['game_installment'] == first_game['installment']), None)
-
-            if game_id:
-                game_mode = get_game_mode_for_date(PLAYER_ID, game_id, yesterday)
-                game_modes = get_all_modes_for_date(PLAYER_ID, game_id, yesterday)
-                stats = get_stats_for_date(PLAYER_ID, game_id, yesterday, game_mode)
-                anomalies = detect_anomalies(PLAYER_ID, game_id, yesterday)
-                match_count = get_match_count_for_date(PLAYER_ID, game_id, yesterday, game_mode)
-                if match_count > 1:
-                    logger.info(f"🔁 {match_count} matches for {game_info['game_name']} yesterday (mode: {game_mode or 'all'})")
-            else:
-                logger.warning(f"⚠️ game_id not found for {first_game['game']} {first_game['installment']}")
-
-            post_type = 'recent'
+        result = _resolve_game_for_date(yesterday)
+        if result:
+            game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
+            is_averaged = match_count > 1
+            post_type = 'yesterday'
             date_str = yesterday.strftime('%A, %B %d')
             title = "Yesterday's Performance"
             subtitle = date_str
             content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
 
-    # PRIORITY 3: Historical records
+    # PRIORITY 3: Games in the past 2–7 days
     else:
-        logger.info(f"📜 No recent games - fetching historical records")
+        week_min = today - timedelta(days=7)
+        week_max = today - timedelta(days=2)
+        recent_date = get_most_recent_date_in_range(PLAYER_ID, week_min, week_max)
+        if recent_date:
+            logger.info(f"✅ Recent games found on {recent_date}")
+            result = _resolve_game_for_date(recent_date)
+            if result:
+                game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
+                is_averaged = match_count > 1
+                post_type = 'recent'
+                date_str = recent_date.strftime('%A, %B %d')
+                title = "Recent Performance"
+                subtitle = date_str
+                content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
 
+    # PRIORITY 4: Historical records (past 365 days, MAX)
+    if not post_type:
+        logger.info(f"📜 No games in past 7 days — fetching historical records (365-day window)")
         records = get_historical_records_all_games(PLAYER_ID, posted_hashes, limit=10)
 
         if not records:
@@ -1526,8 +1572,9 @@ def run_instagram_poster_for_queue():
 
         stats = [(r['stat'], r['value']) for r in selected_records]
         post_type = 'historical'
+        is_averaged = False
         title = "Historical Records"
-        subtitle = "All-Time Bests"
+        subtitle = "Past Year Bests"
         content_hash = first_record['hash']
 
         anomalies = [{
@@ -1572,7 +1619,8 @@ def run_instagram_poster_for_queue():
     # Generate caption
     caption = generate_trendy_caption(
         post_type, stats, game_info, player_name, day_of_week, anomalies,
-        game_mode=game_mode, match_count=match_count, game_modes=game_modes
+        game_mode=game_mode, match_count=match_count, game_modes=game_modes,
+        is_averaged=is_averaged,
     )
     logger.info(f"📝 Caption generated ({len(caption)} chars)")
 
