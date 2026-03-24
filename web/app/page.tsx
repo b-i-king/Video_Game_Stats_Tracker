@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import GetStartedButton from "@/components/GetStartedButton";
 
 export const metadata: Metadata = {
   title: "Home | 🎮 Video Game Stats Tracker",
@@ -71,13 +72,7 @@ export default async function HomePage() {
             </Link>
           ) : (
             <>
-              {/* "Sign in" handled client-side in Navbar — link to stats so it redirects */}
-              <Link
-                href="/stats"
-                className="px-5 py-2 rounded bg-[var(--gold)] text-black font-semibold hover:opacity-90 transition-opacity"
-              >
-                Get Started →
-              </Link>
+              <GetStartedButton />
               <Link
                 href="/privacy"
                 className="px-5 py-2 rounded border border-[var(--border)] hover:border-[var(--gold)] hover:text-[var(--gold)] transition-colors"
