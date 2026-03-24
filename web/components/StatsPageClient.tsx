@@ -9,14 +9,77 @@ import QueuePanel from "./QueuePanel";
 
 type Tab = "enter" | "edit" | "delete";
 
+// ── Business hours helper (mirrors is_business_hours_pst() in app_utils.py) ──
+function getNthWeekday(year: number, month: number, weekday: number, n: number): Date {
+  // month is 0-based (JS Date). weekday: 0=Sun…6=Sat
+  const d = new Date(year, month, 1);
+  let count = 0;
+  while (d.getMonth() === month) {
+    if (d.getDay() === weekday) { count++; if (count === n) return new Date(d); }
+    d.setDate(d.getDate() + 1);
+  }
+  return new Date(year, month, 1); // fallback
+}
+
+function getLastWeekday(year: number, month: number, weekday: number): Date {
+  // Last occurrence of weekday in month
+  const d = new Date(year, month + 1, 0); // last day of month
+  while (d.getDay() !== weekday) d.setDate(d.getDate() - 1);
+  return new Date(d);
+}
+
+function isBusinessHoursPST(): boolean {
+  // Convert current time to America/Los_Angeles
+  const now = new Date();
+  const pstStr = now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" });
+  const pst = new Date(pstStr);
+  const year = pst.getFullYear();
+  const month = pst.getMonth(); // 0-based
+  const day = pst.getDate();
+  const hour = pst.getHours();
+  const dow = pst.getDay(); // 0=Sun, 1=Mon…6=Sat
+
+  // Must be Mon–Fri
+  if (dow === 0 || dow === 6) return false;
+  // Must be 9am–4:59pm
+  if (hour < 9 || hour >= 17) return false;
+
+  // US federal holidays (same list as Python)
+  const holidays = [
+    new Date(year, 0, 1),                          // New Year's Day
+    getNthWeekday(year, 0, 1, 3),                  // MLK Day — 3rd Mon in Jan
+    getLastWeekday(year, 4, 1),                    // Memorial Day — last Mon in May
+    new Date(year, 5, 19),                         // Juneteenth
+    new Date(year, 6, 4),                          // Independence Day
+    getNthWeekday(year, 8, 1, 1),                  // Labor Day — 1st Mon in Sep
+    new Date(year, 10, 11),                        // Veterans Day
+    getNthWeekday(year, 10, 4, 4),                 // Thanksgiving — 4th Thu in Nov
+    new Date(year, 11, 25),                        // Christmas
+  ];
+
+  const today = `${year}-${month}-${day}`;
+  const isHoliday = holidays.some(
+    (h) => `${h.getFullYear()}-${h.getMonth()}-${h.getDate()}` === today
+  );
+  return !isHoliday;
+}
+
 export default function StatsPageClient() {
   const { data: session } = useSession();
   const isTrusted = session?.isTrusted ?? false;
   const jwt = session?.flaskJwt ?? "";
 
   const [activeTab, setActiveTab] = useState<Tab>("enter");
-  // Queue mode lifted here so both QueuePanel and StatsForm share the same value
-  const [queueMode, setQueueMode] = useState(false);
+
+  // Auto-ON during weekdays 9am–5pm PST (excl. federal holidays), manual override respected
+  const [queueMode, setQueueModeState] = useState(() => isBusinessHoursPST());
+  const [isManualOverride, setIsManualOverride] = useState(false);
+
+  function setQueueMode(val: boolean) {
+    const auto = isBusinessHoursPST();
+    setQueueModeState(val);
+    setIsManualOverride(val !== auto);
+  }
 
   if (!session) return null;
 
@@ -64,7 +127,7 @@ export default function StatsPageClient() {
         {/* Queue sidebar — desktop only, trusted only */}
         {isTrusted && (
           <aside className="hidden lg:block w-64 shrink-0">
-            <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} />
+            <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} />
           </aside>
         )}
       </div>

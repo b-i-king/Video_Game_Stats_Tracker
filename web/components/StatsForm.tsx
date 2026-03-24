@@ -28,6 +28,7 @@ import {
   INPUT_DEVICES,
   PLATFORMS,
 } from "@/lib/constants";
+import Tooltip from "@/components/Tooltip";
 
 interface Props {
   jwt: string;
@@ -341,7 +342,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
         {!playerConfirmed ? (
           <div className="flex flex-wrap gap-3 items-end">
             <div className="flex-1 min-w-[200px]">
-              <label className="label">Player Name</label>
+              <label className="label">Player Name <Tooltip text="Select a past player profile or create a new one." /></label>
               <select
                 className="input"
                 disabled={playersLoading}
@@ -375,7 +376,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
 
             {addingNewPlayer && (
               <div className="flex-1 min-w-[200px]">
-                <label className="label">New Player Name</label>
+                <label className="label">New Player Name <Tooltip text="Enter a name for the new player profile." /></label>
                 <input
                   className="input"
                   value={newPlayerName}
@@ -424,7 +425,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
           <Section title="Game Selection">
             {/* Franchise */}
             <div>
-              <label className="label">Game Name (Franchise)</label>
+              <label className="label">Game Name (Franchise) <Tooltip text="Select an existing game franchise or enter a new one." /></label>
               <select
                 className="input"
                 disabled={franchisesLoading}
@@ -449,7 +450,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
             {isNewFranchiseMode && (
               <div className="mt-3 space-y-3">
                 <div>
-                  <label className="label">New Game Name (Franchise) *</label>
+                  <label className="label">New Game Name (Franchise) * <Tooltip text="e.g. Call of Duty, Elden Ring, Final Fantasy" /></label>
                   <input
                     className="input"
                     value={newFranchiseName}
@@ -461,6 +462,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                   <label className="label">
                     New Game Installment{" "}
                     <span className="text-[var(--muted)]">(optional)</span>
+                    <Tooltip text="e.g. Black Ops 7. Leave blank if this is a standalone game." />
                   </label>
                   <input
                     className="input"
@@ -475,7 +477,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
             {/* Installment dropdown for existing franchise */}
             {!isNewFranchiseMode && selectedFranchise && (
               <div className="mt-3">
-                <label className="label">Game Installment</label>
+                <label className="label">Game Installment <Tooltip text="Select an existing installment or add a new one." /></label>
                 <select
                   className="input"
                   value={selectedInstallment}
@@ -495,7 +497,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
             {/* New installment name */}
             {!isNewFranchiseMode && isNewInstallmentMode && (
               <div className="mt-3">
-                <label className="label">New Installment Name *</label>
+                <label className="label">New Installment Name * <Tooltip text="e.g. Warzone, Black Ops 7." /></label>
                 <input
                   className="input"
                   value={newInstallmentName}
@@ -511,7 +513,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 <p className="text-sm font-semibold">New Game Genre Details</p>
                 <div className="grid sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Game Genre *</label>
+                    <label className="label">Game Genre * <Tooltip text="Select the primary genre of the game." /></label>
                     <select
                       className="input"
                       value={gameGenre}
@@ -526,7 +528,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                     </select>
                   </div>
                   <div>
-                    <label className="label">Game Subgenre *</label>
+                    <label className="label">Game Subgenre * <Tooltip text="Select the subgenre that best describes this game." /></label>
                     <select
                       className="input"
                       value={gameSubgenre}
@@ -546,7 +548,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
           <Section title="Credit Style">
             <div className="sm:w-64">
               <label className="label">
-                How the game is credited in social media captions
+                Credit Style <Tooltip text="How the game is credited in your social media caption (e.g., 'S/O @CallOfDuty')." />
               </label>
               <select
                 className="input"
@@ -623,14 +625,14 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 onChange={(e) => setIsRanked(e.target.checked)}
                 className="accent-[var(--gold)]"
               />
-              Ranked?
+              Ranked? <Tooltip text="Is this a ranked match? Enables pre/post rank tracking." />
             </label>
 
             {isRanked && (
               <div className="mt-3 grid sm:grid-cols-2 gap-3">
                 {/* Pre-match rank */}
                 <div>
-                  <label className="label">Pre-match Rank</label>
+                  <label className="label">Pre-match Rank <Tooltip text="Your rank before this match started." /></label>
                   {gameRanks.length > 0 ? (
                     <>
                       <select
@@ -669,7 +671,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
 
                 {/* Post-match rank */}
                 <div>
-                  <label className="label">Post-match Rank</label>
+                  <label className="label">Post-match Rank <Tooltip text="Your rank after this match ended." /></label>
                   {gameRanks.length > 0 ? (
                     <>
                       <select
@@ -723,7 +725,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
 
             {/* Game mode — dropdown for known games, free text for new games */}
             <div className="sm:w-64">
-              <label className="label">Game Mode</label>
+              <label className="label">Game Mode <Tooltip text="Select an existing mode or enter a custom one. Defaults to 'Main' if left blank." /></label>
               {isNewInstallmentMode || !selectedGameId ? (
                 <input
                   className="input"
@@ -769,7 +771,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
             {/* Match type + win/loss */}
             <div className="grid sm:grid-cols-3 gap-3 mt-3">
               <div>
-                <label className="label">Match Type</label>
+                <label className="label">Match Type <Tooltip text="Solo = playing alone (no teammates). Team = playing with at least one other player." /></label>
                 <select
                   className="input"
                   value={matchType}
@@ -783,7 +785,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 </select>
               </div>
               <div>
-                <label className="label">Win / Loss</label>
+                <label className="label">Win / Loss <Tooltip text="Select Win or Loss. Leave N/A if not applicable." /></label>
                 <select
                   className="input"
                   value={winLoss}
@@ -797,7 +799,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 </select>
               </div>
               <div>
-                <label className="label">Party Size</label>
+                <label className="label">Party Size <Tooltip text="Number of players in your party. 1 = Solo." /></label>
                 <select
                   className="input"
                   value={partySize}
@@ -813,7 +815,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
             {/* Level + difficulty + input + platform */}
             <div className="grid sm:grid-cols-4 gap-3 mt-3">
               <div>
-                <label className="label">Game Level / Wave</label>
+                <label className="label">Game Level / Wave <Tooltip text="e.g. Wave 10, Episode 1, Mission 3. Leave 0 if not applicable." /></label>
                 <input
                   className="input"
                   type="number"
@@ -824,7 +826,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 />
               </div>
               <div>
-                <label className="label">Difficulty</label>
+                <label className="label">Difficulty <Tooltip text="Game difficulty setting. Leave N/A if not applicable (e.g. most multiplayer games)." /></label>
                 <select
                   className="input"
                   value={difficulty}
@@ -840,7 +842,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 </select>
               </div>
               <div>
-                <label className="label">Input Device</label>
+                <label className="label">Input Device <Tooltip text="Primary input device used during this session." /></label>
                 <select
                   className="input"
                   value={inputDevice}
@@ -854,7 +856,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 </select>
               </div>
               <div>
-                <label className="label">Platform</label>
+                <label className="label">Platform <Tooltip text="Platform the game was played on." /></label>
                 <select
                   className="input"
                   value={platform}
@@ -875,11 +877,13 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 label="Overtime / Sudden Death"
                 value={overtime}
                 onChange={setOvertime}
+                hint="Did this match go to overtime or sudden death?"
               />
               <Toggle
                 label="First Session of Day"
                 value={firstSession}
                 onChange={setFirstSession}
+                hint="Is this your first gaming session today? Turn off for subsequent sessions."
               />
             </div>
 
@@ -917,7 +921,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
               {statRows.map((row, i) => (
                 <div key={i} className="grid sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Stat Type {i + 1}</label>
+                    <label className="label">Stat Type {i + 1} <Tooltip text="e.g. Eliminations, Points, Kills, Assists. Start typing to see suggestions." /></label>
                     <input
                       className="input"
                       list="prev-stat-types"
@@ -927,7 +931,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                     />
                   </div>
                   <div>
-                    <label className="label">Stat Value {i + 1}</label>
+                    <label className="label">Stat Value {i + 1} <Tooltip text="Numeric value of this statistic." /></label>
                     <input
                       className="input"
                       type="number"

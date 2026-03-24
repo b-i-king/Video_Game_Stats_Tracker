@@ -7,9 +7,10 @@ interface Props {
   jwt: string;
   queueMode: boolean;
   setQueueMode: (val: boolean) => void;
+  isManualOverride: boolean;
 }
 
-export default function QueuePanel({ jwt, queueMode, setQueueMode }: Props) {
+export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverride }: Props) {
   const [counts, setCounts] = useState({
     pending: 0,
     processing: 0,
@@ -47,6 +48,7 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode }: Props) {
       <label className="flex items-center gap-2 cursor-pointer text-sm">
         <div
           onClick={() => setQueueMode(!queueMode)}
+          title="Auto ON weekdays 9am–5pm PST (excl. US federal holidays). Toggle to override."
           className={`relative w-10 h-5 rounded-full transition-colors ${
             queueMode ? "bg-[var(--gold)]" : "bg-[var(--border)]"
           }`}
@@ -65,6 +67,10 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode }: Props) {
           ? "📥 Posts will be queued, not sent immediately."
           : "🚀 Posts sent immediately via IFTTT."}
       </p>
+
+      {isManualOverride && (
+        <p className="text-xs text-yellow-400">Manual override active</p>
+      )}
 
       {/* Queue counts */}
       <div className="grid grid-cols-2 gap-2 text-sm">
