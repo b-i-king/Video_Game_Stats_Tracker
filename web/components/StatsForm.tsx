@@ -38,7 +38,7 @@ interface Props {
 
 interface StatInput {
   type: string;
-  value: number;
+  value: string;
 }
 
 export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
@@ -90,6 +90,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   // ── Game context ──────────────────────────────────────────────────────────
   const [gameModes, setGameModes] = useState<string[]>(["Main"]);
   const [gameMode, setGameMode] = useState("Main");
+  const [gameModeIsCustom, setGameModeIsCustom] = useState(false);
   const [prevStatTypes, setPrevStatTypes] = useState<string[]>([]);
 
   // ── Match details ─────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   const [firstSession, setFirstSession] = useState(true);
 
   // ── Stat rows (1-10) ──────────────────────────────────────────────────────
-  const [statRows, setStatRows] = useState<StatInput[]>([{ type: "", value: 0 }]);
+  const [statRows, setStatRows] = useState<StatInput[]>([{ type: "", value: "" }]);
 
   // ── Submit state ──────────────────────────────────────────────────────────
   const [confirmed, setConfirmed] = useState(false);
@@ -171,10 +172,12 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       setGameRanks([]);
       setGameModes(["Main"]);
       setGameMode("Main");
+      setGameModeIsCustom(false);
       setPrevStatTypes([]);
       return;
     }
     setGameMode("Main");
+    setGameModeIsCustom(false);
     setGameContextLoading(true);
     getGameContext(jwt, selectedGameId)
       .then(({ ranks, modes, stat_types }) => {
@@ -222,7 +225,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
 
   // ── Stat row helpers ──────────────────────────────────────────────────────
   function addStatRow() {
-    if (statRows.length < 10) setStatRows((r) => [...r, { type: "", value: 0 }]);
+    if (statRows.length < 10) setStatRows((r) => [...r, { type: "", value: "" }]);
   }
   function removeStatRow() {
     if (statRows.length > 1) setStatRows((r) => r.slice(0, -1));
@@ -237,31 +240,54 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   const filledStats = statRows.filter((r) => r.type.trim());
   const types = filledStats.map((r) => r.type.trim().toLowerCase());
   const hasDuplicates = types.length !== new Set(types).size;
-  const zeroStats = filledStats.filter((r) => r.value === 0).map((r) => r.type);
+  const zeroStats = filledStats.filter((r) => r.value === "" || Number(r.value) === 0).map((r) => r.type);
+  const negativeStats = filledStats.filter((r) => Number(r.value) < 0).map((r) => r.type);
   const rankedSameRank =
     isRanked &&
     (preRankCustom || preRank) !== "Unranked" &&
     (preRankCustom || preRank) === (postRankCustom || postRank);
+  const rankedMissingPre =
+    isRanked &&
+    (gameRanks.length === 0
+      ? !preRankCustom.trim()
+      : preRank === "(Enter New Rank)" && !preRankCustom.trim());
+  const rankedMissingPost =
+    isRanked &&
+    (gameRanks.length === 0
+      ? !postRankCustom.trim()
+      : postRank === "(Enter New Rank)" && !postRankCustom.trim());
 
   const issues: { level: "error" | "warning" | "info"; msg: string }[] = [];
   if (hasDuplicates) issues.push({ level: "error", msg: "⛔ Duplicate stat types" });
+  if (negativeStats.length > 0)
+    issues.push({ level: "error", msg: `⛔ Negative stat value: ${negativeStats.join(", ")}` });
+  if (rankedMissingPre)
+    issues.push({ level: "error", msg: "⛔ Ranked: pre-match rank is required" });
+  if (rankedMissingPost)
+    issues.push({ level: "error", msg: "⛔ Ranked: post-match rank is required" });
   if (filledStats.length > 0) {
     if (zeroStats.length > 0)
       issues.push({ level: "warning", msg: `⚠️ Zero value: ${zeroStats.join(", ")}` });
     if (matchType === "Solo" && partySize !== "1")
       issues.push({ level: "warning", msg: `⚠️ Solo mode but Party Size is ${partySize}` });
+    if (matchType === "Team" && partySize === "1")
+      issues.push({ level: "warning", msg: "⚠️ Team mode but Party Size is 1" });
     if (!winLoss && !overtime)
       issues.push({ level: "warning", msg: "⚠️ Win/Loss not set (N/A)" });
     if (rankedSameRank)
       issues.push({ level: "warning", msg: `⚠️ Pre/Post rank unchanged: ${preRankCustom || preRank}` });
+    if (isLive && !selectedGameId && !isNewInstallmentMode)
+      issues.push({ level: "warning", msg: "⚠️ Live mode on but no game selected" });
     if (isLive && !obsActive)
       issues.push({ level: "warning", msg: "⚠️ Live mode on but OBS is not active" });
+    if (gameModeIsCustom && !gameMode.trim())
+      issues.push({ level: "warning", msg: "⚠️ Custom game mode selected but left blank — will default to 'Main'" });
     if (!firstSession)
       issues.push({ level: "info", msg: "ℹ️ Subsequent session — line chart will use this as the latest entry" });
     if (isLive && obsActive)
       issues.push({ level: "info", msg: "ℹ️ Live post — #Live hashtags and stream links included" });
   }
-  const hasCritical = hasDuplicates;
+  const hasCritical = hasDuplicates || negativeStats.length > 0 || rankedMissingPre || rankedMissingPost;
 
   // ── Final derived values ──────────────────────────────────────────────────
   const finalGameMode = gameMode.trim() || "Main";
@@ -283,7 +309,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
 
     const statsPayload: StatRow[] = filledStats.map((s) => ({
       stat_type: s.type.trim(),
-      stat_value: s.value,
+      stat_value: Number(s.value) || 0,
       game_mode: finalGameMode || "Main",
       solo_mode: matchType === "Solo" ? 1 : 0,
       party_size: partySize,
@@ -318,7 +344,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       setSubmitResult({ ok: true, msg: result.message });
       setConfirmed(false);
       // Preserve stat types, reset values
-      setStatRows((rows) => rows.map((r) => ({ ...r, value: 0 })));
+      setStatRows((rows) => rows.map((r) => ({ ...r, value: "" })));
       loadTodayStats();
     } catch (err) {
       setSubmitResult({
@@ -741,11 +767,13 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 <>
                   <select
                     className="input"
-                    value={gameModes.includes(gameMode) ? gameMode : "__custom__"}
+                    value={gameModeIsCustom ? "__custom__" : gameMode}
                     onChange={(e) => {
                       if (e.target.value === "__custom__") {
+                        setGameModeIsCustom(true);
                         setGameMode("");
                       } else {
+                        setGameModeIsCustom(false);
                         setGameMode(e.target.value);
                       }
                     }}
@@ -755,7 +783,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                     ))}
                     <option value="__custom__">(Enter Custom)</option>
                   </select>
-                  {!gameModes.includes(gameMode) && (
+                  {gameModeIsCustom && (
                     <input
                       className="input mt-2"
                       value={gameMode}
@@ -937,9 +965,8 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                       type="number"
                       min={0}
                       value={row.value}
-                      onChange={(e) =>
-                        updateStatRow(i, "value", parseInt(e.target.value) || 0)
-                      }
+                      onChange={(e) => updateStatRow(i, "value", e.target.value)}
+                      onFocus={(e) => e.target.select()}
                     />
                   </div>
                 </div>
@@ -982,7 +1009,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 {filledStats.map((s, i) => (
                   <li key={i}>
                     • <strong>{s.type}</strong>: {s.value}
-                    {s.value === 0 && (
+                    {(s.value === "" || Number(s.value) === 0) && (
                       <span className="text-yellow-400"> ⚠️ zero</span>
                     )}
                   </li>
