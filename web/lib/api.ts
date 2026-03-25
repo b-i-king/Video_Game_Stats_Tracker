@@ -345,3 +345,17 @@ export async function retryFailed(
   if (!res.ok) throw new Error("Retry failed");
   return res.json();
 }
+
+export async function askBolt(
+  jwt: string,
+  prompt: string
+): Promise<string> {
+  const res = await fetch(`${BASE}/api/ask`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ prompt }),
+  });
+  if (!res.ok) throw new Error("Bolt unavailable");
+  const data = await res.json();
+  return data.reply as string;
+}

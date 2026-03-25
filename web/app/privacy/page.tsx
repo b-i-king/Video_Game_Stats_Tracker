@@ -3,7 +3,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | Game Tracker",
+  title: "🔒 Privacy Policy",
 };
 
 export default function PrivacyPage() {

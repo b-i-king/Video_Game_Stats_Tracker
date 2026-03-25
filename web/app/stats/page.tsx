@@ -8,7 +8,7 @@ import StatsPageClient from "@/components/StatsPageClient";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Stats Form | 🎮 Game Tracker",
+  title: "#️⃣ Stats Form",
 };
 
 export default async function StatsPage() {

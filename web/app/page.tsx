@@ -8,7 +8,7 @@ import { authOptions } from "@/lib/auth";
 import GetStartedButton from "@/components/GetStartedButton";
 
 export const metadata: Metadata = {
-  title: "Home | 🎮 Video Game Stats Tracker",
+  title: { absolute: "🎮 Video Game Stats Tracker" },
   description:
     "Track your video game stats, generate chart graphics, and auto-post to Twitter & Instagram.",
 };

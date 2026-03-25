@@ -3,7 +3,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Data Deletion | Game Tracker",
+  title: "🗑️ Data Deletion",
 };
 
 export default function DataDeletionPage() {

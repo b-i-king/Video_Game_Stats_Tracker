@@ -6,6 +6,7 @@ import StatsForm from "./StatsForm";
 import EditTab from "./EditTab";
 import DeleteTab from "./DeleteTab";
 import QueuePanel from "./QueuePanel";
+import BoltPanel from "./BoltPanel";
 
 type Tab = "enter" | "edit" | "delete";
 
@@ -97,6 +98,13 @@ export default function StatsPageClient() {
       )}
 
       <div className="flex gap-6">
+        {/* Bolt AI sidebar — desktop only, trusted only */}
+        {isTrusted && (
+          <aside className="hidden lg:block w-64 shrink-0">
+            <BoltPanel jwt={jwt} />
+          </aside>
+        )}
+
         <div className="flex-1 min-w-0">
           {/* Tabs */}
           <div className="flex border-b border-[var(--border)] mb-5">
