@@ -41,7 +41,7 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
   }
 
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-4 h-full flex flex-col">
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-4">
       <h3 className="font-semibold text-sm">📬 Post Queue</h3>
 
       {/* Queue mode toggle */}
