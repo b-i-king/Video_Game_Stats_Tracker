@@ -25,7 +25,7 @@ jobs:
           echo "Pinging /health to wake Render at $(date -u)..."
           for i in 1 2 3 4 5; do
             HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-              "$WEB_SERVICE_URL/health" --max-time 15)
+              "$WEB_SERVICE_URL/health" --max-time 15 || echo "000")
             echo "Attempt $i: /health returned $HTTP"
             if [ "$HTTP" = "200" ]; then
               echo "Render is awake."
