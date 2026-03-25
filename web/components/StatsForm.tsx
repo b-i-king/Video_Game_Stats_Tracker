@@ -2,7 +2,7 @@
 // StatsForm — the "Enter Stats" tab.
 // Mirrors all form fields from pages/2_Stats.py.
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   getPlayers,
   getFranchises,
@@ -110,10 +110,18 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   // ── Submit state ──────────────────────────────────────────────────────────
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitStage, setSubmitStage] = useState(0);
+  const stageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSubmitRef = useRef<() => void>(() => {});
   const [submitResult, setSubmitResult] = useState<{
     ok: boolean;
     msg: string;
+    statCount?: number;
   } | null>(null);
+
+  // ── Draft persistence refs ────────────────────────────────────────────────
+  const draftRef = useRef<Record<string, unknown> | null>(null);
+  const playerRestored = useRef(false);
 
   // ── Today's stats (client-side filter — no extra Redshift query) ──────────
   const [todayStats, setTodayStats] = useState<StatEntry[]>([]);
@@ -133,6 +141,47 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   useEffect(() => {
     loadTodayStats();
   }, [loadTodayStats]);
+
+  // ── Form draft persistence (localStorage) ─────────────────────────────────
+  const DRAFT_KEY = "statsForm_v1";
+
+  // Restore match settings on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      draftRef.current = d;
+      if (d.creditStyle) setCreditStyle(d.creditStyle);
+      if (d.matchType) setMatchType(d.matchType);
+      if (d.inputDevice) setInputDevice(d.inputDevice);
+      if (d.platform) setPlatform(d.platform);
+      if (d.partySize) setPartySize(d.partySize);
+      if (d.difficulty !== undefined) setDifficulty(d.difficulty);
+      if (typeof d.firstSession === "boolean") setFirstSession(d.firstSession);
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Restore player after players list loads
+  useEffect(() => {
+    if (playerRestored.current || !players.length || !draftRef.current) return;
+    const d = draftRef.current;
+    if (typeof d.playerName === "string") {
+      const found = players.find((p) => p.player_name === d.playerName);
+      if (found) { setPlayerName(found.player_name); setPlayerId(found.player_id); }
+    }
+    playerRestored.current = true;
+  }, [players]);
+
+  // Save draft whenever relevant fields change
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        playerName, creditStyle, matchType, inputDevice, platform, partySize, difficulty, firstSession,
+      }));
+    } catch {}
+  }, [playerName, creditStyle, matchType, inputDevice, platform, partySize, difficulty, firstSession]);
 
   // ── Load players + franchises on mount (parallel) ────────────────────────
   useEffect(() => {
@@ -303,6 +352,13 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   const finalPostRank = postRankCustom.trim() || postRank;
 
   // ── Submit ────────────────────────────────────────────────────────────────
+  const SUBMIT_STAGES = [
+    "Saving stats…",
+    "Generating chart…",
+    "Uploading to cloud…",
+    "Almost there…",
+  ];
+
   async function handleSubmit() {
     if (!confirmed || hasCritical || !playerName || !finalFranchise || filledStats.length === 0)
       return;
@@ -326,8 +382,24 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       was_streaming: isLive ? 1 : 0,
     }));
 
+    const statCount = filledStats.length;
     setSubmitting(true);
     setSubmitResult(null);
+    setSubmitStage(0);
+
+    // Cycle through progress stages
+    const durations = [5000, 15000, 25000];
+    let stage = 0;
+    function nextStage() {
+      stage++;
+      if (stage < SUBMIT_STAGES.length) {
+        setSubmitStage(stage);
+        if (stage < durations.length)
+          stageTimer.current = setTimeout(nextStage, durations[stage]);
+      }
+    }
+    stageTimer.current = setTimeout(nextStage, durations[0]);
+
     try {
       const result = await addStats(jwt, {
         player_name: playerName,
@@ -341,9 +413,8 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
         credit_style: CREDIT_STYLE_OPTIONS[creditStyle] ?? "shoutout",
       });
 
-      setSubmitResult({ ok: true, msg: result.message });
+      setSubmitResult({ ok: true, msg: result.message, statCount });
       setConfirmed(false);
-      // Preserve stat types, reset values
       setStatRows((rows) => rows.map((r) => ({ ...r, value: "" })));
       loadTodayStats();
     } catch (err) {
@@ -352,9 +423,26 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
         msg: err instanceof Error ? err.message : "Submit failed",
       });
     } finally {
+      if (stageTimer.current) clearTimeout(stageTimer.current);
+      stageTimer.current = null;
       setSubmitting(false);
+      setSubmitStage(0);
     }
   }
+
+  // Keep ref current so keyboard shortcut always calls latest handleSubmit
+  handleSubmitRef.current = handleSubmit;
+
+  // ── Keyboard shortcut: Ctrl+Enter to submit ───────────────────────────────
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        handleSubmitRef.current();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (!isTrusted) {
@@ -1034,21 +1122,29 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
               className="btn-primary w-full sm:w-auto disabled:opacity-40"
               disabled={!confirmed || hasCritical || submitting || filledStats.length === 0}
               onClick={handleSubmit}
+              title="Ctrl+Enter"
             >
-              {submitting ? "Submitting…" : "Submit Stats"}
+              {submitting ? SUBMIT_STAGES[submitStage] : "Submit Stats"}
             </button>
           </div>
 
-          {submitResult && (
-            <div
-              className={`rounded px-4 py-3 text-sm ${
-                submitResult.ok
-                  ? "bg-green-900/30 border border-green-700 text-green-300"
-                  : "bg-red-900/30 border border-red-700 text-red-300"
-              }`}
-            >
-              {submitResult.ok ? "✅ " : "❌ "}
-              {submitResult.msg}
+          {submitResult?.ok && (
+            <div className="rounded-lg border border-green-700 bg-green-900/20 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">✅</span>
+                <span className="font-semibold text-green-300 text-sm">Stats Submitted!</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 text-xs text-[var(--muted)]">
+                <div>👤 <span className="text-[var(--text)]">{playerName}</span></div>
+                <div>📊 <span className="text-[var(--text)]">{submitResult.statCount} stat{submitResult.statCount !== 1 ? "s" : ""} saved</span></div>
+                <div className="col-span-2">🎮 <span className="text-[var(--text)]">{finalFranchise}{finalInstallment ? ` — ${finalInstallment}` : ""}</span></div>
+                <div className="col-span-2 text-[var(--muted)]">{queueMode ? "📬 Post queued for scheduled delivery" : "🚀 Post sent immediately via IFTTT"}</div>
+              </div>
+            </div>
+          )}
+          {submitResult?.ok === false && (
+            <div className="rounded px-4 py-3 text-sm bg-red-900/30 border border-red-700 text-red-300">
+              ❌ {submitResult.msg}
             </div>
           )}
 

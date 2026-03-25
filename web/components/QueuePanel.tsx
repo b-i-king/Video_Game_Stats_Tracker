@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { getQueueStatus, retryFailed } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 
 interface Props {
   jwt: string;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverride }: Props) {
+  const { showToast } = useToast();
   const [counts, setCounts] = useState({
     pending: 0,
     processing: 0,
@@ -25,16 +27,25 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
     setCounts(c);
   }, [jwt]);
 
+  // Initial load
   useEffect(() => {
     loadCounts();
+  }, [loadCounts]);
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => { loadCounts(); }, 30_000);
+    return () => clearInterval(interval);
   }, [loadCounts]);
 
   async function handleRetry() {
     setRetrying(true);
     try {
       const result = await retryFailed(jwt);
-      alert(`Reset ${result.reset_count} failed post(s).`);
+      showToast(`Reset ${result.reset_count} failed post(s).`);
       await loadCounts();
+    } catch {
+      showToast("Retry failed — try again.", "error");
     } finally {
       setRetrying(false);
     }

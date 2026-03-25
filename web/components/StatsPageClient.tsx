@@ -7,6 +7,7 @@ import EditTab from "./EditTab";
 import DeleteTab from "./DeleteTab";
 import QueuePanel from "./QueuePanel";
 import BoltPanel from "./BoltPanel";
+import { ToastProvider } from "./Toast";
 
 type Tab = "enter" | "edit" | "delete";
 
@@ -75,6 +76,7 @@ export default function StatsPageClient() {
   // Auto-ON during weekdays 9am–5pm PST (excl. federal holidays), manual override respected
   const [queueMode, setQueueModeState] = useState(() => isBusinessHoursPST());
   const [isManualOverride, setIsManualOverride] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState<"bolt" | "queue" | null>(null);
 
   function setQueueMode(val: boolean) {
     const auto = isBusinessHoursPST();
@@ -85,60 +87,104 @@ export default function StatsPageClient() {
   if (!session) return null;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-[var(--gold)] text-center">
-        🎮 Video Game Stats Entry
-      </h1>
+    <ToastProvider>
+      <div className="space-y-6 pb-20 lg:pb-0">
+        <h1 className="text-2xl font-bold text-[var(--gold)] text-center">
+          🎮 Video Game Stats Entry
+        </h1>
 
-      {!isTrusted && (
-        <div className="rounded border border-yellow-600 bg-yellow-900/20 px-4 py-3 text-sm text-yellow-200">
-          You are signed in as a <strong>Registered Guest</strong>. The Stats
-          form is in read-only preview mode. Contact the admin for full access.
-        </div>
-      )}
-
-      <div className="flex gap-6 items-stretch">
-        {/* Bolt AI sidebar — desktop only, trusted only */}
-        {isTrusted && (
-          <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6">
-            <BoltPanel jwt={jwt} />
-          </aside>
+        {!isTrusted && (
+          <div className="rounded border border-yellow-600 bg-yellow-900/20 px-4 py-3 text-sm text-yellow-200">
+            You are signed in as a <strong>Registered Guest</strong>. The Stats
+            form is in read-only preview mode. Contact the admin for full access.
+          </div>
         )}
 
-        <div className="flex-1 min-w-0">
-          {/* Tabs */}
-          <div className="flex border-b border-[var(--border)] mb-5">
-            {(["enter", ...(isTrusted ? ["edit", "delete"] : [])] as Tab[]).map(
-              (tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
-                    activeTab === tab
-                      ? "border-[var(--gold)] text-[var(--gold)]"
-                      : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"
-                  }`}
-                >
-                  {tab === "enter" ? "Enter Stats" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              )
+        <div className="flex gap-6 items-stretch">
+          {/* Bolt AI sidebar — desktop only, trusted only */}
+          {isTrusted && (
+            <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6">
+              <BoltPanel jwt={jwt} />
+            </aside>
+          )}
+
+          <div className="flex-1 min-w-0">
+            {/* Tabs */}
+            <div className="flex border-b border-[var(--border)] mb-5">
+              {(["enter", ...(isTrusted ? ["edit", "delete"] : [])] as Tab[]).map(
+                (tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
+                      activeTab === tab
+                        ? "border-[var(--gold)] text-[var(--gold)]"
+                        : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"
+                    }`}
+                  >
+                    {tab === "enter" ? "Enter Stats" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  </button>
+                )
+              )}
+            </div>
+
+            {activeTab === "enter" && (
+              <StatsForm jwt={jwt} isTrusted={isTrusted} queueMode={queueMode} />
             )}
+            {activeTab === "edit" && isTrusted && <EditTab jwt={jwt} />}
+            {activeTab === "delete" && isTrusted && <DeleteTab jwt={jwt} />}
           </div>
 
-          {activeTab === "enter" && (
-            <StatsForm jwt={jwt} isTrusted={isTrusted} queueMode={queueMode} />
+          {/* Queue sidebar — desktop only, trusted only */}
+          {isTrusted && (
+            <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6">
+              <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} />
+            </aside>
           )}
-          {activeTab === "edit" && isTrusted && <EditTab jwt={jwt} />}
-          {activeTab === "delete" && isTrusted && <DeleteTab jwt={jwt} />}
         </div>
 
-        {/* Queue sidebar — desktop only, trusted only */}
+        {/* Mobile bottom bar — trusted only, hidden on desktop */}
         {isTrusted && (
-          <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6">
-            <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} />
-          </aside>
+          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex border-t border-[var(--border)] bg-[var(--surface)]">
+            <button
+              onClick={() => setMobilePanel((p) => (p === "bolt" ? null : "bolt"))}
+              className={`flex-1 py-3 text-xs flex flex-col items-center gap-0.5 transition-colors ${
+                mobilePanel === "bolt" ? "text-[var(--gold)]" : "text-[var(--muted)]"
+              }`}
+            >
+              <span className="text-lg">⚡</span>
+              <span>Bolt</span>
+            </button>
+            <button
+              onClick={() => setMobilePanel((p) => (p === "queue" ? null : "queue"))}
+              className={`flex-1 py-3 text-xs flex flex-col items-center gap-0.5 transition-colors ${
+                mobilePanel === "queue" ? "text-[var(--gold)]" : "text-[var(--muted)]"
+              }`}
+            >
+              <span className="text-lg">📬</span>
+              <span>Queue</span>
+            </button>
+          </div>
+        )}
+
+        {/* Mobile drawer */}
+        {isTrusted && mobilePanel && (
+          <div
+            className="lg:hidden fixed inset-0 z-30 bg-black/50"
+            onClick={() => setMobilePanel(null)}
+          >
+            <div
+              className="absolute bottom-[52px] left-0 right-0 max-h-[70vh] overflow-y-auto bg-[var(--surface)] border-t border-[var(--border)] p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {mobilePanel === "bolt" && <BoltPanel jwt={jwt} />}
+              {mobilePanel === "queue" && (
+                <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} />
+              )}
+            </div>
+          </div>
         )}
       </div>
-    </div>
+    </ToastProvider>
   );
 }

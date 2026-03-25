@@ -2309,6 +2309,25 @@ def api_preview_instagram():
 _last_redshift_warmup: float = 0.0
 _WARMUP_INTERVAL = 600  # seconds
 
+# ── Bolt AI endpoint ─────────────────────────────────────────────────────────
+@app.route('/api/ask', methods=['POST'])
+@jwt_required
+def ask_bolt(user_email):
+    """Natural language stat queries powered by Gemini (Bolt AI panel)."""
+    if not os.environ.get("GEMINI_API_KEY"):
+        return jsonify({"reply": "Bolt isn't configured yet — add GEMINI_API_KEY to enable AI features."}), 200
+    data = request.get_json(silent=True) or {}
+    prompt = data.get("prompt", "").strip()
+    if not prompt:
+        return jsonify({"error": "No prompt provided"}), 400
+    try:
+        from utils.ai_utils import ask_agent
+        reply = ask_agent(prompt)
+        return jsonify({"reply": reply})
+    except Exception as e:
+        print(f"[Bolt] Error: {e}")
+        return jsonify({"reply": "Something went wrong on my end. Try again in a moment."}), 200
+
 # Health check endpoint
 @app.route('/health', methods=['GET'])
 def health_check():
