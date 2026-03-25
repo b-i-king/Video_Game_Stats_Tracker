@@ -198,15 +198,21 @@ export function StatsEntryScreen() {
   // ── Load on mount ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!jwt || !isTrusted) return;
-    getPlayers(jwt).then(setPlayers).catch(console.error);
-    getFranchises(jwt).then(setFranchises).catch(console.error);
-    getObsStatus(jwt).then((d) => setObsActiveState(d.obs_active)).catch(console.error);
+    getPlayers(jwt).then(setPlayers).catch(() =>
+      Alert.alert('Connection Error', 'Could not load players. Check your connection and try again.')
+    );
+    getFranchises(jwt).then(setFranchises).catch(() =>
+      Alert.alert('Connection Error', 'Could not load games. Check your connection and try again.')
+    );
+    getObsStatus(jwt).then((d) => setObsActiveState(d.obs_active)).catch(() => {/* non-critical */});
   }, [jwt, isTrusted]);
 
   // ── Installments when franchise changes ───────────────────────────────────
   useEffect(() => {
     if (!jwt || !selectedFranchise || isNewFranchise) { setInstallments([]); return; }
-    getInstallments(jwt, selectedFranchise).then(setInstallments).catch(console.error);
+    getInstallments(jwt, selectedFranchise).then(setInstallments).catch(() =>
+      Alert.alert('Error', `Could not load installments for "${selectedFranchise}".`)
+    );
   }, [jwt, selectedFranchise, isNewFranchise]);
 
   // ── Game-specific data when installment selected ──────────────────────────
@@ -217,11 +223,12 @@ export function StatsEntryScreen() {
       return;
     }
     setGameMode('Main'); setGameModeCustom('');
-    getGameRanks(jwt, selectedGameId).then(setGameRanks).catch(console.error);
+    // Non-critical — fall back to empty/defaults silently
+    getGameRanks(jwt, selectedGameId).then(setGameRanks).catch(() => setGameRanks([]));
     getGameModes(jwt, selectedGameId)
       .then((m) => setGameModes(m.length ? m : ['Main']))
-      .catch(console.error);
-    getGameStatTypes(jwt, selectedGameId).then(setPrevStatTypes).catch(console.error);
+      .catch(() => setGameModes(['Main']));
+    getGameStatTypes(jwt, selectedGameId).then(setPrevStatTypes).catch(() => setPrevStatTypes([]));
   }, [jwt, selectedGameId, isNewInstallment]);
 
   // ── Today's stats loader ──────────────────────────────────────────────────
@@ -229,8 +236,13 @@ export function StatsEntryScreen() {
     if (!jwt) return;
     try {
       const all = await getRecentStats(jwt);
-      const today = new Date().toISOString().slice(0, 10);
-      setTodayStats(all.filter((s) => s.played_at.startsWith(today)));
+      // Use device local timezone, not UTC, to determine "today"
+      const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local tz
+      setTodayStats(all.filter((s) => {
+        const utc = s.played_at.includes("T") ? s.played_at : s.played_at.replace(" ", "T");
+        const localDate = new Date(utc.endsWith("Z") ? utc : utc + "Z").toLocaleDateString("en-CA");
+        return localDate === today;
+      }));
     } catch { /* ignore */ }
   }, [jwt]);
 
@@ -655,11 +667,11 @@ export function StatsEntryScreen() {
 
             <View style={styles.statControlRow}>
               <TouchableOpacity
-                style={[styles.chip, statRows.length >= 3 && styles.chipDisabled]}
+                style={[styles.chip, statRows.length >= 10 && styles.chipDisabled]}
                 onPress={() => {
-                  if (statRows.length < 3) setStatRows((r) => [...r, { type: '', value: '' }]);
+                  if (statRows.length < 10) setStatRows((r) => [...r, { type: '', value: '' }]);
                 }}
-                disabled={statRows.length >= 3}
+                disabled={statRows.length >= 10}
               >
                 <Text style={styles.chipText}>➕ Add Row</Text>
               </TouchableOpacity>

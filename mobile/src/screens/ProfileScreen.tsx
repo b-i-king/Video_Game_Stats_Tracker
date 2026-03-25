@@ -1,6 +1,8 @@
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/auth/useAuth';
+import { getQueueStatus } from '@/api/stats';
 
 const GOLD = '#C4A035';
 const BG = '#111111';
@@ -17,7 +19,13 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 export function ProfileScreen() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, token } = useAuth();
+  const [queue, setQueue] = useState({ pending: 0, processing: 0, sent: 0, failed: 0 });
+
+  useEffect(() => {
+    if (!token) return;
+    getQueueStatus(token).then(setQueue).catch(() => {/* non-critical */});
+  }, [token]);
 
   function handleSignOut() {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
@@ -44,6 +52,27 @@ export function ProfileScreen() {
         <View style={styles.infoCard}>
           <InfoRow label="Email" value={user?.email ?? '—'} />
           <InfoRow label="Role" value={user?.role ?? '—'} />
+        </View>
+
+        {/* Queue Status */}
+        <Text style={styles.sectionLabel}>📬 Post Queue</Text>
+        <View style={styles.queueCard}>
+          <View style={styles.queueItem}>
+            <Text style={styles.queueCount}>{queue.pending + queue.processing}</Text>
+            <Text style={styles.queueLabel}>Pending</Text>
+          </View>
+          <View style={styles.queueDivider} />
+          <View style={styles.queueItem}>
+            <Text style={styles.queueCount}>{queue.sent}</Text>
+            <Text style={styles.queueLabel}>Sent</Text>
+          </View>
+          <View style={styles.queueDivider} />
+          <View style={styles.queueItem}>
+            <Text style={[styles.queueCount, queue.failed > 0 && { color: '#E74C3C' }]}>
+              {queue.failed}
+            </Text>
+            <Text style={styles.queueLabel}>Failed</Text>
+          </View>
         </View>
 
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
@@ -96,6 +125,20 @@ const styles = StyleSheet.create({
   },
   infoLabel: { color: '#888', fontSize: 14 },
   infoValue: { color: '#FFF', fontSize: 14, fontWeight: '500' },
+  sectionLabel: { color: '#888', fontSize: 12, fontWeight: '600', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.8 },
+  queueCard: {
+    backgroundColor: CARD,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: BORDER,
+    flexDirection: 'row',
+    marginBottom: 24,
+    overflow: 'hidden',
+  },
+  queueItem: { flex: 1, alignItems: 'center', paddingVertical: 14 },
+  queueCount: { fontSize: 22, fontWeight: '700', color: GOLD },
+  queueLabel: { fontSize: 11, color: '#888', marginTop: 2 },
+  queueDivider: { width: 1, backgroundColor: BORDER },
   signOutBtn: {
     borderWidth: 1,
     borderColor: '#C0392B',

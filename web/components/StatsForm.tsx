@@ -131,8 +131,14 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
     if (!jwt) return;
     try {
       const all = await getRecentStats(jwt);
-      const today = new Date().toISOString().slice(0, 10);
-      setTodayStats(all.filter((s) => s.played_at.startsWith(today)));
+      // Use browser local timezone, not UTC, to determine "today"
+      const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local tz
+      setTodayStats(all.filter((s) => {
+        // played_at comes from server as UTC — force UTC parsing then convert to local date
+        const utc = s.played_at.includes("T") ? s.played_at : s.played_at.replace(" ", "T");
+        const localDate = new Date(utc.endsWith("Z") ? utc : utc + "Z").toLocaleDateString("en-CA");
+        return localDate === today;
+      }));
     } catch {
       /* silently ignore */
     }
