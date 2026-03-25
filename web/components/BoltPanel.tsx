@@ -11,7 +11,7 @@ interface Message {
 const SUGGESTIONS = [
   "What's my best session?",
   "Write an Instagram caption",
-  "How's my KD trending?",
+  "How's my Eliminations trending?",
   "Summarize this week",
 ];
 
@@ -19,7 +19,7 @@ export default function BoltPanel({ jwt }: { jwt: string }) {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "bolt",
-      text: "Hey! I'm Bolt ⚡ — your personal gaming analyst from Beacon of Light. Ask me about your stats, trends, or let me write a caption for your next post.",
+      text: "Hey! I'm Bolt ⚡ — your personal gaming analyst from BOL Group. Ask me about your stats, trends, or let me write a caption for your next post.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -60,7 +60,7 @@ export default function BoltPanel({ jwt }: { jwt: string }) {
           <span className="font-semibold text-sm text-[var(--gold)]">Bolt</span>
         </div>
         <p className="text-xs text-[var(--muted)] mt-0.5">
-          by Beacon of Light · Powered by Gemini
+          by BOL · Powered by Gemini
         </p>
       </div>
 
