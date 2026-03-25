@@ -4,15 +4,19 @@ Scripts for building Lambda deployment packages.
 
 ## Scripts
 
-- **build_all.ps1** - Build everything (recommended)
-- **build_layer.ps1** - Build Lambda layer (dependencies)
-- **build_code_only.ps1** - Build code package (your files)
+- **deploy_code.ps1** - Build fresh zip + deploy both Lambda functions (recommended)
+- **build_all.ps1** - Build layer + code zips without deploying
+- **build_layer.ps1** - Build Lambda layer (dependencies only)
+- **build_code_only.ps1** - Build code package (your files only)
 
 ## Usage
 
 ### From Project Root
 ```powershell
-# Build everything
+# Build fresh zip AND deploy both Lambda functions (most common)
+.\build\deploy_code.ps1
+
+# Build zips only (no deploy)
 .\build\build_all.ps1
 ```
 

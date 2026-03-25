@@ -167,7 +167,28 @@ def fetch_and_queue(event, context):
         logger.info(f"👤 Player: {player_name}")
 
         if not gcs_url:
-            raise Exception("GCS upload failed — no public image URL available for Instagram")
+            logger.error("❌ GCS upload failed after all retries — skipping post to avoid crash loop")
+            send_notification(
+                subject=f"Instagram Post Skipped - GCS Unavailable ({post_type.title()})",
+                message=f"""Instagram post was skipped because GCS upload failed after all retries.
+
+Post that was ready to send:
+- Type: {post_type.title()}
+- Game: {game_name}
+- Player: {player_name}
+
+No action needed unless this recurs. GCS may have had a transient outage.
+Check https://status.cloud.google.com if the issue persists.
+
+Request ID: {context.aws_request_id}
+Timestamp: {datetime.now().isoformat()}
+""",
+                success=False
+            )
+            return {
+                'statusCode': 200,
+                'body': json.dumps({'mode': 'FETCH', 'message': 'Skipped — GCS unavailable', 'posted': False})
+            }
 
         logger.info(f"🖼️ Image URL: {gcs_url}")
 

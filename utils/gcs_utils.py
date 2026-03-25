@@ -190,73 +190,88 @@ def upload_interactive_chart_to_gcs(html_bytes, player_name, game_name, game_ins
         return None
 
 
-def upload_instagram_poster_to_gcs(image_buffer, player_name, game_name, post_type='daily'):
+def upload_instagram_poster_to_gcs(image_buffer, player_name, game_name, post_type='daily',
+                                    max_retries=3, retry_delay=2):
     """
     Upload Instagram portrait poster (1080x1440) to Google Cloud Storage.
     Organized by year/month/week for easy searching and carousel compilation.
-    
+
+    Retries up to max_retries times with retry_delay seconds between attempts
+    to handle transient network failures.
+
     Folder structure: instagram/posters/YYYY/MM/WEEK_X/
-    
+
     Args:
         image_buffer: BytesIO object containing PNG image (1080x1440)
         player_name: str (sanitized for filename)
         game_name: str (sanitized for filename)
         post_type: str ('daily', 'recent', 'historical', 'multi_game')
-    
+        max_retries: int (number of upload attempts, default 3)
+        retry_delay: int (seconds between retries, default 2)
+
     Returns:
-        str: Public URL of uploaded image, or None if failed
+        str: Public URL of uploaded image, or None if all attempts failed
     """
+    import time
+
     bucket_name = os.environ.get('GCS_BUCKET_NAME')
-    
+
     if not bucket_name:
         print("❌ GCS_BUCKET_NAME not set in environment variables")
         return None
-    
+
     client = get_gcs_client()
     if not client:
         return None
-    
-    try:
-        bucket = client.bucket(bucket_name)
-        
-        # Generate organized path with year/month/week
-        now = datetime.now()
-        year = now.strftime('%Y')
-        month = now.strftime('%m')
-        week_of_month = (now.day - 1) // 7 + 1  # Week 1-5 within month
-        timestamp = now.strftime('%Y%m%d_%H%M%S')
-        
-        safe_player = sanitize_filename(player_name)
-        safe_game = sanitize_filename(game_name)
-        
-        # Folder structure: instagram/posters/2026/02/week_1/
-        folder_path = f"instagram/posters/{year}/{month}/week_{week_of_month}"
-        
-        # Filename: player_game_posttype_timestamp.png
-        # Example: bol_call_of_duty_daily_20260203_210000.png
-        filename = f"{safe_player}_{safe_game}_{post_type}_{timestamp}.png"
-        
-        full_path = f"{folder_path}/{filename}"
-        
-        # Create blob and upload
-        blob = bucket.blob(full_path)
-        image_buffer.seek(0)  # Reset buffer position
-        blob.upload_from_file(image_buffer, content_type='image/png')
-        
-        # Make public
-        blob.make_public()
-        
-        public_url = blob.public_url
-        print(f"✅ Instagram poster uploaded: {full_path}")
-        print(f"   Type: {post_type}")
-        print(f"   Week: {week_of_month} of {month}/{year}")
-        print(f"   URL: {public_url}")
-        
-        return public_url
-        
-    except Exception as e:
-        print(f"❌ Failed to upload Instagram poster to GCS: {e}")
-        return None
+
+    # Generate path once — same destination across all retry attempts
+    now = datetime.now()
+    year = now.strftime('%Y')
+    month = now.strftime('%m')
+    week_of_month = (now.day - 1) // 7 + 1  # Week 1-5 within month
+    timestamp = now.strftime('%Y%m%d_%H%M%S')
+
+    safe_player = sanitize_filename(player_name)
+    safe_game = sanitize_filename(game_name)
+
+    # Folder structure: instagram/posters/2026/02/week_1/
+    folder_path = f"instagram/posters/{year}/{month}/week_{week_of_month}"
+
+    # Filename: player_game_posttype_timestamp.png
+    # Example: bol_call_of_duty_daily_20260203_210000.png
+    filename = f"{safe_player}_{safe_game}_{post_type}_{timestamp}.png"
+    full_path = f"{folder_path}/{filename}"
+
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(full_path)
+            image_buffer.seek(0)  # Reset buffer position before each attempt
+            blob.upload_from_file(image_buffer, content_type='image/png')
+
+            # Make public
+            blob.make_public()
+
+            public_url = blob.public_url
+            if attempt > 1:
+                print(f"✅ Instagram poster uploaded (attempt {attempt}/{max_retries}): {full_path}")
+            else:
+                print(f"✅ Instagram poster uploaded: {full_path}")
+            print(f"   Type: {post_type}")
+            print(f"   Week: {week_of_month} of {month}/{year}")
+            print(f"   URL: {public_url}")
+
+            return public_url
+
+        except Exception as e:
+            last_error = e
+            print(f"⚠️ GCS upload attempt {attempt}/{max_retries} failed: {e}")
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+
+    print(f"❌ All {max_retries} GCS upload attempts failed. Last error: {last_error}")
+    return None
 
 
 def list_instagram_posters_by_week(year, month, week_of_month):

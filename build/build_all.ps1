@@ -27,7 +27,5 @@ Write-Host "All packages built successfully!" -ForegroundColor Green
 Write-Host "===============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "1. Upload to S3: aws s3 cp temp\lambda-layer.zip s3://YOUR-BUCKET/" -ForegroundColor White
-Write-Host "2. Upload to S3: aws s3 cp temp\instagram-poster-code.zip s3://YOUR-BUCKET/" -ForegroundColor White
-Write-Host "3. Publish layer: aws lambda publish-layer-version ..." -ForegroundColor White
-Write-Host "4. Deploy Lambdas with layer attached" -ForegroundColor White
+Write-Host "  Code only changed?  Run: .\build\deploy_code.ps1" -ForegroundColor White
+Write-Host "  Layer changed?      See build\README.md for layer deploy steps" -ForegroundColor White

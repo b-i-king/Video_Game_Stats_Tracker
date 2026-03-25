@@ -2311,7 +2311,7 @@ _WARMUP_INTERVAL = 600  # seconds
 
 # ── Bolt AI endpoint ─────────────────────────────────────────────────────────
 @app.route('/api/ask', methods=['POST'])
-@jwt_required
+@requires_jwt_auth
 def ask_bolt(user_email):
     """Natural language stat queries powered by Gemini (Bolt AI panel)."""
     if not os.environ.get("GEMINI_API_KEY"):
