@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/auth/useAuth';
 import { getQueueStatus } from '@/api/stats';
 
@@ -18,8 +19,9 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function ProfileScreen() {
+export function ProfileScreen({ navigation }: { navigation: any }) {
   const { user, signOut, token } = useAuth();
+  const isTrusted = (user as any)?.is_trusted === true;
   const [queue, setQueue] = useState({ pending: 0, processing: 0, sent: 0, failed: 0 });
 
   useEffect(() => {
@@ -74,6 +76,22 @@ export function ProfileScreen() {
             <Text style={styles.queueLabel}>Failed</Text>
           </View>
         </View>
+
+        {isTrusted && (
+          <>
+            <Text style={styles.sectionLabel}>⚙️ Data Management</Text>
+            <TouchableOpacity style={styles.manageBtn} onPress={() => navigation.navigate('Edit')}>
+              <Ionicons name="pencil" size={18} color={GOLD} />
+              <Text style={styles.manageBtnText}>Edit Data</Text>
+              <Ionicons name="chevron-forward" size={16} color="#555" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.manageBtn, { marginBottom: 24 }]} onPress={() => navigation.navigate('Delete')}>
+              <Ionicons name="trash" size={18} color="#E57373" />
+              <Text style={styles.manageBtnText}>Delete Data</Text>
+              <Ionicons name="chevron-forward" size={16} color="#555" />
+            </TouchableOpacity>
+          </>
+        )}
 
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
@@ -139,6 +157,12 @@ const styles = StyleSheet.create({
   queueCount: { fontSize: 22, fontWeight: '700', color: GOLD },
   queueLabel: { fontSize: 11, color: '#888', marginTop: 2 },
   queueDivider: { width: 1, backgroundColor: BORDER },
+  manageBtn: {
+    backgroundColor: CARD, borderRadius: 10, borderWidth: 1,
+    borderColor: BORDER, padding: 14, marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  manageBtnText: { flex: 1, color: '#FFF', fontSize: 15, fontWeight: '500' },
   signOutBtn: {
     borderWidth: 1,
     borderColor: '#C0392B',

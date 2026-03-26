@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, Alert, ActivityIndicator, Switch,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/auth/useAuth';
 import {
@@ -24,6 +25,25 @@ const GOLD = '#C4A035';
 const BG = '#111111';
 const CARD = '#1C1C1C';
 const BORDER = '#2A2A2A';
+
+const DRAFT_KEY = 'statsForm_v1';
+const SUBMIT_STAGES = [
+  'Saving stats…',
+  'Generating chart…',
+  'Uploading to cloud…',
+  'Almost there…',
+];
+
+// Auto-enable queue during weekdays 9am–5pm PST (mirrors web logic)
+function isBusinessHoursPST(): boolean {
+  const pstStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+  const pst = new Date(pstStr);
+  const dow = pst.getDay();
+  const hour = pst.getHours();
+  if (dow === 0 || dow === 6) return false;
+  if (hour < 9 || hour >= 17) return false;
+  return true;
+}
 
 // ── Shared primitives ─────────────────────────────────────────────────────────
 
@@ -135,7 +155,7 @@ export function StatsEntryScreen() {
   // ── OBS / Streaming / Queue ───────────────────────────────────────────────
   const [isLive, setIsLive] = useState(false);
   const [obsActive, setObsActiveState] = useState(false);
-  const [queueMode, setQueueMode] = useState(false);
+  const [queueMode, setQueueMode] = useState(() => isBusinessHoursPST());
   const [liveSetMsg, setLiveSetMsg] = useState('');
 
   // ── Rank ──────────────────────────────────────────────────────────────────
@@ -172,7 +192,12 @@ export function StatsEntryScreen() {
   // ── Submit ────────────────────────────────────────────────────────────────
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [submitMsg, setSubmitMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [submitStage, setSubmitStage] = useState(0);
+  const stageInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [successData, setSuccessData] = useState<{
+    gameName: string; stats: { type: string; value: string }[]; queuedOrPosted: string;
+  } | null>(null);
+  const draftRef = useRef<Record<string, unknown> | null>(null);
 
   // ── Today's stats ─────────────────────────────────────────────────────────
   const [todayStats, setTodayStats] = useState<StatEntry[]>([]);
@@ -210,7 +235,19 @@ export function StatsEntryScreen() {
   // ── Installments when franchise changes ───────────────────────────────────
   useEffect(() => {
     if (!jwt || !selectedFranchise || isNewFranchise) { setInstallments([]); return; }
-    getInstallments(jwt, selectedFranchise).then(setInstallments).catch(() =>
+    getInstallments(jwt, selectedFranchise).then((list) => {
+      setInstallments(list);
+      // Restore installment from draft if it matches the loaded list
+      const draft = draftRef.current;
+      if (draft?.selectedInstallment) {
+        const match = list.find((i) => i.installment_name === draft.selectedInstallment);
+        if (match) {
+          setSelectedInstallment(match.installment_name);
+          setSelectedGameId(match.game_id);
+          draftRef.current = null;
+        }
+      }
+    }).catch(() =>
       Alert.alert('Error', `Could not load installments for "${selectedFranchise}".`)
     );
   }, [jwt, selectedFranchise, isNewFranchise]);
@@ -247,6 +284,33 @@ export function StatsEntryScreen() {
   }, [jwt]);
 
   useEffect(() => { loadTodayStats(); }, [loadTodayStats]);
+
+  // ── Draft persistence: restore on mount ───────────────────────────────────
+  useEffect(() => {
+    AsyncStorage.getItem(DRAFT_KEY).then((raw) => {
+      if (!raw) return;
+      try {
+        const d = JSON.parse(raw);
+        draftRef.current = d;
+        if (d.playerName) setPlayerName(d.playerName);
+        if (d.playerId)   setPlayerId(d.playerId);
+        if (d.playerConfirmed) setPlayerConfirmed(true);
+        if (d.selectedFranchise) setSelectedFranchise(d.selectedFranchise);
+        // installment restored after installments load (see franchise effect)
+      } catch { /* ignore corrupt draft */ }
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Draft persistence: save when key fields change ────────────────────────
+  useEffect(() => {
+    if (!playerName && !selectedFranchise) return;
+    const draft = {
+      playerName, playerId, playerConfirmed,
+      selectedFranchise, selectedInstallment, selectedGameId,
+    };
+    AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft)).catch(() => {});
+  }, [playerName, playerId, playerConfirmed, selectedFranchise, selectedInstallment, selectedGameId]);
 
   // ── OBS handlers ─────────────────────────────────────────────────────────
   async function handleObsToggle(val: boolean) {
@@ -327,7 +391,11 @@ export function StatsEntryScreen() {
     }));
 
     setLoading(true);
-    setSubmitMsg(null);
+    setSubmitStage(0);
+    stageInterval.current = setInterval(() => {
+      setSubmitStage((s) => Math.min(s + 1, SUBMIT_STAGES.length - 1));
+    }, 8_000);
+
     try {
       const result = await addStats(jwt, {
         player_name: finalPlayerName,
@@ -340,9 +408,15 @@ export function StatsEntryScreen() {
         queue_mode: queueMode,
         credit_style: CREDIT_STYLE_OPTIONS[creditStyle] ?? 'shoutout',
       });
-      setSubmitMsg({ ok: true, text: result.message });
+
+      setSuccessData({
+        gameName: finalFranchise + (finalInstallment ? `: ${finalInstallment}` : ''),
+        stats: filledStats,
+        queuedOrPosted: result.social_media,
+      });
       setConfirmed(false);
       setStatRows((rows) => rows.map((r) => ({ ...r, value: '' })));
+      await AsyncStorage.removeItem(DRAFT_KEY);
       loadTodayStats();
       await sendLocalNotification(
         'Stats posted!',
@@ -350,8 +424,9 @@ export function StatsEntryScreen() {
       );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Submit failed';
-      setSubmitMsg({ ok: false, text: msg });
+      Alert.alert('Submit Failed', msg);
     } finally {
+      if (stageInterval.current) clearInterval(stageInterval.current);
       setLoading(false);
     }
   }
@@ -369,6 +444,39 @@ export function StatsEntryScreen() {
             </Text>
           </View>
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ── Success card ──────────────────────────────────────────────────────────
+  if (successData) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <Text style={styles.heading}>Log Stats</Text>
+          <View style={styles.successCard}>
+            <Text style={styles.successIcon}>🎮</Text>
+            <Text style={styles.successTitle}>Stats Submitted!</Text>
+            <Text style={styles.successGame}>{successData.gameName}</Text>
+            {successData.stats.map((s, i) => (
+              <View key={i} style={styles.successStatRow}>
+                <Text style={styles.successStatType}>{s.type}</Text>
+                <Text style={styles.successStatValue}>{s.value}</Text>
+              </View>
+            ))}
+            <View style={styles.successQueuedBadge}>
+              <Text style={styles.successQueuedText}>
+                {successData.queuedOrPosted === 'queued' ? '📥 Post queued' : '🚀 Post sent'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.logAnotherBtn}
+              onPress={() => setSuccessData(null)}
+            >
+              <Text style={styles.logAnotherText}>Log Another Session</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -774,20 +882,14 @@ export function StatsEntryScreen() {
               disabled={!confirmed || loading || filledStats.length === 0}
             >
               {loading ? (
-                <ActivityIndicator color="#000" />
+                <View style={{ alignItems: 'center', gap: 8 }}>
+                  <ActivityIndicator color="#000" />
+                  <Text style={styles.stageText}>{SUBMIT_STAGES[submitStage]}</Text>
+                </View>
               ) : (
                 <Text style={styles.submitText}>Submit Stats</Text>
               )}
             </TouchableOpacity>
-
-            {submitMsg && (
-              <View style={[
-                styles.resultBanner,
-                submitMsg.ok ? styles.resultOk : styles.resultErr,
-              ]}>
-                <Text style={styles.resultText}>{submitMsg.text}</Text>
-              </View>
-            )}
 
             {/* ── Today's Stats ─────────────────────────────────────────── */}
             {todayStats.length > 0 && (
@@ -971,4 +1073,31 @@ const styles = StyleSheet.create({
   },
   guestTitle: { color: '#fde68a', fontWeight: '700', fontSize: 15, marginBottom: 6 },
   guestBody: { color: '#fde68a', fontSize: 13, lineHeight: 20 },
+  stageText: { color: '#000', fontSize: 13, fontWeight: '600', marginTop: 4 },
+  successCard: {
+    backgroundColor: 'rgba(76,175,80,0.12)', borderWidth: 1,
+    borderColor: '#4CAF50', borderRadius: 14, padding: 24,
+    alignItems: 'center', marginTop: 20,
+  },
+  successIcon: { fontSize: 48, marginBottom: 12 },
+  successTitle: { fontSize: 20, fontWeight: '700', color: '#4CAF50', marginBottom: 4 },
+  successGame: { fontSize: 15, color: '#CCC', marginBottom: 16 },
+  successStatRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    backgroundColor: CARD, borderRadius: 8, padding: 12,
+    width: '100%', marginBottom: 6,
+  },
+  successStatType: { color: '#AAA', fontSize: 14 },
+  successStatValue: { color: GOLD, fontSize: 14, fontWeight: '700' },
+  successQueuedBadge: {
+    backgroundColor: 'rgba(196,160,53,0.15)', borderWidth: 1,
+    borderColor: GOLD, borderRadius: 20, paddingHorizontal: 14,
+    paddingVertical: 6, marginTop: 12, marginBottom: 20,
+  },
+  successQueuedText: { color: GOLD, fontSize: 12, fontWeight: '600' },
+  logAnotherBtn: {
+    backgroundColor: GOLD, borderRadius: 10, paddingVertical: 14,
+    paddingHorizontal: 40, alignItems: 'center',
+  },
+  logAnotherText: { color: '#000', fontWeight: '700', fontSize: 15 },
 });

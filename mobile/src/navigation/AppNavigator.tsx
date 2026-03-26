@@ -10,6 +10,8 @@ import { StatsHistoryScreen } from '@/screens/StatsHistoryScreen';
 import { DashboardScreen } from '@/screens/DashboardScreen';
 import { LeaderboardScreen } from '@/screens/LeaderboardScreen';
 import { ProfileScreen } from '@/screens/ProfileScreen';
+import { EditScreen } from '@/screens/EditScreen';
+import { DeleteScreen } from '@/screens/DeleteScreen';
 
 // ── Color constants ───────────────────────────────────────────────────────────
 const GOLD = '#C4A035';
@@ -30,13 +32,51 @@ export type TabParamList = {
   Profile: undefined;
 };
 
+export type ProfileStackParamList = {
+  ProfileHome: undefined;
+  Edit: undefined;
+  Delete: undefined;
+};
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
+const ProfileStack = createNativeStackNavigator<ProfileStackParamList>();
 
 function TabIcon(name: keyof typeof Ionicons.glyphMap, color: string, size: number) {
   return <Ionicons name={name} size={size} color={color} />;
 }
 
+// ── Profile nested stack (home → Edit / Delete) ───────────────────────────────
+function ProfileNavigator() {
+  return (
+    <ProfileStack.Navigator
+      screenOptions={{
+        headerShown: true,
+        headerStyle: { backgroundColor: BG },
+        headerTintColor: GOLD,
+        headerTitleStyle: { color: '#FFF', fontWeight: '600' },
+      }}
+    >
+      <ProfileStack.Screen
+        name="ProfileHome"
+        component={ProfileScreen}
+        options={{ headerShown: false }}
+      />
+      <ProfileStack.Screen
+        name="Edit"
+        component={EditScreen}
+        options={{ title: 'Edit Data', headerBackTitle: 'Profile' }}
+      />
+      <ProfileStack.Screen
+        name="Delete"
+        component={DeleteScreen}
+        options={{ title: 'Delete Data', headerBackTitle: 'Profile' }}
+      />
+    </ProfileStack.Navigator>
+  );
+}
+
+// ── Bottom tabs ───────────────────────────────────────────────────────────────
 function MainTabs() {
   return (
     <Tab.Navigator
@@ -69,7 +109,7 @@ function MainTabs() {
       />
       <Tab.Screen
         name="Profile"
-        component={ProfileScreen}
+        component={ProfileNavigator}
         options={{ tabBarIcon: ({ color, size }) => TabIcon('person', color, size) }}
       />
     </Tab.Navigator>

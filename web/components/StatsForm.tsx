@@ -103,6 +103,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   const [platform, setPlatform] = useState<(typeof PLATFORMS)[number]>("PC");
   const [overtime, setOvertime] = useState(false);
   const [firstSession, setFirstSession] = useState(true);
+  const [firstSessionTodayCount, setFirstSessionTodayCount] = useState<number | null>(null);
 
   // ── Stat rows (1-10) ──────────────────────────────────────────────────────
   const [statRows, setStatRows] = useState<StatInput[]>([{ type: "", value: "" }]);
@@ -148,6 +149,17 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
     loadTodayStats();
   }, [loadTodayStats]);
 
+  // ── Auto-detect first session per game ────────────────────────────────────
+  useEffect(() => {
+    if (!selectedGameId) {
+      setFirstSessionTodayCount(null);
+      return;
+    }
+    const count = todayStats.filter((s) => s.game_id === selectedGameId).length;
+    setFirstSessionTodayCount(count);
+    setFirstSession(count === 0);
+  }, [selectedGameId, todayStats]);
+
   // ── Form draft persistence (localStorage) ─────────────────────────────────
   const DRAFT_KEY = "statsForm_v1";
 
@@ -164,7 +176,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       if (d.platform) setPlatform(d.platform);
       if (d.partySize) setPartySize(d.partySize);
       if (d.difficulty !== undefined) setDifficulty(d.difficulty);
-      if (typeof d.firstSession === "boolean") setFirstSession(d.firstSession);
+      // firstSession is auto-detected per game — not restored from draft
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -184,10 +196,10 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   useEffect(() => {
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
-        playerName, creditStyle, matchType, inputDevice, platform, partySize, difficulty, firstSession,
+        playerName, creditStyle, matchType, inputDevice, platform, partySize, difficulty,
       }));
     } catch {}
-  }, [playerName, creditStyle, matchType, inputDevice, platform, partySize, difficulty, firstSession]);
+  }, [playerName, creditStyle, matchType, inputDevice, platform, partySize, difficulty]);
 
   // ── Load players + franchises on mount (parallel) ────────────────────────
   useEffect(() => {
@@ -1001,12 +1013,21 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                 onChange={setOvertime}
                 hint="Did this match go to overtime or sudden death?"
               />
-              <Toggle
-                label="First Session of Day"
-                value={firstSession}
-                onChange={setFirstSession}
-                hint="Is this your first gaming session today? Turn off for subsequent sessions."
-              />
+              <div>
+                <Toggle
+                  label="First Session of Day"
+                  value={firstSession}
+                  onChange={setFirstSession}
+                  hint="Auto-detected per game · override if needed."
+                />
+                {firstSessionTodayCount !== null && (
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {firstSessionTodayCount === 0
+                      ? "✅ No entries today for this game — auto-set to first session"
+                      : `🔄 ${firstSessionTodayCount} entr${firstSessionTodayCount === 1 ? "y" : "ies"} today for this game — auto-set to subsequent session`}
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* ── Stat rows ──────────────────────────────────────────────── */}
