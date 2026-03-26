@@ -670,10 +670,18 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
             return f"Average {name}"
         return name
 
+    def _fmt_stat(v):
+        """Display whole-number floats without .0 (e.g. 3244.0 → '3244')."""
+        try:
+            f = float(v)
+            return str(int(f)) if f == int(f) else str(v)
+        except (TypeError, ValueError):
+            return str(v)
+
     # Add top stats (limit to top 3 for brevity)
     for stat_name, stat_value in stats[:3]:
         label = _stat_label(stat_name, post_type, is_averaged)
-        caption_lines.append(f"• {label}: {stat_value}")
+        caption_lines.append(f"• {label}: {_fmt_stat(stat_value)}")
 
     caption_lines.append("")
 

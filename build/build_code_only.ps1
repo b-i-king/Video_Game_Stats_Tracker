@@ -6,9 +6,22 @@ Write-Host "Building Lambda code package..." -ForegroundColor Green
 $ROOT_DIR = Split-Path -Parent $PSScriptRoot
 $TEMP_DIR = Join-Path $ROOT_DIR "temp"
 
-# Clean
-if (Test-Path "$TEMP_DIR\code_package") { Remove-Item -Recurse -Force "$TEMP_DIR\code_package" }
-if (Test-Path "$TEMP_DIR\instagram-poster-code.zip") { Remove-Item -Force "$TEMP_DIR\instagram-poster-code.zip" }
+# Clean — retry in case VS Code file watcher briefly holds a handle
+foreach ($target in @("$TEMP_DIR\code_package", "$TEMP_DIR\instagram-poster-code.zip")) {
+    if (Test-Path $target) {
+        $retries = 3
+        for ($i = 1; $i -le $retries; $i++) {
+            try {
+                Remove-Item -Recurse -Force $target -ErrorAction Stop
+                break
+            } catch {
+                if ($i -eq $retries) { throw }
+                Write-Host "  Waiting for file lock to release (attempt $i/$retries)..." -ForegroundColor DarkYellow
+                Start-Sleep -Seconds 2
+            }
+        }
+    }
+}
 
 # Create package
 New-Item -ItemType Directory -Path "$TEMP_DIR\code_package" -Force | Out-Null
@@ -24,6 +37,9 @@ if (Test-Path "$ROOT_DIR\fonts") {
     Write-Host "Copying fonts..." -ForegroundColor Yellow
     Copy-Item -Recurse "$ROOT_DIR\fonts" "$TEMP_DIR\code_package\"
 }
+
+# Brief pause so Windows Defender/AV finishes scanning newly copied files
+Start-Sleep -Milliseconds 800
 
 # Create ZIP
 Write-Host "Creating code ZIP..." -ForegroundColor Yellow

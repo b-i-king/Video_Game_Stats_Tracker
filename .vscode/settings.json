@@ -1,0 +1,10 @@
+{
+  "files.watcherExclude": {
+    "**/temp/**": true
+  },
+  "[sql]": {
+    "editor.defaultFormatter": "mtxr.sqltools"
+  },
+  "sqltools.useNodeRuntime": true,
+  "sql.lintingEnabled": false
+}

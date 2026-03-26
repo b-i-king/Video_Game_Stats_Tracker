@@ -33,6 +33,14 @@ export default function Navbar() {
               Stats
             </Link>
           )}
+          {session && (
+            <Link
+              href="/integrations"
+              className="hover:text-[var(--gold)] transition-colors"
+            >
+              Integrations
+            </Link>
+          )}
           <Link
             href="/privacy"
             className="hover:text-[var(--gold)] transition-colors"

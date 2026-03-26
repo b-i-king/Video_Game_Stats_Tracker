@@ -23,9 +23,11 @@ Write-Host ""
 # Step 1: Fresh build
 Write-Host "STEP 1/3: Building fresh code package..." -ForegroundColor Yellow
 Write-Host "-----------------------------------------------" -ForegroundColor Yellow
-& "$BUILD_DIR\build_code_only.ps1"
-if ($LASTEXITCODE -ne 0) {
+try {
+    & "$BUILD_DIR\build_code_only.ps1"
+} catch {
     Write-Host "❌ Build failed — aborting deploy." -ForegroundColor Red
+    Write-Host $_ -ForegroundColor Red
     exit 1
 }
 

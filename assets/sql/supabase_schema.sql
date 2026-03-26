@@ -65,7 +65,10 @@ CREATE TABLE IF NOT EXISTS fact.fact_game_stats (
     platform              VARCHAR(20) NOT NULL DEFAULT 'PC',
     first_session_of_day  INTEGER NOT NULL DEFAULT 1,
     was_streaming         INTEGER NOT NULL DEFAULT 0,
-    played_at             TIMESTAMPTZ DEFAULT NOW()
+    played_at             TIMESTAMPTZ DEFAULT NOW(),
+    -- Integration columns (additive — all existing rows default to manual/editable)
+    source                TEXT    NOT NULL DEFAULT 'manual',  -- 'manual' | 'riot' | 'steam' etc.
+    is_editable           BOOLEAN NOT NULL DEFAULT TRUE       -- FALSE for auto-imported rows
 );
 
 -- ── app.post_queue ────────────────────────────────────────────────────
@@ -78,4 +81,33 @@ CREATE TABLE IF NOT EXISTS app.post_queue (
     status       VARCHAR(20) DEFAULT 'pending',
     scheduled_at TIMESTAMPTZ,
     created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── Integration tables (net-new — not migrated from Redshift) ─────────
+-- Create these fresh on Supabase; no data migration needed.
+
+-- Stores a user's connected third-party game accounts (one row per platform).
+-- Tokens should be encrypted at the application layer before insert.
+CREATE TABLE IF NOT EXISTS app.user_integrations (
+    id               INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_email       TEXT NOT NULL,
+    platform         TEXT NOT NULL,           -- 'riot' | 'steam' | 'activision'
+    platform_user_id TEXT NOT NULL,           -- puuid, steam_id, etc.
+    access_token     TEXT,                    -- encrypted at app layer
+    refresh_token    TEXT,
+    token_expires_at TIMESTAMPTZ,
+    connected_at     TIMESTAMPTZ DEFAULT NOW(),
+    is_active        BOOLEAN NOT NULL DEFAULT TRUE,
+    UNIQUE(user_email, platform)
+);
+
+-- Tracks which external matches have already been imported to prevent duplicates.
+CREATE TABLE IF NOT EXISTS app.integration_imports (
+    id                INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_email        TEXT NOT NULL,
+    platform          TEXT NOT NULL,
+    external_match_id TEXT NOT NULL,
+    imported_at       TIMESTAMPTZ DEFAULT NOW(),
+    game_stat_id      INTEGER REFERENCES fact.fact_game_stats(stat_id),
+    UNIQUE(platform, external_match_id, user_email)
 );
