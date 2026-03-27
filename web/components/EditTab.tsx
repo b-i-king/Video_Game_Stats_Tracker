@@ -377,8 +377,8 @@ function EditStats({ jwt }: Props) {
             <option value="">— Select entry —</option>
             {stats.map((s) => (
               <option key={s.stat_id} value={s.stat_id}>
-                ({s.stat_id}) {s.game_name} — {s.stat_type}: {s.stat_value} @{" "}
-                {s.played_at}
+                {s.is_outlier ? "⚡ " : ""}({s.stat_id}) {s.game_name} — {s.stat_type}: {s.stat_value} @{" "}
+                {s.played_at}{s.percentile != null ? ` [p${s.percentile}]` : ""}
               </option>
             ))}
           </select>
@@ -397,6 +397,11 @@ function EditStats({ jwt }: Props) {
                   ({selected.stat_id}) {selected.game_name} — {selected.stat_type}
                 </strong>
               </p>
+              {selected.is_outlier && selected.percentile != null && (
+                <div className="rounded px-3 py-1.5 text-xs bg-yellow-900/30 border border-yellow-700 text-yellow-300">
+                  ⚡ Outlier session — {selected.percentile >= 50 ? `top ${100 - selected.percentile}%` : `bottom ${selected.percentile}%`} of your {selected.stat_type} entries (z = {selected.z_score})
+                </div>
+              )}
 
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>

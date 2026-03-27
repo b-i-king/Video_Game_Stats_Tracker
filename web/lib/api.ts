@@ -50,6 +50,9 @@ export interface StatEntry {
   pre_match_rank_value?: string;
   post_match_rank_value?: string;
   played_at: string;
+  is_outlier?: boolean;
+  z_score?: number | null;
+  percentile?: number | null;
 }
 
 export interface StatRow {
@@ -87,11 +90,33 @@ export interface KpiStat {
   stat_type: string;
   value: number;
   lower_is_better: boolean;
+  ci_low?: number | null;
+  ci_high?: number | null;
+  n_sessions?: number;
+  today_z_score?: number | null;
 }
 
 export interface SummaryData {
   today_avg: KpiStat[];
   all_time_best: KpiStat[];
+}
+
+export interface HeatmapCell {
+  dow: number;         // 0 = Sunday … 6 = Saturday
+  hour: number;        // 0–23
+  session_count: number;
+}
+
+export interface HeatmapData {
+  cells: HeatmapCell[];
+  max_sessions: number;
+}
+
+export interface StreakData {
+  current_streak: number;
+  longest_streak: number;
+  last_session: string | null;
+  total_session_days: number;
 }
 
 // ── Keep-alive ────────────────────────────────────────────────────────────────
@@ -409,6 +434,32 @@ export async function downloadChart(
   a.download = `${playerName}_${platform}_chart.png`.replace(/\s+/g, "_");
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export async function getHeatmap(
+  jwt: string,
+  gameId: number,
+  playerName: string
+): Promise<HeatmapData> {
+  const params = new URLSearchParams({ player_name: playerName });
+  const res = await fetch(`${BASE}/api/get_heatmap/${gameId}?${params}`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error(`Failed to load heatmap (${res.status})`);
+  return res.json();
+}
+
+export async function getStreaks(
+  jwt: string,
+  gameId: number,
+  playerName: string
+): Promise<StreakData> {
+  const params = new URLSearchParams({ player_name: playerName });
+  const res = await fetch(`${BASE}/api/get_streaks/${gameId}?${params}`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error(`Failed to load streaks (${res.status})`);
+  return res.json();
 }
 
 export async function askBolt(

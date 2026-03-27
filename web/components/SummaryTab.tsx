@@ -6,15 +6,29 @@ import {
   getAllGames,
   getSummary,
   getInteractiveChart,
+  getHeatmap,
+  getStreaks,
   type Player,
   type GameDetails,
   type KpiStat,
+  type HeatmapData,
+  type StreakData,
 } from "@/lib/api";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatValue(value: number): string {
   return value.toLocaleString();
+}
+
+// z-score → badge label + color
+function zBadge(z: number | null | undefined, lowerIsBetter: boolean) {
+  if (z == null) return null;
+  const good = lowerIsBetter ? z < -1.5 : z > 1.5;
+  const bad  = lowerIsBetter ? z > 1.5  : z < -1.5;
+  if (good) return { label: "Top session", color: "text-emerald-400" };
+  if (bad)  return { label: "Below avg",   color: "text-red-400" };
+  return null;
 }
 
 // ── KPI Card ──────────────────────────────────────────────────────────────────
@@ -26,14 +40,121 @@ function KpiCard({
   stat: KpiStat;
   label: "Today's Avg" | "All-Time Best";
 }) {
+  const badge = label === "Today's Avg" ? zBadge(stat.today_z_score, stat.lower_is_better) : null;
+  const hasCI = stat.ci_low != null && stat.ci_high != null;
+
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-center space-y-1">
       <div className="text-xs text-[var(--muted)] uppercase tracking-wide">{label}</div>
       <div className="text-xs font-medium text-[var(--text)] truncate">{stat.stat_type}</div>
       <div className="text-2xl font-bold text-[var(--gold)]">{formatValue(stat.value)}</div>
+      {hasCI && (
+        <div className="text-xs text-[var(--muted)]">
+          95% CI: {stat.ci_low} – {stat.ci_high}
+        </div>
+      )}
+      {stat.n_sessions != null && (
+        <div className="text-xs text-[var(--muted)]">{stat.n_sessions} sessions</div>
+      )}
       <div className="text-xs text-[var(--muted)]">
         {stat.lower_is_better ? "↓ lower is better" : "↑ higher is better"}
       </div>
+      {badge && (
+        <div className={`text-xs font-semibold ${badge.color}`}>{badge.label}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Streak Bar ────────────────────────────────────────────────────────────────
+
+function StreakBar({ data }: { data: StreakData }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {[
+        { label: "Current Streak", value: `${data.current_streak}d`, highlight: data.current_streak > 0 },
+        { label: "Longest Streak", value: `${data.longest_streak}d`, highlight: false },
+        { label: "Session Days",   value: data.total_session_days,   highlight: false },
+        { label: "Last Played",    value: data.last_session ?? "—",  highlight: false },
+      ].map(({ label, value, highlight }) => (
+        <div
+          key={label}
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-center space-y-1"
+        >
+          <div className="text-xs text-[var(--muted)] uppercase tracking-wide">{label}</div>
+          <div className={`text-xl font-bold ${highlight ? "text-[var(--gold)]" : "text-[var(--text)]"}`}>
+            {value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Heatmap ───────────────────────────────────────────────────────────────────
+
+const DAYS        = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const TIME_SLOTS  = [
+  { label: "Late Night", hours: [0, 1, 2, 3, 4, 5] },
+  { label: "Morning",    hours: [6, 7, 8, 9, 10, 11] },
+  { label: "Afternoon",  hours: [12, 13, 14, 15, 16, 17] },
+  { label: "Evening",    hours: [18, 19, 20, 21, 22, 23] },
+];
+
+function Heatmap({ data }: { data: HeatmapData }) {
+  // Build lookup: dow+slot → session count
+  const lookup: Record<string, number> = {};
+  for (const cell of data.cells) {
+    const slotIdx = TIME_SLOTS.findIndex((s) => s.hours.includes(cell.hour));
+    if (slotIdx === -1) continue;
+    const key = `${cell.dow}-${slotIdx}`;
+    lookup[key] = (lookup[key] ?? 0) + cell.session_count;
+  }
+
+  function intensity(count: number): string {
+    if (count === 0 || data.max_sessions === 0) return "bg-[var(--border)] opacity-40";
+    const pct = count / data.max_sessions;
+    if (pct < 0.25) return "bg-[var(--gold)] opacity-20";
+    if (pct < 0.5)  return "bg-[var(--gold)] opacity-40";
+    if (pct < 0.75) return "bg-[var(--gold)] opacity-70";
+    return "bg-[var(--gold)]";
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr>
+            <th className="text-[var(--muted)] font-normal pr-2 text-right w-10" />
+            {TIME_SLOTS.map((s) => (
+              <th key={s.label} className="text-[var(--muted)] font-normal pb-1 text-center px-1">
+                {s.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {DAYS.map((day, dow) => (
+            <tr key={day}>
+              <td className="text-[var(--muted)] pr-2 text-right py-0.5">{day}</td>
+              {TIME_SLOTS.map((_, slotIdx) => {
+                const count = lookup[`${dow}-${slotIdx}`] ?? 0;
+                return (
+                  <td key={slotIdx} className="px-1 py-0.5">
+                    <div
+                      className={`rounded h-6 ${intensity(count)}`}
+                      title={count > 0 ? `${count} session${count !== 1 ? "s" : ""}` : "No sessions"}
+                    />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-xs text-[var(--muted)] mt-2">
+        Darker = more sessions. Times shown in Pacific Time.
+      </p>
     </div>
   );
 }
@@ -55,15 +176,20 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
   const [games, setGames]             = useState<GameDetails[]>([]);
   const [playerName, setPlayerName]   = useState("");
   const [gameId, setGameId]           = useState<number | null>(null);
+
   // null = loading/not yet fetched, [] = fetched but empty
   const [todayAvg, setTodayAvg]       = useState<KpiStat[] | null>(null);
   const [allTimeBest, setAllTimeBest] = useState<KpiStat[] | null>(null);
-  // undefined = not yet fetched/loading, null = fetch failed, string = html
+  // undefined = loading, null = failed, string = html
   const [chartHtml, setChartHtml]     = useState<string | null | undefined>(undefined);
+  const [heatmap, setHeatmap]         = useState<HeatmapData | null | undefined>(undefined);
+  const [streaks, setStreaks]         = useState<StreakData | null | undefined>(undefined);
   const [error, setError]             = useState<string | null>(null);
 
   const loading      = todayAvg === null && !!gameId;
   const chartLoading = chartHtml === undefined && !!gameId;
+  const heatLoading  = heatmap  === undefined && !!gameId;
+  const streakLoading = streaks === undefined && !!gameId;
 
   // Load players and games on mount
   useEffect(() => {
@@ -75,7 +201,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
     }).catch(() => setError("Failed to load players or games."));
   }, [jwt]);
 
-  // Fetch KPIs + interactive chart when player + game are both selected
+  // Fetch all data when player + game are both selected
   useEffect(() => {
     if (!jwt || !gameId || !playerName) return;
 
@@ -94,10 +220,20 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       .then((html) => setChartHtml(html))
       .catch(() => setChartHtml(null));
 
+    getHeatmap(jwt, gameId, playerName)
+      .then((data) => setHeatmap(data))
+      .catch(() => setHeatmap(null));
+
+    getStreaks(jwt, gameId, playerName)
+      .then((data) => setStreaks(data))
+      .catch(() => setStreaks(null));
+
     return () => {
       setTodayAvg(null);
       setAllTimeBest(null);
       setChartHtml(undefined);
+      setHeatmap(undefined);
+      setStreaks(undefined);
       setError(null);
     };
   }, [jwt, gameId, playerName]);
@@ -141,7 +277,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
         </div>
       </div>
 
-      {/* States */}
+      {/* Error */}
       {error && (
         <div className="rounded px-4 py-3 text-sm bg-red-900/30 border border-red-700 text-red-300">
           ❌ {error}
@@ -155,6 +291,22 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       {loading && (
         <div className="text-sm text-[var(--muted)] text-center py-8 animate-pulse">
           Loading summary…
+        </div>
+      )}
+
+      {/* Streaks */}
+      {gameId && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold text-[var(--text)]">🔥 Session Streaks</h2>
+          {streakLoading && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-center text-sm text-[var(--muted)] animate-pulse">
+              Loading streaks…
+            </div>
+          )}
+          {!streakLoading && streaks && <StreakBar data={streaks} />}
+          {!streakLoading && !streaks && (
+            <EmptyState message="No session data yet for this game." />
+          )}
         </div>
       )}
 
@@ -186,7 +338,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
         </div>
       )}
 
-      {/* Interactive chart */}
+      {/* Performance Trend */}
       {gameId && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-[var(--text)]">📈 Performance Trend</h2>
@@ -206,6 +358,26 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
           )}
           {!chartLoading && !chartHtml && (
             <EmptyState message="Chart unavailable for this game." />
+          )}
+        </div>
+      )}
+
+      {/* Play-time Heatmap */}
+      {gameId && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold text-[var(--text)]">🗓 When You Play</h2>
+          {heatLoading && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-center text-sm text-[var(--muted)] animate-pulse">
+              Loading heatmap…
+            </div>
+          )}
+          {!heatLoading && heatmap && heatmap.cells.length > 0 && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+              <Heatmap data={heatmap} />
+            </div>
+          )}
+          {!heatLoading && (!heatmap || heatmap.cells.length === 0) && (
+            <EmptyState message="Not enough data to show play-time patterns." />
           )}
         </div>
       )}

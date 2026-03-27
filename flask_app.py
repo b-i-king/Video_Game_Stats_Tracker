@@ -2,6 +2,9 @@ import os
 import time
 import threading
 import psycopg2
+import numpy as np
+from scipy import stats as scipy_stats
+from collections import defaultdict
 from psycopg2.pool import SimpleConnectionPool
 from flask import Flask, request, jsonify, send_file
 from datetime import datetime, timedelta, timezone
@@ -1180,12 +1183,26 @@ def delete_stats(stat_id, user_email):
 @app.route('/api/get_recent_stats', methods=['GET'])
 @requires_jwt_auth
 def get_recent_stats(user_email):
-    """Returns the 50 most recent stat entries for the authenticated user."""
+    """Returns the 50 most recent stat entries with z-score anomaly detection."""
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
+        # hist CTE computes mean/std over ALL of the user's data per (game, stat_type)
+        # so z-scores are relative to full history, not just the 50 returned rows.
         cur.execute("""
+            WITH hist AS (
+                SELECT
+                    gs.game_id,
+                    gs.stat_type,
+                    AVG(gs.stat_value::float)    AS hist_mean,
+                    STDDEV_SAMP(gs.stat_value::float) AS hist_std,
+                    COUNT(*)                     AS hist_count
+                FROM fact.fact_game_stats gs
+                JOIN dim.dim_players p ON gs.player_id = p.player_id
+                WHERE p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = %s)
+                GROUP BY gs.game_id, gs.stat_type
+            )
             SELECT
                 gs.stat_id,
                 p.player_name,
@@ -1199,17 +1216,33 @@ def get_recent_stats(user_email):
                 gs.ranked,
                 gs.pre_match_rank_value,
                 gs.post_match_rank_value,
-                gs.played_at
+                gs.played_at,
+                h.hist_mean,
+                h.hist_std,
+                h.hist_count
             FROM fact.fact_game_stats gs
             JOIN dim.dim_players p ON gs.player_id = p.player_id
             JOIN dim.dim_games g ON gs.game_id = g.game_id
+            LEFT JOIN hist h ON gs.game_id = h.game_id AND gs.stat_type = h.stat_type
             WHERE p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = %s)
             ORDER BY gs.played_at DESC
             LIMIT 50;
-        """, (user_email,))
+        """, (user_email, user_email))
         rows = cur.fetchall()
-        stats = [
-            {
+
+        def _outlier_fields(value, mean, std, count):
+            if count is None or count < 5 or std is None or std == 0:
+                return {"is_outlier": False, "z_score": None, "percentile": None}
+            z = (float(value) - float(mean)) / float(std)
+            return {
+                "is_outlier": abs(z) > 2.0,
+                "z_score": round(z, 2),
+                "percentile": int(scipy_stats.norm.cdf(z) * 100),
+            }
+
+        stats = []
+        for row in rows:
+            entry = {
                 "stat_id": row[0],
                 "player_name": row[1],
                 "game_name": row[2],
@@ -1224,8 +1257,9 @@ def get_recent_stats(user_email):
                 "post_match_rank_value": row[11],
                 "played_at": row[12].isoformat() if row[12] else None,
             }
-            for row in rows
-        ]
+            entry.update(_outlier_fields(row[5], row[13], row[14], row[15]))
+            stats.append(entry)
+
         return jsonify({"stats": stats}), 200
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error fetching recent stats for {user_email}: {error}")
@@ -2428,7 +2462,46 @@ def get_summary(user_email, game_id):
                 "lower_is_better": lib,
             })
 
-        return jsonify({"today_avg": today_avg, "all_time_best": all_time_best}), 200
+        # Statistical significance — pull all historical values for CI + z-score
+        cur.execute(f"""
+            SELECT stat_type, stat_value
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s
+              AND stat_type IN ({placeholders})
+              {mode_clause}
+            ORDER BY stat_type;
+        """, (player_id, game_id) + stat_params)
+        hist_by_type = defaultdict(list)
+        for r in cur.fetchall():
+            hist_by_type[r[0]].append(float(r[1]))
+
+        def _ci_and_z(values, today_val=None):
+            """Return (ci_low, ci_high, z_score, n) for a list of historical values."""
+            n = len(values)
+            if n < 3:
+                return None, None, None, n
+            arr = np.array(values, dtype=float)
+            sem = float(scipy_stats.sem(arr))
+            if sem == 0:
+                return None, None, None, n
+            ci = scipy_stats.t.interval(0.95, n - 1, loc=float(np.mean(arr)), scale=sem)
+            z = None
+            if today_val is not None:
+                std = float(np.std(arr, ddof=1))
+                z = round((today_val - float(np.mean(arr))) / std, 2) if std > 0 else 0.0
+            return round(float(ci[0]), 1), round(float(ci[1]), 1), z, n
+
+        today_avg_out = []
+        for stat in today_avg:
+            ci_low, ci_high, z, n = _ci_and_z(hist_by_type.get(stat["stat_type"], []), stat["value"])
+            today_avg_out.append({**stat, "ci_low": ci_low, "ci_high": ci_high, "n_sessions": n, "today_z_score": z})
+
+        all_time_best_out = []
+        for stat in all_time_best:
+            ci_low, ci_high, _, n = _ci_and_z(hist_by_type.get(stat["stat_type"], []))
+            all_time_best_out.append({**stat, "ci_low": ci_low, "ci_high": ci_high, "n_sessions": n})
+
+        return jsonify({"today_avg": today_avg_out, "all_time_best": all_time_best_out}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2600,6 +2673,134 @@ def download_chart(user_email):
         filename = f"{player_name}_{game_name}_{platform}.png".replace(' ', '_')
         return send_file(image_buffer, mimetype='image/png',
                          as_attachment=True, download_name=filename)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+@app.route('/api/get_heatmap/<int:game_id>', methods=['GET'])
+@requires_jwt_auth
+def get_heatmap(user_email, game_id):
+    """
+    Returns session frequency by day-of-week and hour-of-day (PST).
+    Used to render a time-heatmap showing when the player is most active.
+    Query params: player_name (required).
+    # Supabase migration note: replace CONVERT_TIMEZONE(...) with
+    #   played_at AT TIME ZONE 'America/Los_Angeles'
+    """
+    player_name = request.args.get('player_name', '').strip()
+    if not player_name:
+        return jsonify({"error": "player_name is required"}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("SELECT player_id FROM dim.dim_players WHERE player_name = %s;", (player_name,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "Player not found"}), 404
+        player_id = row[0]
+
+        cur.execute("""
+            SELECT
+                EXTRACT(DOW  FROM CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', played_at))::int AS dow,
+                EXTRACT(HOUR FROM CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', played_at))::int AS hour,
+                COUNT(*) AS session_count
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s
+            GROUP BY 1, 2
+            ORDER BY 1, 2;
+        """, (player_id, game_id))
+
+        cells = [
+            {"dow": r[0], "hour": r[1], "session_count": int(r[2])}
+            for r in cur.fetchall()
+        ]
+        max_sessions = max((c["session_count"] for c in cells), default=0)
+        return jsonify({"cells": cells, "max_sessions": max_sessions}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+@app.route('/api/get_streaks/<int:game_id>', methods=['GET'])
+@requires_jwt_auth
+def get_streaks(user_email, game_id):
+    """
+    Returns current streak, longest streak, last session date, and total session days
+    for a given player + game combination.
+    Query params: player_name (required).
+    # Supabase migration note: replace CONVERT_TIMEZONE(...) with
+    #   played_at AT TIME ZONE 'America/Los_Angeles'
+    """
+    player_name = request.args.get('player_name', '').strip()
+    if not player_name:
+        return jsonify({"error": "player_name is required"}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("SELECT player_id FROM dim.dim_players WHERE player_name = %s;", (player_name,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "Player not found"}), 404
+        player_id = row[0]
+
+        cur.execute("""
+            SELECT DISTINCT
+                CAST(CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', played_at) AS DATE) AS session_date
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s
+            ORDER BY session_date DESC;
+        """, (player_id, game_id))
+
+        from datetime import date, timedelta
+        dates = [r[0] for r in cur.fetchall()]   # list of date objects, newest first
+
+        if not dates:
+            return jsonify({
+                "current_streak": 0, "longest_streak": 0,
+                "last_session": None, "total_session_days": 0,
+            }), 200
+
+        # Current streak: consecutive days going back from today or yesterday
+        today = date.today()
+        current_streak = 0
+        if dates[0] >= today - timedelta(days=1):
+            expected = dates[0]
+            for d in dates:
+                if d == expected:
+                    current_streak += 1
+                    expected -= timedelta(days=1)
+                else:
+                    break
+
+        # Longest streak (ascending order)
+        asc = sorted(dates)
+        longest = run = 1
+        for i in range(1, len(asc)):
+            if (asc[i] - asc[i - 1]).days == 1:
+                run += 1
+                longest = max(longest, run)
+            else:
+                run = 1
+
+        return jsonify({
+            "current_streak": current_streak,
+            "longest_streak": max(current_streak, longest),
+            "last_session": dates[0].isoformat(),
+            "total_session_days": len(dates),
+        }), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
