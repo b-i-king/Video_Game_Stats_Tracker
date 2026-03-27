@@ -55,12 +55,15 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
   const [games, setGames]             = useState<GameDetails[]>([]);
   const [playerName, setPlayerName]   = useState("");
   const [gameId, setGameId]           = useState<number | null>(null);
-  const [todayAvg, setTodayAvg]       = useState<KpiStat[]>([]);
-  const [allTimeBest, setAllTimeBest] = useState<KpiStat[]>([]);
-  const [chartHtml, setChartHtml]     = useState<string | null>(null);
-  const [loading, setLoading]         = useState(false);
-  const [chartLoading, setChartLoading] = useState(false);
+  // null = loading/not yet fetched, [] = fetched but empty
+  const [todayAvg, setTodayAvg]       = useState<KpiStat[] | null>(null);
+  const [allTimeBest, setAllTimeBest] = useState<KpiStat[] | null>(null);
+  // undefined = not yet fetched/loading, null = fetch failed, string = html
+  const [chartHtml, setChartHtml]     = useState<string | null | undefined>(undefined);
   const [error, setError]             = useState<string | null>(null);
+
+  const loading      = todayAvg === null && !!gameId;
+  const chartLoading = chartHtml === undefined && !!gameId;
 
   // Load players and games on mount
   useEffect(() => {
@@ -75,23 +78,28 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
   // Fetch KPIs + interactive chart when player + game are both selected
   useEffect(() => {
     if (!jwt || !gameId || !playerName) return;
-    setLoading(true);
-    setChartLoading(true);
-    setError(null);
-    setChartHtml(null);
 
     getSummary(jwt, gameId, playerName)
       .then((data) => {
         setTodayAvg(data.today_avg);
         setAllTimeBest(data.all_time_best);
       })
-      .catch((e) => setError(e.message ?? "Failed to load summary."))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        setError(e.message ?? "Failed to load summary.");
+        setTodayAvg([]);
+        setAllTimeBest([]);
+      });
 
     getInteractiveChart(jwt, gameId, playerName)
       .then((html) => setChartHtml(html))
-      .catch(() => setChartHtml(null))
-      .finally(() => setChartLoading(false));
+      .catch(() => setChartHtml(null));
+
+    return () => {
+      setTodayAvg(null);
+      setAllTimeBest(null);
+      setChartHtml(undefined);
+      setError(null);
+    };
   }, [jwt, gameId, playerName]);
 
   return (
@@ -154,11 +162,11 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       {!loading && gameId && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-[var(--text)]">📅 Today&apos;s Average</h2>
-          {todayAvg.length === 0 ? (
+          {todayAvg!.length === 0 ? (
             <EmptyState message="No stats logged today for this game." />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {todayAvg.map((stat) => (
+              {todayAvg!.map((stat) => (
                 <KpiCard key={stat.stat_type} stat={stat} label="Today's Avg" />
               ))}
             </div>
@@ -167,11 +175,11 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       )}
 
       {/* All-Time Best */}
-      {!loading && gameId && allTimeBest.length > 0 && (
+      {!loading && gameId && allTimeBest!.length > 0 && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-[var(--text)]">🏆 All-Time Best</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {allTimeBest.map((stat) => (
+            {allTimeBest!.map((stat) => (
               <KpiCard key={stat.stat_type} stat={stat} label="All-Time Best" />
             ))}
           </div>

@@ -181,7 +181,6 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       if (d.difficulty !== undefined) setDifficulty(d.difficulty);
       // firstSession is auto-detected per game — not restored from draft
     } catch {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Restore player after players list loads
