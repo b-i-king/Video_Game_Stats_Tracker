@@ -13,6 +13,7 @@ import {
   setLiveState,
   getRecentStats,
   addStats,
+  downloadChart,
   type Player,
   type Installment,
   type StatRow,
@@ -119,6 +120,8 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
     msg: string;
     statCount?: number;
   } | null>(null);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // ── Draft persistence refs ────────────────────────────────────────────────
   const draftRef = useRef<Record<string, unknown> | null>(null);
@@ -1153,6 +1156,49 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
             >
               {submitting ? SUBMIT_STAGES[submitStage] : "Submit Stats"}
             </button>
+
+            {/* Download chart dropdown — enabled after successful submit */}
+            <div className="relative">
+              <button
+                className="btn-sm flex items-center gap-1.5 w-full sm:w-auto"
+                disabled={!submitResult?.ok || downloading}
+                onClick={() => setShowDownloadMenu((p) => !p)}
+                title="Download chart image"
+              >
+                {downloading ? "⏳" : "⬇"} Download
+              </button>
+
+              {showDownloadMenu && (
+                <div className="absolute left-0 top-full mt-1 z-20 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg overflow-hidden min-w-[160px]">
+                  {(
+                    [
+                      { platform: "twitter",   label: "Twitter / X", icon: "𝕏", color: "#1DA1F2" },
+                      { platform: "instagram", label: "Instagram",   icon: "📷", color: "#E1306C" },
+                    ] as const
+                  ).map(({ platform, label, icon, color }) => (
+                    <button
+                      key={platform}
+                      className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-[var(--border)] transition-colors text-left"
+                      onClick={async () => {
+                        setShowDownloadMenu(false);
+                        if (!selectedGameId) return;
+                        setDownloading(true);
+                        try {
+                          await downloadChart(jwt, selectedGameId, playerName, platform);
+                        } catch (e) {
+                          console.error("Download failed:", e);
+                        } finally {
+                          setDownloading(false);
+                        }
+                      }}
+                    >
+                      <span style={{ color }}>{icon}</span>
+                      <span style={{ color }}>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {submitResult?.ok && (

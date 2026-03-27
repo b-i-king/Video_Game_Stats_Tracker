@@ -83,6 +83,17 @@ export interface AddStatsPayload {
   credit_style: string;
 }
 
+export interface KpiStat {
+  stat_type: string;
+  value: number;
+  lower_is_better: boolean;
+}
+
+export interface SummaryData {
+  today_avg: KpiStat[];
+  all_time_best: KpiStat[];
+}
+
 // ── Keep-alive ────────────────────────────────────────────────────────────────
 // Pings the public /health endpoint to wake Render before the user logs in.
 // No auth required — fire-and-forget from the root layout.
@@ -344,6 +355,60 @@ export async function retryFailed(
   });
   if (!res.ok) throw new Error("Retry failed");
   return res.json();
+}
+
+export async function getSummary(
+  jwt: string,
+  gameId: number,
+  playerName: string,
+  gameMode?: string
+): Promise<SummaryData> {
+  const params = new URLSearchParams({ player_name: playerName });
+  if (gameMode) params.set("game_mode", gameMode);
+  const res = await fetch(`${BASE}/api/get_summary/${gameId}?${params}`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error(`Failed to load summary (${res.status})`);
+  return res.json();
+}
+
+export async function getInteractiveChart(
+  jwt: string,
+  gameId: number,
+  playerName: string,
+  gameMode?: string
+): Promise<string> {
+  const params = new URLSearchParams({ player_name: playerName });
+  if (gameMode) params.set("game_mode", gameMode);
+  const res = await fetch(`${BASE}/api/get_interactive_chart/${gameId}?${params}`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error(`Failed to load chart (${res.status})`);
+  return res.text();
+}
+
+export async function downloadChart(
+  jwt: string,
+  gameId: number,
+  playerName: string,
+  platform: "twitter" | "instagram"
+): Promise<void> {
+  const res = await fetch(`${BASE}/api/download_chart`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ game_id: gameId, player_name: playerName, platform }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? `Download failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${playerName}_${platform}_chart.png`.replace(/\s+/g, "_");
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function askBolt(

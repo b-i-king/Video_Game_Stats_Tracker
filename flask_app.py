@@ -502,9 +502,16 @@ def add_trusted_user():
         
 # --- Stat Management Endpoints (add, delete, update) ---
 def _social_media_pipeline(player_id, player_name, game_id, game_name,
-                            game_installment, stats, is_live, credit_style, queue_mode):
+                            game_installment, stats, is_live, credit_style, queue_platforms=None):
     """Run chart generation, GCS upload, and IFTTT trigger in a background thread.
-    Uses its own DB connection so the main request can return immediately."""
+    Uses its own DB connection so the main request can return immediately.
+
+    queue_platforms: list of platform strings to enqueue e.g. ['twitter'], ['twitter', 'instagram'].
+    GCS uploads always run regardless (backup). Platforms not in the list fire immediately via IFTTT
+    (twitter) or are skipped (instagram — Lambda handles Instagram separately).
+    """
+    if queue_platforms is None:
+        queue_platforms = []
     import traceback
     conn2 = None
     try:
@@ -611,7 +618,7 @@ def _social_media_pipeline(player_id, player_name, game_id, game_name,
                 credit_style=credit_style, game_mode=batch_game_mode,
                 interactive_url=interactive_url
             )
-            if queue_mode:
+            if 'twitter' in queue_platforms:
                 qid = enqueue_post(player_id, 'twitter', twitter_public_url, caption)
                 print(f"📥 [bg] Twitter post queued (queue_id={qid})")
             else:
@@ -627,7 +634,7 @@ def _social_media_pipeline(player_id, player_name, game_id, game_name,
                 games_played, platform='instagram', is_live=is_live,
                 credit_style=credit_style, game_mode=batch_game_mode
             )
-            if queue_mode:
+            if 'instagram' in queue_platforms:
                 qid = enqueue_post(player_id, 'instagram', instagram_url, instagram_caption)
                 print(f"📥 [bg] Instagram post queued (queue_id={qid})")
 
@@ -656,7 +663,12 @@ def add_stats(user_email):
     player_name = data.get('player_name')
     stats = data.get('stats')
     is_live = data.get('is_live', False)
-    queue_mode = data.get('queue_mode', False)
+    # queue_platforms: explicit list of platforms to enqueue e.g. ['twitter'], ['twitter','instagram']
+    # Falls back to legacy queue_mode bool: True → ['twitter'] (Instagram never queued by default)
+    if 'queue_platforms' in data:
+        queue_platforms = data.get('queue_platforms', [])
+    else:
+        queue_platforms = ['twitter'] if data.get('queue_mode', False) else []
     credit_style = data.get('credit_style', 'shoutout')
     conn = None
 
@@ -782,7 +794,7 @@ def add_stats(user_email):
                 'stats': list(stats),
                 'is_live': is_live,
                 'credit_style': credit_style,
-                'queue_mode': queue_mode,
+                'queue_platforms': queue_platforms,
             }
             threading.Thread(
                 target=_social_media_pipeline,
@@ -790,7 +802,7 @@ def add_stats(user_email):
                 daemon=True
             ).start()
 
-            post_action = "queued" if queue_mode else "posting"
+            post_action = "queued" if queue_platforms else "posting"
             return jsonify({
                 "message": f"Stats successfully added ({successful_inserts} records)!",
                 "social_media": post_action
@@ -2329,6 +2341,272 @@ def ask_bolt(user_email):
         return jsonify({"reply": "Something went wrong on my end. Try again in a moment."}), 200
 
 # Health check endpoint
+@app.route('/api/get_summary/<int:game_id>', methods=['GET'])
+@requires_jwt_auth
+def get_summary(user_email, game_id):
+    """
+    Return Today's Average and All-Time Best KPIs for the top 3 stat types.
+    Query params: player_name (required), game_mode (optional filter).
+    """
+    player_name = request.args.get('player_name', '').strip()
+    game_mode   = request.args.get('game_mode', '').strip() or None
+
+    if not player_name:
+        return jsonify({"error": "player_name is required"}), 400
+
+    lower_is_better_kws = {'respawn', 'damage taken', 'loss', 'missed'}
+
+    def is_lower_better(stat_type):
+        return any(kw in stat_type.lower() for kw in lower_is_better_kws)
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Resolve player_id
+        cur.execute("SELECT player_id FROM dim.dim_players WHERE player_name = %s;", (player_name,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "Player not found"}), 404
+        player_id = row[0]
+
+        # Top 3 stat types — consistent with pipeline ordering
+        mode_clause = "AND game_mode = %s" if game_mode else ""
+        base_params = (player_id, game_id) + ((game_mode,) if game_mode else ())
+
+        cur.execute(f"""
+            SELECT stat_type
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s AND stat_type IS NOT NULL
+            {mode_clause}
+            GROUP BY stat_type
+            HAVING AVG(stat_value) > 0
+            ORDER BY AVG(stat_value) ASC
+            LIMIT 3;
+        """, base_params)
+        top_stats = [r[0] for r in cur.fetchall()]
+
+        if not top_stats:
+            return jsonify({"today_avg": [], "all_time_best": []}), 200
+
+        placeholders = ','.join(['%s'] * len(top_stats))
+        stat_params  = tuple(top_stats) + ((game_mode,) if game_mode else ())
+
+        # Today's average — PST-adjusted date comparison
+        cur.execute(f"""
+            SELECT stat_type, ROUND(AVG(stat_value)) AS avg_val
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s
+              AND stat_type IN ({placeholders})
+              AND CAST(CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', played_at) AS DATE)
+                  = CAST(CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', GETDATE()) AS DATE)
+              {mode_clause}
+            GROUP BY stat_type;
+        """, (player_id, game_id) + stat_params)
+        today_avg = [
+            {"stat_type": r[0], "value": int(r[1]), "lower_is_better": is_lower_better(r[0])}
+            for r in cur.fetchall()
+        ]
+
+        # All-time best — MAX for normal stats, MIN for lower-is-better
+        cur.execute(f"""
+            SELECT stat_type, MAX(stat_value) AS max_val, MIN(stat_value) AS min_val
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s
+              AND stat_type IN ({placeholders})
+              {mode_clause}
+            GROUP BY stat_type;
+        """, (player_id, game_id) + stat_params)
+        all_time_best = []
+        for r in cur.fetchall():
+            lib      = is_lower_better(r[0])
+            best_val = r[2] if lib else r[1]   # MIN or MAX
+            all_time_best.append({
+                "stat_type": r[0],
+                "value": int(best_val) if float(best_val) == int(best_val) else round(float(best_val), 1),
+                "lower_is_better": lib,
+            })
+
+        return jsonify({"today_avg": today_avg, "all_time_best": all_time_best}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+@app.route('/api/get_interactive_chart/<int:game_id>', methods=['GET'])
+@requires_jwt_auth
+def get_interactive_chart(user_email, game_id):
+    """
+    Generate and return an interactive Plotly HTML chart for the given player/game.
+    Returns raw HTML — embed via iframe srcdoc on the frontend (no GCS upload).
+    Query params: player_name (required), game_mode (optional).
+    """
+    player_name = request.args.get('player_name', '').strip()
+    game_mode   = request.args.get('game_mode', '').strip() or None
+
+    if not player_name:
+        return jsonify({"error": "player_name is required"}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Resolve player_id
+        cur.execute("SELECT player_id FROM dim.dim_players WHERE player_name = %s;", (player_name,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "Player not found"}), 404
+        player_id = row[0]
+
+        # Resolve game info
+        cur.execute("SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = %s;", (game_id,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "Game not found"}), 404
+        game_name, game_installment = row[0], row[1]
+
+        # Total sessions
+        cur.execute("""
+            SELECT COUNT(DISTINCT played_at) FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s;
+        """, (player_id, game_id))
+        games_played = cur.fetchone()[0]
+
+        if games_played == 0:
+            return jsonify({"error": "No stats found for this game"}), 404
+
+        # Top 3 stat types
+        cur.execute("""
+            SELECT stat_type, AVG(stat_value) as avg_value
+            FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s AND stat_type IS NOT NULL
+            GROUP BY stat_type HAVING AVG(stat_value) > 0
+            ORDER BY avg_value ASC LIMIT 3;
+        """, (player_id, game_id))
+        top_stats = [r[0] for r in cur.fetchall()]
+
+        if games_played == 1:
+            cur.execute("""
+                SELECT stat_type, stat_value FROM fact.fact_game_stats
+                WHERE player_id = %s AND game_id = %s
+                ORDER BY played_at DESC LIMIT 3;
+            """, (player_id, game_id))
+            data = {}
+            for i, (stype, sval) in enumerate(cur.fetchall(), 1):
+                data[f'stat{i}'] = {'label': stype, 'value': sval, 'prev_value': None}
+            chart_type = 'bar'
+        else:
+            data = get_stat_history_from_db(cur, player_id, game_id, top_stats, days_back=365)
+            chart_type = 'line'
+
+        html_bytes = generate_interactive_chart(
+            chart_type, data, player_name, game_name,
+            game_installment=game_installment, game_mode=game_mode
+        )
+        return html_bytes, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
+@app.route('/api/download_chart', methods=['POST'])
+@requires_jwt_auth
+def download_chart(user_email):
+    """Generate and stream a chart PNG for the given player/game/platform."""
+    data = request.get_json(silent=True) or {}
+    game_id    = data.get('game_id')
+    player_name = data.get('player_name', '').strip()
+    platform   = data.get('platform', 'twitter')
+
+    if not all([game_id, player_name]):
+        return jsonify({"error": "Missing game_id or player_name"}), 400
+    if platform not in ('twitter', 'instagram'):
+        return jsonify({"error": "platform must be 'twitter' or 'instagram'"}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Resolve player_id
+        cur.execute("SELECT player_id FROM dim.dim_players WHERE player_name = %s;", (player_name,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "Player not found"}), 404
+        player_id = row[0]
+
+        # Resolve game info
+        cur.execute("SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = %s;", (game_id,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "Game not found"}), 404
+        game_name, game_installment = row[0], row[1]
+
+        # Most recent game mode
+        cur.execute("""
+            SELECT game_mode FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s
+            ORDER BY played_at DESC LIMIT 1;
+        """, (player_id, game_id))
+        row = cur.fetchone()
+        game_mode = row[0] if row else None
+
+        # Total sessions
+        cur.execute("""
+            SELECT COUNT(DISTINCT played_at) FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s;
+        """, (player_id, game_id))
+        games_played = cur.fetchone()[0]
+
+        if games_played == 0:
+            return jsonify({"error": "No stats found for this game"}), 404
+
+        if games_played == 1:
+            cur.execute("""
+                SELECT stat_type, stat_value FROM fact.fact_game_stats
+                WHERE player_id = %s AND game_id = %s
+                ORDER BY played_at DESC LIMIT 3;
+            """, (player_id, game_id))
+            stat_data = {}
+            for i, (stype, sval) in enumerate(cur.fetchall(), 1):
+                stat_data[f'stat{i}'] = {'label': stype, 'value': sval, 'prev_value': None}
+            image_buffer = generate_bar_chart(
+                stat_data, player_name, game_name, game_installment,
+                size=platform, game_mode=game_mode
+            )
+        else:
+            cur.execute("""
+                SELECT stat_type FROM fact.fact_game_stats
+                WHERE player_id = %s AND game_id = %s AND stat_type IS NOT NULL
+                GROUP BY stat_type HAVING AVG(stat_value) > 0
+                ORDER BY AVG(stat_value) ASC LIMIT 3;
+            """, (player_id, game_id))
+            top_stats = [r[0] for r in cur.fetchall()]
+            stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats, days_back=365)
+            image_buffer = generate_line_chart(
+                stat_history, player_name, game_name, game_installment,
+                size=platform, game_mode=game_mode
+            )
+
+        image_buffer.seek(0)
+        filename = f"{player_name}_{game_name}_{platform}.png".replace(' ', '_')
+        return send_file(image_buffer, mimetype='image/png',
+                         as_attachment=True, download_name=filename)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     # Fire a background Redshift ping to pre-warm the connection pool.

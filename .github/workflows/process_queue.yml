@@ -2,8 +2,9 @@ name: Process Post Queue
 
 on:
   schedule:
-    # Every 30 min, 0:00–6:30 UTC Tue–Sat = 5pm–10:30pm PST Mon–Fri (year-round safe window)
-    - cron: '*/30 0-6 * * 2-6'
+    # Every 30 min, 0:07–6:37 UTC Tue–Sat = 5:07pm–11:37pm PDT Mon–Fri
+    # Offset to :07/:37 to avoid GitHub Actions peak congestion at :00/:30
+    - cron: '7,37 0-6 * * 2-6'
   workflow_dispatch:
     # Allow manual trigger from GitHub Actions UI
     inputs:

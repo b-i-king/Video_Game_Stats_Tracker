@@ -8,8 +8,9 @@ import DeleteTab from "./DeleteTab";
 import QueuePanel from "./QueuePanel";
 import BoltPanel from "./BoltPanel";
 import { ToastProvider } from "./Toast";
+import SummaryTab from "./SummaryTab";
 
-type Tab = "enter" | "edit" | "delete";
+type Tab = "enter" | "edit" | "delete" | "summary";
 
 // ── Business hours helper (mirrors is_business_hours_pst() in app_utils.py) ──
 function getNthWeekday(year: number, month: number, weekday: number, n: number): Date {
@@ -111,7 +112,7 @@ export default function StatsPageClient() {
           <div className="flex-1 min-w-0">
             {/* Tabs */}
             <div className="flex border-b border-[var(--border)] mb-5">
-              {(["enter", ...(isTrusted ? ["edit", "delete"] : [])] as Tab[]).map(
+              {(["enter", "summary", ...(isTrusted ? ["edit", "delete"] : [])] as Tab[]).map(
                 (tab) => (
                   <button
                     key={tab}
@@ -131,6 +132,7 @@ export default function StatsPageClient() {
             {activeTab === "enter" && (
               <StatsForm jwt={jwt} isTrusted={isTrusted} queueMode={queueMode} />
             )}
+            {activeTab === "summary" && <SummaryTab jwt={jwt} />}
             {activeTab === "edit" && isTrusted && <EditTab jwt={jwt} />}
             {activeTab === "delete" && isTrusted && <DeleteTab jwt={jwt} />}
           </div>
