@@ -357,7 +357,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       {/* ESPN Ticker */}
       {gameId && !loading && (
         <StatTicker
-          gameName={gameLabel(games.find((g) => g.game_id === gameId) ?? { game_name: "" })}
+          gameName={games.find((g) => g.game_id === gameId)?.game_name ?? ""}
           todayStats={todayAvg ?? []}
           bestStats={allTimeBest ?? []}
         />
@@ -399,7 +399,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       {/* Today's Average */}
       {!loading && gameId && (
         <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-[var(--text)]">📅 Today&apos;s Average</h2>
+          <h2 className="text-sm font-semibold text-[var(--text)]">🎯 Today&apos;s Average</h2>
           {todayAvg!.length === 0 ? (
             <EmptyState message="No stats logged today for this game." />
           ) : (
@@ -451,7 +451,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       {/* Play-time Heatmap */}
       {gameId && (
         <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-[var(--text)]">🗓 When You Play</h2>
+          <h2 className="text-sm font-semibold text-[var(--text)]">📅 When You Play</h2>
           {heatLoading && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-center text-sm text-[var(--muted)] animate-pulse">
               Loading heatmap…
