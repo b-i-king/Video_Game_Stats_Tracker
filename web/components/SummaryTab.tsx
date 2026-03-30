@@ -159,6 +159,79 @@ function Heatmap({ data }: { data: HeatmapData }) {
   );
 }
 
+// ── ESPN Ticker ───────────────────────────────────────────────────────────────
+
+/** Build narrative fact strings from already-fetched KPI data — zero extra queries. */
+function buildTickerFacts(
+  gameName: string,
+  todayStats: KpiStat[],
+  bestStats: KpiStat[]
+): string[] {
+  const facts: string[] = [];
+
+  for (const s of todayStats) {
+    const v = formatValue(s.value);
+    if (s.ci_low != null && s.ci_high != null && s.n_sessions != null) {
+      facts.push(
+        `${s.stat_type}: avg ${v} across ${s.n_sessions} sessions` +
+          ` (95% CI ${formatValue(s.ci_low)}–${formatValue(s.ci_high)})`
+      );
+    } else {
+      facts.push(`Today's ${s.stat_type}: ${v}${s.lower_is_better ? " ↓" : " ↑"}`);
+    }
+    if (s.today_z_score != null) {
+      const z = s.today_z_score;
+      const label =
+        z >= 2    ? "elite — top 2.5%"
+        : z >= 1  ? "above average"
+        : z <= -2 ? "well below average"
+        : z <= -1 ? "below average"
+        : "right on average";
+      facts.push(`${s.stat_type} today: ${z > 0 ? "+" : ""}${z}σ (${label})`);
+    }
+  }
+
+  for (const s of bestStats) {
+    facts.push(`All-time best ${s.stat_type} in ${gameName}: ${formatValue(s.value)}`);
+  }
+
+  return facts;
+}
+
+function StatTicker({
+  gameName,
+  todayStats,
+  bestStats,
+}: {
+  gameName: string;
+  todayStats: KpiStat[];
+  bestStats: KpiStat[];
+}) {
+  const items = buildTickerFacts(gameName, todayStats, bestStats);
+  if (!items.length) return null;
+
+  const content = [gameName.toUpperCase(), ...items].join("  •  ");
+  const doubled = `${content}  •  ${content}`;
+
+  return (
+    <div className="overflow-hidden rounded border border-[var(--border)] bg-black/60 text-[var(--gold)] text-xs font-semibold py-1.5 select-none">
+      <style>{`
+        @keyframes ticker-scroll {
+          from { transform: translateX(0); }
+          to   { transform: translateX(-50%); }
+        }
+        .ticker-track {
+          display: inline-block;
+          white-space: nowrap;
+          animation: ticker-scroll 35s linear infinite;
+        }
+        .ticker-track:hover { animation-play-state: paused; }
+      `}</style>
+      <span className="ticker-track px-4">{doubled}</span>
+    </div>
+  );
+}
+
 // ── Empty state ────────────────────────────────────────────────────────────────
 
 function EmptyState({ message }: { message: string }) {
@@ -276,6 +349,15 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
           </select>
         </div>
       </div>
+
+      {/* ESPN Ticker */}
+      {gameId && !loading && (
+        <StatTicker
+          gameName={games.find((g) => g.game_id === gameId)?.game_name ?? ""}
+          todayStats={todayAvg ?? []}
+          bestStats={allTimeBest ?? []}
+        />
+      )}
 
       {/* Error */}
       {error && (

@@ -2,9 +2,12 @@
   "files.watcherExclude": {
     "**/temp/**": true
   },
+  "sqltools.useNodeRuntime": true,
+  "sql.lintingEnabled": false,
+  "mssql.enableSqlAuthenticationProvider": false,
+  "mssql.intelliSense.enableIntelliSense": false,
+  "mssql.intelliSense.enableErrorUnderlines": false,
   "[sql]": {
     "editor.defaultFormatter": "mtxr.sqltools"
-  },
-  "sqltools.useNodeRuntime": true,
-  "sql.lintingEnabled": false
+  }
 }

@@ -449,6 +449,19 @@ export async function getHeatmap(
   return res.json();
 }
 
+export async function getTickerFacts(
+  jwt: string,
+  gameId: number,
+  playerName: string
+): Promise<{ facts: string[]; sessions: number }> {
+  const params = new URLSearchParams({ player_name: playerName });
+  const res = await fetch(`${BASE}/api/get_ticker_facts/${gameId}?${params}`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error(`Failed to load ticker facts (${res.status})`);
+  return res.json();
+}
+
 export async function getStreaks(
   jwt: string,
   gameId: number,

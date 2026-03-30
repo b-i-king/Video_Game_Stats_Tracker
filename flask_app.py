@@ -2808,6 +2808,87 @@ def get_streaks(user_email, game_id):
             release_db_connection(conn)
 
 
+@app.route('/api/get_ticker_facts/<int:game_id>', methods=['GET'])
+@requires_jwt_auth
+def get_ticker_facts(user_email, game_id):
+    """
+    Returns tiered educational stat facts for the Summary page ticker.
+    Replaces the OBS-gated get_stat_ticker with JWT auth and player_name param.
+    Tiers (same as OBS version):
+    - 1-2 sessions:  basic facts (best value, high score)
+    - 3-30 sessions: + descriptive stats (mean, median, mode, range)
+    - 30+ sessions:  + advanced stats (std dev, variance, percentiles)
+    Query params: player_name (required)
+    # Supabase migration note: replace CONVERT_TIMEZONE(...) with
+    #   played_at AT TIME ZONE 'America/Los_Angeles' in generate_basic_facts
+    """
+    player_name = request.args.get('player_name', '').strip()
+    if not player_name:
+        return jsonify({"error": "player_name is required"}), 400
+
+    _cache_key = f"ticker_facts_{game_id}_{player_name}"
+    _cached = _cache_get(_cache_key)
+    if _cached:
+        return jsonify(_cached[0]), _cached[1]
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT game_name, game_series
+            FROM dim.dim_games
+            WHERE game_id = %s;
+        """, (game_id,))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({"error": "Game not found"}), 404
+        game_name, game_series = row
+        full_game_name = f"{game_name}: {game_series}" if game_series else game_name
+
+        cur.execute("""
+            SELECT player_id FROM dim.dim_players WHERE player_name = %s LIMIT 1;
+        """, (player_name,))
+        p = cur.fetchone()
+        if not p:
+            return jsonify({"error": "Player not found"}), 404
+        player_id = p[0]
+
+        cur.execute("""
+            SELECT COUNT(DISTINCT played_at) FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s;
+        """, (player_id, game_id))
+        sessions = cur.fetchone()[0]
+
+        if sessions == 0:
+            return jsonify({"facts": [], "sessions": 0}), 200
+
+        cur.execute("""
+            SELECT DISTINCT stat_type FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s AND stat_type IS NOT NULL;
+        """, (player_id, game_id))
+        stat_types = [r[0] for r in cur.fetchall()]
+
+        facts = []
+        if sessions >= 1:
+            facts.extend(generate_basic_facts(cur, player_id, game_id, player_name, full_game_name, stat_types, 'America/Los_Angeles'))
+        if sessions >= 3:
+            facts.extend(generate_descriptive_stats(cur, player_id, game_id, player_name, full_game_name, stat_types))
+        if sessions > 30:
+            facts.extend(generate_advanced_stats(cur, player_id, game_id, player_name, full_game_name, stat_types))
+
+        result = {"facts": facts, "sessions": sessions}
+        _cache_set(_cache_key, result, 200, ttl_seconds=900)
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            release_db_connection(conn)
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     # Fire a background Redshift ping to pre-warm the connection pool.
