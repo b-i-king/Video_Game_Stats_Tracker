@@ -40,6 +40,7 @@ export interface StatEntry {
   stat_id: number;
   player_name: string;
   game_name: string;
+  game_installment?: string | null;
   game_id: number;
   stat_type: string;
   stat_value: number;

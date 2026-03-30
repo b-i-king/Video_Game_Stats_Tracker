@@ -763,6 +763,21 @@ def add_stats(user_email):
         successful_inserts = 0
         for stat_record in stats:
             if not stat_record.get('stat_type') or stat_record.get('stat_value') is None: continue
+
+            # Normalize stat_type casing (e.g. "kills" → "Kills", "head shots" → "Head Shots")
+            stat_record['stat_type'] = stat_record['stat_type'].strip().title()
+
+            # Validate stat_value is numeric and in range
+            val = stat_record.get('stat_value')
+            if not isinstance(val, (int, float)) or val < 0 or val > 100_000:
+                return jsonify({"error": f"stat_value out of range or invalid: {val}"}), 400
+
+            # Validate boolean-like fields — must be 0, 1, or NULL (NULL = not applicable, e.g. zombies mode)
+            for bool_field in ('win', 'ranked', 'overtime', 'solo_mode'):
+                v = stat_record.get(bool_field)
+                if v is not None and v not in (0, 1):
+                    return jsonify({"error": f"'{bool_field}' must be 0, 1, or null — got: {v}"}), 400
+
             cur.execute("""
                 INSERT INTO fact.fact_game_stats
                 (game_id, player_id, stat_type, stat_value, game_mode, solo_mode, party_size,
@@ -1207,6 +1222,7 @@ def get_recent_stats(user_email):
                 gs.stat_id,
                 p.player_name,
                 g.game_name,
+                g.game_installment,
                 g.game_id,
                 gs.stat_type,
                 gs.stat_value,
@@ -1246,18 +1262,19 @@ def get_recent_stats(user_email):
                 "stat_id": row[0],
                 "player_name": row[1],
                 "game_name": row[2],
-                "game_id": row[3],
-                "stat_type": row[4],
-                "stat_value": row[5],
-                "game_mode": row[6],
-                "game_level": row[7],
-                "win": row[8],
-                "ranked": row[9],
-                "pre_match_rank_value": row[10],
-                "post_match_rank_value": row[11],
-                "played_at": row[12].isoformat() if row[12] else None,
+                "game_installment": row[3],
+                "game_id": row[4],
+                "stat_type": row[5],
+                "stat_value": row[6],
+                "game_mode": row[7],
+                "game_level": row[8],
+                "win": row[9],
+                "ranked": row[10],
+                "pre_match_rank_value": row[11],
+                "post_match_rank_value": row[12],
+                "played_at": row[13].isoformat() if row[13] else None,
             }
-            entry.update(_outlier_fields(row[5], row[13], row[14], row[15]))
+            entry.update(_outlier_fields(row[6], row[14], row[15], row[16]))
             stats.append(entry)
 
         return jsonify({"stats": stats}), 200

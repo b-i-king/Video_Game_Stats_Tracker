@@ -19,6 +19,25 @@ interface Props {
   jwt: string;
 }
 
+function fullGameName(s: { game_name: string; game_installment?: string | null }): string {
+  return s.game_installment ? `${s.game_name}: ${s.game_installment}` : s.game_name;
+}
+
+function formatPlayedAt(raw: string): string {
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "America/Los_Angeles",
+    timeZoneName: "short",
+  });
+}
+
 type SubTab = "player" | "game" | "stat";
 
 export default function DeleteTab({ jwt }: Props) {
@@ -301,8 +320,7 @@ function DeleteStat({ jwt }: Props) {
             <option value="">— Select entry —</option>
             {stats.map((s) => (
               <option key={s.stat_id} value={s.stat_id}>
-                ({s.stat_id}) {s.game_name} — {s.stat_type}: {s.stat_value} @{" "}
-                {s.played_at}
+                {s.is_outlier ? "⚡ " : ""}{fullGameName(s)} — {s.stat_type}: {s.stat_value} on {formatPlayedAt(s.played_at)}
               </option>
             ))}
           </select>

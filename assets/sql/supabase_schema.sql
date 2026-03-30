@@ -110,7 +110,16 @@ CREATE TABLE IF NOT EXISTS fact.fact_game_stats (
     was_streaming         INTEGER      NOT NULL DEFAULT 0,
     played_at             TIMESTAMPTZ  DEFAULT NOW(),
     source                TEXT         NOT NULL DEFAULT 'manual',
-    is_editable           BOOLEAN      NOT NULL DEFAULT TRUE
+    is_editable           BOOLEAN      NOT NULL DEFAULT TRUE,
+
+    -- Data quality constraints
+    -- win/ranked/overtime/solo_mode allow NULL: some game modes (e.g. zombies, waves)
+    -- do not have a win/loss concept — NULL means "not applicable", not missing.
+    CONSTRAINT chk_win        CHECK (win       IS NULL OR win       IN (0, 1)),
+    CONSTRAINT chk_ranked     CHECK (ranked    IS NULL OR ranked    IN (0, 1)),
+    CONSTRAINT chk_overtime   CHECK (overtime  IN (0, 1)),
+    CONSTRAINT chk_solo_mode  CHECK (solo_mode IS NULL OR solo_mode IN (0, 1)),
+    CONSTRAINT chk_stat_value CHECK (stat_value >= 0 AND stat_value <= 100000)
 );
 
 
