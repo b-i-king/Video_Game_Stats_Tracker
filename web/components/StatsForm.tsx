@@ -1147,56 +1147,63 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
               ✅ I have reviewed my stats above and they are correct.
             </label>
 
-            <button
-              className="btn-primary w-full sm:w-auto disabled:opacity-40"
-              disabled={!confirmed || hasCritical || submitting || filledStats.length === 0}
-              onClick={handleSubmit}
-              title="Ctrl+Enter"
-            >
-              {submitting ? SUBMIT_STAGES[submitStage] : "Submit Stats"}
-            </button>
-
-            {/* Download chart dropdown — enabled after successful submit */}
-            <div className="relative">
+            {/* Submit + Download — same row, download fills remaining width */}
+            <div className="flex items-stretch gap-2">
               <button
-                className="btn-sm flex items-center gap-1.5 w-full sm:w-auto"
-                disabled={!submitResult?.ok || downloading}
-                onClick={() => setShowDownloadMenu((p) => !p)}
-                title="Download chart image"
+                className="btn-primary shrink-0 disabled:opacity-40"
+                disabled={!confirmed || hasCritical || submitting || filledStats.length === 0}
+                onClick={handleSubmit}
+                title="Ctrl+Enter"
               >
-                {downloading ? "⏳" : "⬇"} Download
+                {submitting ? SUBMIT_STAGES[submitStage] : "Submit Stats"}
               </button>
 
-              {showDownloadMenu && (
-                <div className="absolute left-0 top-full mt-1 z-20 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg overflow-hidden min-w-[160px]">
-                  {(
-                    [
-                      { platform: "twitter",   label: "Twitter / X", icon: "𝕏", color: "#1DA1F2" },
-                      { platform: "instagram", label: "Instagram",   icon: "📷", color: "#E1306C" },
-                    ] as const
-                  ).map(({ platform, label, icon, color }) => (
-                    <button
-                      key={platform}
-                      className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-[var(--border)] transition-colors text-left"
-                      onClick={async () => {
-                        setShowDownloadMenu(false);
-                        if (!selectedGameId) return;
-                        setDownloading(true);
-                        try {
-                          await downloadChart(jwt, selectedGameId, playerName, platform);
-                        } catch (e) {
-                          console.error("Download failed:", e);
-                        } finally {
-                          setDownloading(false);
-                        }
-                      }}
-                    >
-                      <span style={{ color }}>{icon}</span>
-                      <span style={{ color }}>{label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* Download — locked until today's stats are submitted */}
+              <div className="relative flex-1">
+                <button
+                  className="flex items-center justify-center gap-1.5 w-full h-full px-4 rounded
+                    border border-[var(--border)] bg-[var(--surface)] text-sm font-medium
+                    transition-colors
+                    disabled:opacity-30 disabled:cursor-not-allowed
+                    enabled:hover:bg-[var(--border)] enabled:hover:text-[var(--gold)]"
+                  disabled={!submitResult?.ok || downloading}
+                  onClick={() => setShowDownloadMenu((p) => !p)}
+                  title={!submitResult?.ok ? "Submit today's stats first to unlock download" : "Download chart image"}
+                >
+                  {downloading ? "⏳" : "⬇"} Download Chart
+                </button>
+
+                {showDownloadMenu && (
+                  <div className="absolute left-0 top-full mt-1 z-20 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg overflow-hidden min-w-[160px]">
+                    {(
+                      [
+                        { platform: "twitter",   label: "Twitter / X", icon: "𝕏", color: "#1DA1F2" },
+                        { platform: "instagram", label: "Instagram",   icon: "📷", color: "#E1306C" },
+                      ] as const
+                    ).map(({ platform, label, icon, color }) => (
+                      <button
+                        key={platform}
+                        className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-[var(--border)] transition-colors text-left"
+                        onClick={async () => {
+                          setShowDownloadMenu(false);
+                          if (!selectedGameId) return;
+                          setDownloading(true);
+                          try {
+                            await downloadChart(jwt, selectedGameId, playerName, platform);
+                          } catch (e) {
+                            console.error("Download failed:", e);
+                          } finally {
+                            setDownloading(false);
+                          }
+                        }}
+                      >
+                        <span style={{ color }}>{icon}</span>
+                        <span style={{ color }}>{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
