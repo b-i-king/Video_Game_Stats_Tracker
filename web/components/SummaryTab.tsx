@@ -79,7 +79,7 @@ function StreakBar({ data }: { data: StreakData }) {
         { label: "Current Streak", value: `${data.current_streak}d`, highlight: data.current_streak > 0 },
         { label: "Longest Streak", value: `${data.longest_streak}d`, highlight: false },
         { label: "Session Days",   value: data.total_session_days,   highlight: false },
-        { label: "Last Played",    value: data.last_session ?? "—",  highlight: false },
+        { label: "Last Played",    value: data.last_session ? new Date(data.last_session).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—", highlight: false },
       ].map(({ label, value, highlight }) => (
         <div
           key={label}
