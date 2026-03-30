@@ -328,12 +328,10 @@ function DeleteStat({ jwt }: Props) {
           {selectedId && step === "select" && (
             <>
               <p className="text-sm text-yellow-300">
-                Delete stat ID {selectedId} —{" "}
+                Delete this entry?{" "}
                 <strong>
-                  {selected?.game_name}: {selected?.stat_type} ={" "}
-                  {selected?.stat_value}
+                  {selected ? fullGameName(selected) : ""} — {selected?.stat_type}: {selected?.stat_value} on {selected ? formatPlayedAt(selected.played_at) : ""}
                 </strong>
-                ?
               </p>
               <button
                 className="btn-sm border-yellow-600 text-yellow-300 hover:bg-yellow-900/30"

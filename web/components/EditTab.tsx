@@ -340,6 +340,7 @@ function EditStats({ jwt }: Props) {
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const [readyToSubmit, setReadyToSubmit] = useState(false);
   const [form, setForm] = useState<Partial<StatEntry>>({});
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -349,6 +350,7 @@ function EditStats({ jwt }: Props) {
       setStats(data);
       setLoaded(true);
       setConfirmed(false);
+      setReadyToSubmit(false);
       setSelectedId(null);
       setMsg(null);
     } catch (e) {
@@ -359,6 +361,7 @@ function EditStats({ jwt }: Props) {
   function handleSelect(id: number) {
     setSelectedId(id);
     setConfirmed(false);
+    setReadyToSubmit(false);
     const entry = stats.find((s) => s.stat_id === id);
     if (entry) setForm({ ...entry });
   }
@@ -375,6 +378,17 @@ function EditStats({ jwt }: Props) {
   }
 
   const selected = stats.find((s) => s.stat_id === selectedId);
+
+  // Fields that can change and are worth diffing
+  const diffFields: Array<{ key: keyof StatEntry; label: string }> = [
+    { key: "stat_type",  label: "Stat Type"  },
+    { key: "stat_value", label: "Stat Value"  },
+    { key: "game_mode",  label: "Game Mode"   },
+    { key: "game_level", label: "Game Level"  },
+  ];
+  const changes = selected
+    ? diffFields.filter(({ key }) => String(form[key] ?? "") !== String(selected[key] ?? ""))
+    : [];
 
   return (
     <div className="space-y-3">
@@ -475,9 +489,47 @@ function EditStats({ jwt }: Props) {
                 </div>
               </div>
 
-              <button className="btn-primary" onClick={handleUpdate}>
-                Update Entry
-              </button>
+              {!readyToSubmit ? (
+                <button
+                  className="btn-primary"
+                  onClick={() => setReadyToSubmit(true)}
+                >
+                  Review Changes
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  {changes.length === 0 ? (
+                    <p className="text-sm text-[var(--muted)]">No changes detected.</p>
+                  ) : (
+                    <div className="rounded border border-yellow-700 bg-yellow-900/20 px-3 py-2 space-y-1">
+                      <p className="text-xs font-semibold text-yellow-300 mb-1">Review your changes:</p>
+                      {changes.map(({ key, label }) => (
+                        <p key={key} className="text-xs text-yellow-200">
+                          <span className="font-semibold">{label}:</span>{" "}
+                          <span className="line-through text-red-400">{String(selected![key] ?? "—")}</span>
+                          {" → "}
+                          <span className="text-green-400">{String(form[key] ?? "—")}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      className="btn-sm"
+                      onClick={() => setReadyToSubmit(false)}
+                    >
+                      Go Back
+                    </button>
+                    <button
+                      className="btn-primary"
+                      disabled={changes.length === 0}
+                      onClick={handleUpdate}
+                    >
+                      Confirm Update
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
