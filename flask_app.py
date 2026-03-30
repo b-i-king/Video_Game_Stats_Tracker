@@ -1,3 +1,21 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# SUPABASE MIGRATION REFERENCE — grep targets before going live
+# ══════════════════════════════════════════════════════════════════════════════
+# Replace ALL of the following Redshift-specific syntax with PostgreSQL:
+#
+#   GETDATE()                    →  NOW()
+#   CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', col)
+#                                →  col AT TIME ZONE 'America/Los_Angeles'
+#   CAST(CONVERT_TIMEZONE(…) AS DATE)
+#                                →  (col AT TIME ZONE 'America/Los_Angeles')::DATE
+#   STDDEV_SAMP(x)               →  STDDEV_SAMP(x)  ✅ same in PostgreSQL
+#   COUNT(DISTINCT …)            →  COUNT(DISTINCT …) ✅ same
+#   ISNULL(x, y)                 →  COALESCE(x, y)  (check if any exist)
+#
+# As of 2026-03-31 grep counts:  GETDATE x13,  CONVERT_TIMEZONE x11
+# Run:  grep -n "GETDATE\|CONVERT_TIMEZONE\|ISNULL" flask_app.py
+# ══════════════════════════════════════════════════════════════════════════════
+
 import os
 import time
 import threading
@@ -1627,13 +1645,13 @@ def set_live_state(user_email):
 # --- OBS Active State Endpoints ---
 @app.route('/api/obs_status', methods=['GET'])
 @requires_jwt_auth
-def get_obs_status(_user_email):
+def get_obs_status(user_email):
     """Returns the current OBS active flag."""
     return jsonify({"obs_active": obs_active}), 200
 
 @app.route('/api/set_obs_active', methods=['POST'])
 @requires_jwt_auth
-def set_obs_active(_user_email):
+def set_obs_active(user_email):
     """
     Called by Streamlit to activate/deactivate the OBS overlay and ticker.
     When obs_active=False, get_live_dashboard and get_stat_ticker skip Redshift
