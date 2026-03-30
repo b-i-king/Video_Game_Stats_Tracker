@@ -1353,14 +1353,17 @@ def get_games(user_email):
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
-            SELECT DISTINCT g.game_id, g.game_name
+            SELECT DISTINCT g.game_id, g.game_name, g.game_installment
             FROM dim.dim_games g
             JOIN fact.fact_game_stats gs ON g.game_id = gs.game_id
             JOIN dim.dim_players p ON gs.player_id = p.player_id
             WHERE p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = %s)
-            ORDER BY g.game_name;
+            ORDER BY g.game_name, g.game_installment;
         """, (user_email,))
-        games = [{"game_id": row[0], "game_name": row[1]} for row in cur.fetchall()]
+        games = [
+            {"game_id": row[0], "game_name": row[1], "game_installment": row[2]}
+            for row in cur.fetchall()
+        ]
         return jsonify({"games": games}), 200
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error while fetching games for user {user_email}: {error}")

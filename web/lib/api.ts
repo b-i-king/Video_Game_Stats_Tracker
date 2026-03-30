@@ -31,7 +31,7 @@ export interface Installment {
 export interface GameDetails {
   game_id: number;
   game_name: string;
-  game_series?: string;
+  game_installment?: string | null;
   game_genre?: string;
   game_subgenre?: string;
 }

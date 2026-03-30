@@ -21,6 +21,10 @@ function formatValue(value: number): string {
   return value.toLocaleString();
 }
 
+function gameLabel(g: { game_name: string; game_installment?: string | null }): string {
+  return g.game_installment ? `${g.game_name}: ${g.game_installment}` : g.game_name;
+}
+
 // z-score → badge label + color
 function zBadge(z: number | null | undefined, lowerIsBetter: boolean) {
   if (z == null) return null;
@@ -343,7 +347,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
             <option value="">— Select a game —</option>
             {games.map((g) => (
               <option key={g.game_id} value={g.game_id}>
-                {g.game_name}{g.game_series ? ` — ${g.game_series}` : ""}
+                {gameLabel(g)}
               </option>
             ))}
           </select>
@@ -353,7 +357,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       {/* ESPN Ticker */}
       {gameId && !loading && (
         <StatTicker
-          gameName={games.find((g) => g.game_id === gameId)?.game_name ?? ""}
+          gameName={gameLabel(games.find((g) => g.game_id === gameId) ?? { game_name: "" })}
           todayStats={todayAvg ?? []}
           bestStats={allTimeBest ?? []}
         />
