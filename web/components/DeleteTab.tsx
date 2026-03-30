@@ -188,7 +188,7 @@ function DeleteGame({ jwt }: Props) {
     if (!selectedId) return;
     try {
       await deleteGame(jwt, selectedId);
-      setMsg({ ok: true, text: `Game "${selected?.game_name}" deleted.` });
+      setMsg({ ok: true, text: `Game "${selected ? fullGameName(selected) : ""}" deleted.` });
       await load();
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message });
@@ -218,7 +218,7 @@ function DeleteGame({ jwt }: Props) {
             <option value="">— Select game —</option>
             {games.map((g) => (
               <option key={g.game_id} value={g.game_id}>
-                {g.game_name}
+                {fullGameName(g)}
               </option>
             ))}
           </select>
@@ -227,7 +227,7 @@ function DeleteGame({ jwt }: Props) {
             <>
               <p className="text-sm text-yellow-300">
                 Attempting to delete{" "}
-                <strong>{selected?.game_name}</strong> — this will only succeed
+                <strong>{selected ? fullGameName(selected) : ""}</strong> — this will only succeed
                 if all stats have been removed first.
               </p>
               <button

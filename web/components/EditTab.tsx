@@ -251,7 +251,7 @@ function EditGame({ jwt }: Props) {
             <option value="">— Select game —</option>
             {games.map((g) => (
               <option key={g.game_id} value={g.game_id}>
-                {g.game_name}
+                {fullGameName(g)}
               </option>
             ))}
           </select>
