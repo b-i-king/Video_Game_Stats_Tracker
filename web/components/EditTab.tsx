@@ -9,10 +9,13 @@ function fullGameName(s: { game_name: string; game_installment?: string | null }
 }
 
 function formatPlayedAt(raw: string): string {
-  const d = new Date(raw);
+  // Normalize to UTC: Python isoformat() returns no Z/offset, JS would
+  // treat it as local time causing a double-conversion error.
+  const utc = raw.endsWith("Z") || raw.includes("+") ? raw : raw + "Z";
+  const d = new Date(utc);
   if (isNaN(d.getTime())) return raw;
   return d.toLocaleString("en-US", {
-    month: "long",
+    month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
@@ -21,7 +24,7 @@ function formatPlayedAt(raw: string): string {
     timeZone: "America/Los_Angeles",
     timeZoneName: "short",
   });
-  // e.g. "May 13, 2026 @ 10:55 PM PDT"
+  // e.g. "May 13, 2026 @ 2:05 PM PDT"
 }
 import {
   getPlayers,

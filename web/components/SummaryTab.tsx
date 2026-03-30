@@ -79,11 +79,11 @@ function StreakBar({ data }: { data: StreakData }) {
         { label: "Current Streak", value: `${data.current_streak}d`, highlight: data.current_streak > 0 },
         { label: "Longest Streak", value: `${data.longest_streak}d`, highlight: false },
         { label: "Session Days",   value: data.total_session_days,   highlight: false },
-        { label: "Last Played",    value: data.last_session ? new Date(data.last_session).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—", highlight: false },
+        { label: "Last Played",    value: data.last_session ? (() => { const [y,m,d] = data.last_session!.split("-").map(Number); return new Date(y, m-1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); })() : "—", highlight: false },
       ].map(({ label, value, highlight }) => (
         <div
           key={label}
-          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-center space-y-1"
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 flex flex-col items-center justify-center text-center gap-1"
         >
           <div className="text-xs text-[var(--muted)] uppercase tracking-wide">{label}</div>
           <div className={`text-xl font-bold ${highlight ? "text-[var(--gold)]" : "text-[var(--text)]"}`}>

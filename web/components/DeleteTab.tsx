@@ -24,10 +24,11 @@ function fullGameName(s: { game_name: string; game_installment?: string | null }
 }
 
 function formatPlayedAt(raw: string): string {
-  const d = new Date(raw);
+  const utc = raw.endsWith("Z") || raw.includes("+") ? raw : raw + "Z";
+  const d = new Date(utc);
   if (isNaN(d.getTime())) return raw;
   return d.toLocaleString("en-US", {
-    month: "long",
+    month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
