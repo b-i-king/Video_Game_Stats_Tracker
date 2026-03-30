@@ -165,7 +165,7 @@ function EditGame({ jwt }: Props) {
   const [confirmed, setConfirmed] = useState(false);
   const [form, setForm] = useState({
     game_name: "",
-    game_series: "",
+    game_installment: "",
     game_genre: "Select a Genre",
     game_subgenre: "Select a Subgenre",
   });
@@ -188,7 +188,7 @@ function EditGame({ jwt }: Props) {
     if (g) {
       setForm({
         game_name: g.game_name,
-        game_series: g.game_series ?? "",
+        game_installment: g.game_installment ?? "",
         game_genre: g.game_genre ?? "Select a Genre",
         game_subgenre: g.game_subgenre ?? "Select a Subgenre",
       });
@@ -260,9 +260,9 @@ function EditGame({ jwt }: Props) {
                 <label className="label">Game Series</label>
                 <input
                   className="input"
-                  value={form.game_series}
+                  value={form.game_installment}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, game_series: e.target.value }))
+                    setForm((f) => ({ ...f, game_installment: e.target.value }))
                   }
                 />
               </div>
