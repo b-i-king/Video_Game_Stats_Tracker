@@ -1193,10 +1193,10 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
               ✅ I have reviewed my stats above and they are correct.
             </label>
 
-            {/* Submit + Download — same row, download fills remaining width */}
-            <div className="flex items-stretch gap-2">
+            {/* Submit + Download — 1:2 ratio grid */}
+            <div className="grid grid-cols-3 items-stretch gap-2">
               <button
-                className="btn-primary shrink-0 disabled:opacity-40"
+                className="btn-primary col-span-1 disabled:opacity-40"
                 disabled={!confirmed || hasCritical || submitting || filledStats.length === 0}
                 onClick={handleSubmit}
                 title="Ctrl+Enter"
@@ -1205,7 +1205,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
               </button>
 
               {/* Download — locked until today's stats are submitted */}
-              <div className="relative flex-1">
+              <div className="relative col-span-2">
                 <button
                   className="flex items-center justify-center gap-1.5 w-full h-full px-4 rounded
                     border border-[var(--border)] bg-[var(--surface)] text-sm font-medium

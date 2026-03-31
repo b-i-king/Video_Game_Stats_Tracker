@@ -104,7 +104,7 @@ export default function StatsPageClient() {
         <div className="flex gap-6 items-stretch">
           {/* Bolt AI sidebar — desktop only, trusted only */}
           {isTrusted && (
-            <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6">
+            <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[480px]">
               <BoltPanel jwt={jwt} />
             </aside>
           )}
@@ -139,7 +139,7 @@ export default function StatsPageClient() {
 
           {/* Queue sidebar — desktop only, trusted only */}
           {isTrusted && (
-            <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6">
+            <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[480px]">
               <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} />
             </aside>
           )}
