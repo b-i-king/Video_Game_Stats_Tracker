@@ -1914,7 +1914,7 @@ def get_live_dashboard():
             SELECT 1 FROM fact.fact_game_stats
             WHERE player_id = %s
               AND game_id = %s
-              AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE = %s
+              AND (played_at AT TIME ZONE %s)::DATE = %s
             LIMIT 1;
         """, (player_id, game_id, timezone_str, today_date))
         stats_today_exist = cur.fetchone()
@@ -1926,11 +1926,11 @@ def get_live_dashboard():
         # 8. If no stats today, find most recent day
         if not stats_today_exist:
             cur.execute("""
-                SELECT MAX(((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE)
+                SELECT MAX((played_at AT TIME ZONE %s)::DATE)
                 FROM fact.fact_game_stats
                 WHERE player_id = %s
                   AND game_id = %s
-                  AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE < %s;
+                  AND (played_at AT TIME ZONE %s)::DATE < %s;
             """, (timezone_str, player_id, game_id, timezone_str, today_date))
             most_recent_day = cur.fetchone()
             if most_recent_day and most_recent_day[0]:
@@ -1975,21 +1975,21 @@ def get_live_dashboard():
                     WHERE player_id = %s 
                       AND game_id = %s 
                       AND win = 1
-                      AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE = %s;
+                      AND (played_at AT TIME ZONE %s)::DATE = %s;
                 """, (player_id, game_id, timezone_str, query_date))
             else:
                 # Last day average: AVG of wins per day
                 cur.execute("""
                     SELECT AVG(daily_wins)
                     FROM (
-                        SELECT ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE as play_date,
+                        SELECT (played_at AT TIME ZONE %s)::DATE as play_date,
                                COUNT(DISTINCT played_at) as daily_wins
                         FROM fact.fact_game_stats
                         WHERE player_id = %s 
                           AND game_id = %s 
                           AND win = 1
-                          AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE = %s
-                        GROUP BY ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE
+                          AND (played_at AT TIME ZONE %s)::DATE = %s
+                        GROUP BY (played_at AT TIME ZONE %s)::DATE
                     ) daily_win_counts;
                 """, (timezone_str, player_id, game_id, timezone_str, query_date, timezone_str))
             
@@ -2009,7 +2009,7 @@ def get_live_dashboard():
                 FROM fact.fact_game_stats
                 WHERE player_id = %s AND game_id = %s
                   AND stat_type IN ({placeholders})
-                  AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE = %s
+                  AND (played_at AT TIME ZONE %s)::DATE = %s
                 GROUP BY stat_type;
             """, (player_id, game_id, *top_stats, timezone_str, query_date))
             stat_results = {row[0]: row[1] for row in cur.fetchall()}
@@ -2147,7 +2147,7 @@ def generate_basic_facts(cur, player_id, game_id, player_name, game_name, stat_t
     for stat_type in stat_types[:3]:  # Limit to top 3 stat types
         # Best performance for this stat
         cur.execute("""
-            SELECT stat_value, ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE as play_date
+            SELECT stat_value, (played_at AT TIME ZONE %s)::DATE as play_date
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s AND stat_type = %s
             ORDER BY stat_value DESC
@@ -2598,7 +2598,7 @@ def get_summary(user_email, game_id):
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s
               AND stat_type IN ({placeholders})
-              AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Los_Angeles')::DATE
+              AND (played_at AT TIME ZONE 'America/Los_Angeles')::DATE
                   = (NOW() AT TIME ZONE 'America/Los_Angeles')::DATE
               {mode_clause}
             GROUP BY stat_type;
@@ -2872,8 +2872,8 @@ def get_heatmap(user_email, game_id):
 
         cur.execute("""
             SELECT
-                EXTRACT(DOW  FROM ((played_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Los_Angeles'))::int AS dow,
-                EXTRACT(HOUR FROM ((played_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Los_Angeles'))::int AS hour,
+                EXTRACT(DOW  FROM (played_at AT TIME ZONE 'America/Los_Angeles'))::int AS dow,
+                EXTRACT(HOUR FROM (played_at AT TIME ZONE 'America/Los_Angeles'))::int AS hour,
                 COUNT(*) AS session_count
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s
@@ -2922,7 +2922,7 @@ def get_streaks(user_email, game_id):
 
         cur.execute("""
             SELECT DISTINCT
-                ((played_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Los_Angeles')::DATE AS session_date
+                (played_at AT TIME ZONE 'America/Los_Angeles')::DATE AS session_date
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s
             ORDER BY session_date DESC;

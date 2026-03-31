@@ -1,7 +1,7 @@
 """
 utils/queue_utils.py
-Render Postgres connection and post_queue CRUD helpers.
-All game stat data stays in Redshift; only the post queue lives here.
+post_queue CRUD helpers — reads from app.post_queue on personal Supabase.
+Uses the same DB env vars as flask_app.py (no separate QUEUE_DATABASE_URL needed).
 """
 import os
 import psycopg2
@@ -9,23 +9,31 @@ from psycopg2.extras import RealDictCursor
 
 
 def _get_conn():
-    """Open a fresh connection to Render Postgres."""
-    database_url = os.environ.get("QUEUE_DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("QUEUE_DATABASE_URL env var not set")
-    return psycopg2.connect(database_url, cursor_factory=RealDictCursor)
+    """Open a fresh connection to personal Supabase (same creds as Flask)."""
+    return psycopg2.connect(
+        host=os.environ["DB_URL"],
+        port=int(os.environ.get("DB_PORT", 5432)),
+        database=os.environ.get("DB_NAME", "postgres"),
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+        sslmode="require",
+        cursor_factory=RealDictCursor,
+    )
 
 
 def ensure_post_queue_table():
     """
-    Create post_queue table if it does not exist.
-    Idempotent — safe to call on every app start.
+    Skipped on Supabase — table managed via supabase_schema.sql.
+    Kept for Redshift/legacy compatibility only.
     """
+    if os.environ.get("DB_TYPE") == "supabase":
+        print("Skipping ensure_post_queue_table(): managed via supabase_schema.sql.")
+        return
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS post_queue (
+                CREATE TABLE IF NOT EXISTS app.post_queue (
                     queue_id     SERIAL PRIMARY KEY,
                     player_id    VARCHAR(50),
                     platform     VARCHAR(20),
@@ -43,14 +51,14 @@ def ensure_post_queue_table():
 
 def enqueue_post(player_id, platform, image_url, caption, scheduled_at=None):
     """
-    Insert a pending post into post_queue.
+    Insert a pending post into app.post_queue.
     Returns the new queue_id.
     """
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO post_queue (player_id, platform, image_url, caption, status, scheduled_at)
+                INSERT INTO app.post_queue (player_id, platform, image_url, caption, status, scheduled_at)
                 VALUES (%s, %s, %s, %s, 'pending', %s)
                 RETURNING queue_id;
             """, (str(player_id), platform, image_url, caption, scheduled_at))
@@ -74,7 +82,7 @@ def get_oldest_pending():
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT queue_id, player_id, platform, image_url, caption
-                FROM post_queue
+                FROM app.post_queue
                 WHERE status = 'pending'
                 ORDER BY created_at ASC
                 LIMIT 1
@@ -83,7 +91,7 @@ def get_oldest_pending():
             row = cur.fetchone()
             if row:
                 cur.execute(
-                    "UPDATE post_queue SET status = 'processing' WHERE queue_id = %s;",
+                    "UPDATE app.post_queue SET status = 'processing' WHERE queue_id = %s;",
                     (row['queue_id'],)
                 )
         conn.commit()
@@ -101,7 +109,7 @@ def mark_status(queue_id, status):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE post_queue SET status = %s WHERE queue_id = %s;",
+                "UPDATE app.post_queue SET status = %s WHERE queue_id = %s;",
                 (status, queue_id)
             )
         conn.commit()
@@ -116,7 +124,7 @@ def get_queue_counts():
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT status, COUNT(*) AS cnt
-                FROM post_queue
+                FROM app.post_queue
                 GROUP BY status;
             """)
             rows = cur.fetchall()
@@ -135,7 +143,7 @@ def reset_failed_to_pending():
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE post_queue SET status = 'pending' WHERE status = 'failed';"
+                "UPDATE app.post_queue SET status = 'pending' WHERE status = 'failed';"
             )
             count = cur.rowcount
         conn.commit()
@@ -153,7 +161,7 @@ def reset_stale_processing(minutes=10):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE post_queue
+                UPDATE app.post_queue
                 SET status = 'pending'
                 WHERE status = 'processing'
                   AND created_at < NOW() - INTERVAL '%s minutes';
@@ -171,7 +179,7 @@ def purge_old_sent(days=7):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                DELETE FROM post_queue
+                DELETE FROM app.post_queue
                 WHERE status = 'sent'
                   AND created_at < NOW() - INTERVAL '%s days';
             """, (days,))

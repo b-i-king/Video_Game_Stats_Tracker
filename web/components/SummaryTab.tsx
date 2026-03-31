@@ -99,10 +99,10 @@ function StreakBar({ data }: { data: StreakData }) {
 
 const DAYS        = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const TIME_SLOTS  = [
-  { label: "Late Night", hours: [0, 1, 2, 3, 4, 5] },
   { label: "Morning",    hours: [6, 7, 8, 9, 10, 11] },
   { label: "Afternoon",  hours: [12, 13, 14, 15, 16, 17] },
   { label: "Evening",    hours: [18, 19, 20, 21, 22, 23] },
+  { label: "Late Night", hours: [0, 1, 2, 3, 4, 5] },
 ];
 
 function Heatmap({ data }: { data: HeatmapData }) {
