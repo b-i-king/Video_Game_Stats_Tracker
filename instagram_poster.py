@@ -24,7 +24,7 @@ Player: player_id=1 only
 
 import os
 import sys
-import boto3
+import psycopg2
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -50,9 +50,11 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Environment variables
-DB_NAME = os.environ.get("DB_NAME", "game_stats_tracker")
-REDSHIFT_WORKGROUP = os.environ.get("REDSHIFT_WORKGROUP")
-AWS_REGION = os.environ.get("AWS_REGION", "us-west-1")
+DB_URL      = os.environ.get("DB_URL")
+DB_PORT     = int(os.environ.get("DB_PORT", 5432))
+DB_NAME     = os.environ.get("DB_NAME", "postgres")
+DB_USER     = os.environ.get("DB_USER")
+DB_PASSWORD = os.environ.get("DB_PASSWORD")
 INSTAGRAM_ACCESS_TOKEN = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
 INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID")
 
@@ -77,92 +79,46 @@ plt.rcParams['font.family'] = 'Fira Code'  # Explicitly set Fira Code
 plt.rcParams['font.size'] = 18
 
 # ============================================================================
-# REDSHIFT DATA API CLIENT (Lambda optimized, no VPC needed)
+# POSTGRESQL (psycopg2) CONNECTION LAYER
 # ============================================================================
 
-# Global client (Lambda reuses this across invocations)
-redshift_client = None
+# Global connection (Lambda reuses this across invocations)
+_pg_conn = None
 
 
-def get_redshift_client():
-    """Get or create Redshift Data API client."""
-    global redshift_client
-    if redshift_client is None:
-        redshift_client = boto3.client('redshift-data', region_name=AWS_REGION)
-    return redshift_client
+def _get_pg_conn():
+    """Get or reuse a psycopg2 connection. Reconnects if closed."""
+    global _pg_conn
+    if _pg_conn is None or _pg_conn.closed:
+        _pg_conn = psycopg2.connect(
+            host=DB_URL,
+            port=DB_PORT,
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            sslmode="require",
+            connect_timeout=30,
+        )
+    return _pg_conn
 
 
-def execute_query(sql, parameters=None, timeout_seconds=120):
-    """
-    Execute a SQL query via Redshift Data API and return results.
-
-    Args:
-        sql: SQL string. Use :param_name for named parameters.
-        parameters: list of {'name': str, 'value': str} dicts, or None.
-        timeout_seconds: max seconds to wait for query completion (default 120).
-
-    Returns:
-        list of rows, each row a list of field dicts.
-    """
-    client = get_redshift_client()
-
-    kwargs = {
-        'WorkgroupName': REDSHIFT_WORKGROUP,
-        'Database': DB_NAME,
-        'Sql': sql,
-    }
-    if parameters:
-        kwargs['Parameters'] = parameters
-
-    response = client.execute_statement(**kwargs)
-    statement_id = response['Id']
-    elapsed = 0.0
-
-    # Poll until finished
-    while True:
-        status_response = client.describe_statement(Id=statement_id)
-        status = status_response['Status']
-
-        if status == 'FINISHED':
-            break
-        elif status in ('FAILED', 'ABORTED'):
-            error = status_response.get('Error', 'Unknown error')
-            raise Exception(f"Query failed [{status}]: {error}")
-
-        if elapsed >= timeout_seconds:
-            # Cancel the stalled statement before raising
-            try:
-                client.cancel_statement(Id=statement_id)
-            except Exception:
-                pass
-            raise Exception(
-                f"Query timed out after {timeout_seconds}s (status={status}). "
-                f"Check Redshift RPU capacity."
-            )
-
-        time.sleep(0.5)
-        elapsed += 0.5
-
-    if status_response.get('HasResultSet'):
-        result = client.get_statement_result(Id=statement_id)
-        return result.get('Records', [])
-
-    return []
+def execute_query(sql, params=None):
+    """Execute SQL via psycopg2 and return list of row tuples."""
+    conn = _get_pg_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params or ())
+            if cur.description:
+                return cur.fetchall()
+        return []
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def get_field_value(field):
-    """Extract typed value from a Redshift Data API field dict."""
-    if field.get('isNull'):
-        return None
-    if 'stringValue' in field:
-        return field['stringValue']
-    if 'longValue' in field:
-        return field['longValue']
-    if 'doubleValue' in field:
-        return field['doubleValue']
-    if 'booleanValue' in field:
-        return field['booleanValue']
-    return None
+    """Identity shim — psycopg2 returns plain Python types, no unpacking needed."""
+    return field
 
 
 # ============================================================================
@@ -220,14 +176,10 @@ def check_games_on_date(player_id, target_date):
         """
         SELECT COUNT(DISTINCT stat_id)
         FROM fact.fact_game_stats
-        WHERE player_id = :player_id
-        AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date;
+        WHERE player_id = %s
+        AND (played_at AT TIME ZONE %s)::DATE = %s;
         """,
-        [
-            {'name': 'player_id', 'value': str(player_id)},
-            {'name': 'timezone', 'value': TIMEZONE_STR},
-            {'name': 'target_date', 'value': str(target_date)},
-        ]
+        (player_id, TIMEZONE_STR, target_date)
     )
     count = get_field_value(records[0][0]) if records else 0
     return count > 0
@@ -240,10 +192,10 @@ def get_all_games_for_player(player_id):
         SELECT DISTINCT g.game_id, g.game_name, g.game_installment
         FROM fact.fact_game_stats f
         JOIN dim.dim_games g ON f.game_id = g.game_id
-        WHERE f.player_id = :player_id
+        WHERE f.player_id = %s
         ORDER BY g.game_name;
         """,
-        [{'name': 'player_id', 'value': str(player_id)}]
+        (player_id,)
     )
 
     games = []
@@ -262,9 +214,9 @@ def get_player_info(player_id):
         """
         SELECT player_name
         FROM dim.dim_players
-        WHERE player_id = :player_id;
+        WHERE player_id = %s;
         """,
-        [{'name': 'player_id', 'value': str(player_id)}]
+        (player_id,)
     )
     return get_field_value(records[0][0]) if records else None
 
@@ -280,16 +232,11 @@ def get_stats_for_date(player_id, game_id, target_date, game_mode=None, aggregat
     share the same mode).
     """
     agg_expr = 'ROUND(AVG(stat_value))' if aggregate == 'avg' else 'MAX(stat_value)'
-    params = [
-        {'name': 'player_id',   'value': str(player_id)},
-        {'name': 'game_id',     'value': str(game_id)},
-        {'name': 'timezone',    'value': TIMEZONE_STR},
-        {'name': 'target_date', 'value': str(target_date)},
-    ]
+    params = [player_id, game_id, TIMEZONE_STR, target_date]
     mode_clause = ''
     if game_mode:
-        mode_clause = 'AND game_mode = :game_mode'
-        params.append({'name': 'game_mode', 'value': game_mode})
+        mode_clause = 'AND game_mode = %s'
+        params.append(game_mode)
 
     records = execute_query(
         f"""
@@ -297,15 +244,15 @@ def get_stats_for_date(player_id, game_id, target_date, game_mode=None, aggregat
             stat_type,
             {agg_expr} AS agg_value
         FROM fact.fact_game_stats
-        WHERE player_id = :player_id
-          AND game_id = :game_id
-          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date
+        WHERE player_id = %s
+          AND game_id = %s
+          AND (played_at AT TIME ZONE %s)::DATE = %s
           {mode_clause}
         GROUP BY stat_type
         ORDER BY agg_value DESC
         LIMIT 5;
         """,
-        params
+        tuple(params)
     )
     return [(get_field_value(row[0]), get_field_value(row[1])) for row in records]
 
@@ -316,28 +263,23 @@ def get_match_count_for_date(player_id, game_id, target_date, game_mode=None):
     date.  Each form submission shares one played_at so this equals # of
     submitted sessions.  Returns 1 as a safe fallback.
     """
-    params = [
-        {'name': 'player_id',   'value': str(player_id)},
-        {'name': 'game_id',     'value': str(game_id)},
-        {'name': 'timezone',    'value': TIMEZONE_STR},
-        {'name': 'target_date', 'value': str(target_date)},
-    ]
+    params = [player_id, game_id, TIMEZONE_STR, target_date]
     mode_clause = ''
     if game_mode:
-        mode_clause = 'AND game_mode = :game_mode'
-        params.append({'name': 'game_mode', 'value': game_mode})
+        mode_clause = 'AND game_mode = %s'
+        params.append(game_mode)
 
     try:
         records = execute_query(
             f"""
             SELECT COUNT(DISTINCT played_at) AS match_count
             FROM fact.fact_game_stats
-            WHERE player_id = :player_id
-              AND game_id = :game_id
-              AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date
+            WHERE player_id = %s
+              AND game_id = %s
+              AND (played_at AT TIME ZONE %s)::DATE = %s
               {mode_clause};
             """,
-            params
+            tuple(params)
         )
         count = get_field_value(records[0][0]) if records else 1
         return int(count) if count else 1
@@ -355,18 +297,13 @@ def get_most_recent_date_in_range(player_id, date_min, date_max):
     try:
         records = execute_query(
             """
-            SELECT MAX(CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)) AS most_recent
+            SELECT MAX((played_at AT TIME ZONE %s)::DATE) AS most_recent
             FROM fact.fact_game_stats
-            WHERE player_id = :player_id
-              AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
-                  BETWEEN :date_min AND :date_max;
+            WHERE player_id = %s
+              AND (played_at AT TIME ZONE %s)::DATE
+                  BETWEEN %s AND %s;
             """,
-            [
-                {'name': 'player_id', 'value': str(player_id)},
-                {'name': 'timezone',  'value': TIMEZONE_STR},
-                {'name': 'date_min',  'value': str(date_min)},
-                {'name': 'date_max',  'value': str(date_max)},
-            ]
+            (TIMEZONE_STR, player_id, TIMEZONE_STR, date_min, date_max)
         )
         val = get_field_value(records[0][0]) if records else None
         if not val:
@@ -388,15 +325,11 @@ def get_stats_for_date_all_games(player_id, target_date):
             f.stat_value
         FROM fact.fact_game_stats f
         JOIN dim.dim_games g ON f.game_id = g.game_id
-        WHERE f.player_id = :player_id
-        AND CAST(CONVERT_TIMEZONE(:timezone, f.played_at) AS DATE) = :target_date
+        WHERE f.player_id = %s
+        AND (f.played_at AT TIME ZONE %s)::DATE = %s
         ORDER BY f.stat_value DESC;
         """,
-        [
-            {'name': 'player_id', 'value': str(player_id)},
-            {'name': 'timezone', 'value': TIMEZONE_STR},
-            {'name': 'target_date', 'value': str(target_date)},
-        ]
+        (player_id, TIMEZONE_STR, target_date)
     )
 
     return [{
@@ -418,9 +351,9 @@ def get_game_mode_for_date(player_id, game_id, target_date):
         """
         SELECT game_mode, COUNT(*) AS cnt
         FROM fact.fact_game_stats
-        WHERE player_id = :player_id
-          AND game_id = :game_id
-          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date
+        WHERE player_id = %s
+          AND game_id = %s
+          AND (played_at AT TIME ZONE %s)::DATE = %s
           AND game_mode IS NOT NULL
           AND TRIM(game_mode) != ''
           AND LOWER(TRIM(game_mode)) != 'main'
@@ -428,12 +361,7 @@ def get_game_mode_for_date(player_id, game_id, target_date):
         ORDER BY cnt DESC, game_mode ASC
         LIMIT 2;
         """,
-        [
-            {'name': 'player_id',   'value': str(player_id)},
-            {'name': 'game_id',     'value': str(game_id)},
-            {'name': 'timezone',    'value': TIMEZONE_STR},
-            {'name': 'target_date', 'value': str(target_date)},
-        ]
+        (player_id, game_id, TIMEZONE_STR, target_date)
     )
     if len(records) > 1:
         return None  # Multiple modes played — don't filter, include all sessions
@@ -450,20 +378,15 @@ def get_all_modes_for_date(player_id, game_id, target_date):
         """
         SELECT DISTINCT game_mode
         FROM fact.fact_game_stats
-        WHERE player_id = :player_id
-          AND game_id = :game_id
-          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) = :target_date
+        WHERE player_id = %s
+          AND game_id = %s
+          AND (played_at AT TIME ZONE %s)::DATE = %s
           AND game_mode IS NOT NULL
           AND TRIM(game_mode) != ''
           AND LOWER(TRIM(game_mode)) != 'main'
         ORDER BY game_mode ASC;
         """,
-        [
-            {'name': 'player_id',   'value': str(player_id)},
-            {'name': 'game_id',     'value': str(game_id)},
-            {'name': 'timezone',    'value': TIMEZONE_STR},
-            {'name': 'target_date', 'value': str(target_date)},
-        ]
+        (player_id, game_id, TIMEZONE_STR, target_date)
     )
     return [get_field_value(row[0]) for row in records]
 
@@ -479,9 +402,9 @@ def detect_anomalies(player_id, game_id, target_date):
                 AVG(f.stat_value) OVER (PARTITION BY f.stat_type) as avg_value,
                 STDDEV(f.stat_value) OVER (PARTITION BY f.stat_type) as stddev_value
             FROM fact.fact_game_stats f
-            WHERE f.player_id = :player_id
-            AND f.game_id = :game_id
-            AND CAST(CONVERT_TIMEZONE(:timezone, f.played_at) AS DATE) = :target_date
+            WHERE f.player_id = %s
+            AND f.game_id = %s
+            AND (f.played_at AT TIME ZONE %s)::DATE = %s
         )
         SELECT
             stat_type,
@@ -494,12 +417,7 @@ def detect_anomalies(player_id, game_id, target_date):
         ORDER BY ABS((stat_value - avg_value) / NULLIF(stddev_value, 0)) DESC
         LIMIT 3;
         """,
-        [
-            {'name': 'player_id', 'value': str(player_id)},
-            {'name': 'game_id', 'value': str(game_id)},
-            {'name': 'timezone', 'value': TIMEZONE_STR},
-            {'name': 'target_date', 'value': str(target_date)},
-        ]
+        (player_id, game_id, TIMEZONE_STR, target_date)
     )
 
     anomalies = []
@@ -534,11 +452,11 @@ def get_historical_records_all_games(player_id, posted_hashes, limit=10):
                 g.game_installment,
                 f.stat_type,
                 MAX(f.stat_value) as max_value,
-                MAX(CAST(CONVERT_TIMEZONE(:timezone, f.played_at) AS DATE)) as best_date
+                MAX((f.played_at AT TIME ZONE %s)::DATE) as best_date
             FROM fact.fact_game_stats f
             JOIN dim.dim_games g ON f.game_id = g.game_id
-            WHERE f.player_id = :player_id
-              AND f.played_at >= DATEADD(day, -365, GETDATE())
+            WHERE f.player_id = %s
+              AND f.played_at >= NOW() - INTERVAL '365 days'
             GROUP BY g.game_name, g.game_installment, f.stat_type
         )
         SELECT
@@ -551,10 +469,7 @@ def get_historical_records_all_games(player_id, posted_hashes, limit=10):
         ORDER BY max_value DESC
         LIMIT {fetch_limit};
         """,
-        [
-            {'name': 'timezone', 'value': TIMEZONE_STR},
-            {'name': 'player_id', 'value': str(player_id)},
-        ]
+        (TIMEZONE_STR, player_id)
     )
 
     result = []
@@ -1908,7 +1823,7 @@ def get_tale_of_tape_data(player_id):
                 AVG(CAST(f.stat_value AS FLOAT))    AS mean_val,
                 STDDEV(CAST(f.stat_value AS FLOAT)) AS std_val
             FROM fact.fact_game_stats f
-            WHERE f.player_id = :player_id
+            WHERE f.player_id = %s
               AND f.game_mode IS NOT NULL
               AND TRIM(f.game_mode) != ''
             GROUP BY f.game_id, f.game_mode, f.stat_type
@@ -1932,7 +1847,7 @@ def get_tale_of_tape_data(player_id):
           AND a.game_mode < b.game_mode
         ORDER BY a.game_id, (a.mean_val + b.mean_val) DESC;
         """,
-        [{'name': 'player_id', 'value': str(player_id)}]
+        (player_id,)
     )
 
     if records:
@@ -1955,8 +1870,8 @@ def get_tale_of_tape_data(player_id):
 
         for (game_id, mode_1, mode_2), stats_list in pairs.items():
             game_records = execute_query(
-                "SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = :game_id;",
-                [{'name': 'game_id', 'value': str(game_id)}]
+                "SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = %s;",
+                (game_id,)
             )
             if game_records:
                 return {
@@ -1989,7 +1904,7 @@ def get_tale_of_tape_data(player_id):
                 STDDEV(CAST(f.stat_value AS FLOAT)) AS std_val
             FROM fact.fact_game_stats f
             JOIN dim.dim_games g ON f.game_id = g.game_id
-            WHERE f.player_id = :player_id
+            WHERE f.player_id = %s
               AND f.game_mode IS NOT NULL
               AND TRIM(f.game_mode) != ''
             GROUP BY f.game_id, g.game_name, g.game_installment, f.game_mode, f.stat_type
@@ -2017,7 +1932,7 @@ def get_tale_of_tape_data(player_id):
           AND a.game_id   < b.game_id
         ORDER BY (a.mean_val + b.mean_val) DESC;
         """,
-        [{'name': 'player_id', 'value': str(player_id)}]
+        (player_id,)
     )
 
     if not cross_records:
@@ -2052,8 +1967,8 @@ def get_tale_of_tape_data(player_id):
     for (game_id_1, game_id_2, label_1, label_2), stats_list in cross_pairs.items():
         # Use game_id_1's info as the "game" header; labels carry the full context
         game_records = execute_query(
-            "SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = :game_id;",
-            [{'name': 'game_id', 'value': str(game_id_1)}]
+            "SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = %s;",
+            (game_id_1,)
         )
         if game_records:
             return {
@@ -2375,23 +2290,17 @@ def run_tuesday_thursday_poster():
 
 def get_weekly_summary_data(player_id, week_start, week_end):
     """Fetch gaming summary for week_start–week_end (both inclusive)."""
-    params = [
-        {'name': 'player_id',  'value': str(player_id)},
-        {'name': 'timezone',   'value': TIMEZONE_STR},
-        {'name': 'week_start', 'value': str(week_start)},
-        {'name': 'week_end',   'value': str(week_end)},
-    ]
-
     overview = execute_query(
         """
         SELECT
             COUNT(DISTINCT game_id)   AS games_played,
             COUNT(DISTINCT played_at) AS sessions
         FROM fact.fact_game_stats
-        WHERE player_id = :player_id
-          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
-              BETWEEN :week_start AND :week_end;
-        """, params
+        WHERE player_id = %s
+          AND (played_at AT TIME ZONE %s)::DATE
+              BETWEEN %s AND %s;
+        """,
+        (player_id, TIMEZONE_STR, week_start, week_end)
     )
     if not overview:
         return None
@@ -2405,26 +2314,28 @@ def get_weekly_summary_data(player_id, week_start, week_end):
         """
         SELECT stat_type, stat_value
         FROM fact.fact_game_stats
-        WHERE player_id = :player_id
-          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
-              BETWEEN :week_start AND :week_end
+        WHERE player_id = %s
+          AND (played_at AT TIME ZONE %s)::DATE
+              BETWEEN %s AND %s
         ORDER BY stat_value DESC
         LIMIT 1;
-        """, params
+        """,
+        (player_id, TIMEZONE_STR, week_start, week_end)
     )
 
     top_day_raw = execute_query(
         """
-        SELECT CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE) AS play_date,
+        SELECT (played_at AT TIME ZONE %s)::DATE AS play_date,
                COUNT(*) AS cnt
         FROM fact.fact_game_stats
-        WHERE player_id = :player_id
-          AND CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
-              BETWEEN :week_start AND :week_end
-        GROUP BY played_at, CAST(CONVERT_TIMEZONE(:timezone, played_at) AS DATE)
+        WHERE player_id = %s
+          AND (played_at AT TIME ZONE %s)::DATE
+              BETWEEN %s AND %s
+        GROUP BY played_at, (played_at AT TIME ZONE %s)::DATE
         ORDER BY cnt DESC, play_date ASC
         LIMIT 1;
-        """, params
+        """,
+        (TIMEZONE_STR, player_id, TIMEZONE_STR, week_start, week_end, TIMEZONE_STR)
     )
 
     if top_day_raw:
@@ -2744,16 +2655,12 @@ def get_yearly_recap_data(player_id, year):
             COUNT(DISTINCT f.played_at) AS sessions
         FROM fact.fact_game_stats f
         JOIN dim.dim_games g ON f.game_id = g.game_id
-        WHERE f.player_id = :player_id
-          AND EXTRACT(YEAR FROM CONVERT_TIMEZONE(:timezone, f.played_at)) = :year
+        WHERE f.player_id = %s
+          AND EXTRACT(YEAR FROM (f.played_at AT TIME ZONE %s)) = %s
         GROUP BY g.game_name, g.game_installment, g.game_genre, g.game_subgenre
         ORDER BY sessions DESC;
         """,
-        [
-            {'name': 'player_id', 'value': str(player_id)},
-            {'name': 'timezone',  'value': TIMEZONE_STR},
-            {'name': 'year',      'value': str(year)},
-        ]
+        (player_id, TIMEZONE_STR, year)
     )
     if not game_records:
         return None
@@ -2782,16 +2689,12 @@ def get_yearly_recap_data(player_id, year):
         """
         SELECT stat_type, stat_value
         FROM fact.fact_game_stats
-        WHERE player_id = :player_id
-          AND EXTRACT(YEAR FROM CONVERT_TIMEZONE(:timezone, played_at)) = :year
+        WHERE player_id = %s
+          AND EXTRACT(YEAR FROM (played_at AT TIME ZONE %s)) = %s
         ORDER BY stat_value DESC
         LIMIT 1;
         """,
-        [
-            {'name': 'player_id', 'value': str(player_id)},
-            {'name': 'timezone',  'value': TIMEZONE_STR},
-            {'name': 'year',      'value': str(year)},
-        ]
+        (player_id, TIMEZONE_STR, year)
     )
 
     gamer_type, gamer_tagline = generate_gamer_type(genres_seen)

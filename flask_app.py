@@ -2532,8 +2532,52 @@ def ask_bolt(user_email):
     if not prompt:
         return jsonify({"error": "No prompt provided"}), 400
     try:
-        from utils.ai_utils import ask_agent
-        reply = ask_agent(prompt)
+        from utils.ai_utils import ask_agent, build_stats_context
+
+        # Fetch the user's most recent session from Supabase to ground Bolt's response.
+        # Uses the JWT email so no player/game selection is required on the frontend.
+        context = ""
+        conn = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT p.player_name, g.game_name, g.game_installment,
+                       f.stat_type, f.stat_value, f.played_at
+                FROM fact.fact_game_stats f
+                JOIN dim.dim_players p ON f.player_id = p.player_id
+                JOIN dim.dim_games   g ON f.game_id   = g.game_id
+                JOIN dim.dim_users   u ON p.user_id   = u.user_id
+                WHERE u.user_email = %s
+                  AND f.played_at = (
+                      SELECT MAX(f2.played_at)
+                      FROM fact.fact_game_stats f2
+                      JOIN dim.dim_players p2 ON f2.player_id = p2.player_id
+                      JOIN dim.dim_users   u2 ON p2.user_id   = u2.user_id
+                      WHERE u2.user_email = %s
+                  )
+                ORDER BY f.stat_type;
+            """, (user_email, user_email))
+            rows = cur.fetchall()
+            if rows:
+                player_name = rows[0][0]
+                game_label  = f"{rows[0][1]}: {rows[0][2]}" if rows[0][2] else rows[0][1]
+                stats = [
+                    {
+                        "stat_type":  r[3],
+                        "stat_value": r[4],
+                        "played_at":  r[5].isoformat() if r[5] else None,
+                    }
+                    for r in rows
+                ]
+                context = build_stats_context(player_name, game_label, stats)
+        except Exception as ctx_err:
+            print(f"[Bolt] Could not load stat context: {ctx_err}")
+        finally:
+            if conn:
+                release_db_connection(conn)
+
+        reply = ask_agent(prompt, context=context)
         return jsonify({"reply": reply})
     except Exception as e:
         print(f"[Bolt] Error: {e}")
