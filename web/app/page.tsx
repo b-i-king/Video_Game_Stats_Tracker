@@ -50,7 +50,7 @@ export default async function HomePage() {
   const session = await getServerSession(authOptions);
 
   return (
-    <div className="space-y-10">
+    <div className="max-w-5xl mx-auto space-y-10">
       {/* Hero */}
       <section className="text-center space-y-4 pt-6">
         <h1 className="text-4xl font-bold text-[var(--gold)]">

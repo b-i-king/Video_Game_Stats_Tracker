@@ -9,7 +9,7 @@ export default function Navbar() {
 
   return (
     <nav className="border-b border-[var(--border)] bg-[var(--surface)]">
-      <div className="container mx-auto px-4 max-w-5xl flex items-center justify-between h-14">
+      <div className="w-full px-4 flex items-center justify-between h-14">
         {/* Logo / Home link */}
         <Link
           href="/"
