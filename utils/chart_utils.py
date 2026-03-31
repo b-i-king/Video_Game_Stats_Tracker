@@ -1208,4 +1208,15 @@ def generate_interactive_chart(chart_type, data, player_name, game_name,
         include_plotlyjs='cdn',       # ~15 KB file vs ~3 MB self-contained
         config={'displayModeBar': True, 'responsive': True},
     )
+    # Inject CSS so the chart fills the iframe viewport with no scrollbars.
+    # 'responsive: True' handles Plotly resizing but doesn't remove browser
+    # default body margins or prevent the page from overflowing the iframe.
+    html = html.replace(
+        '</head>',
+        '<style>'
+        'html,body{margin:0;padding:0;overflow:hidden;height:100%;width:100%}'
+        '.js-plotly-plot,.plot-container{height:100%!important;width:100%!important}'
+        '</style></head>',
+        1,
+    )
     return html.encode('utf-8')
