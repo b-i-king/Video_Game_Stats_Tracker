@@ -133,7 +133,9 @@ CREATE TABLE IF NOT EXISTS fact.fact_game_stats (
     CONSTRAINT chk_ranked     CHECK (ranked    IS NULL OR ranked    IN (0, 1)),
     CONSTRAINT chk_overtime   CHECK (overtime  IN (0, 1)),
     CONSTRAINT chk_solo_mode  CHECK (solo_mode IS NULL OR solo_mode IN (0, 1)),
-    CONSTRAINT chk_stat_value CHECK (stat_value >= 0 AND stat_value <= 100000)
+    CONSTRAINT chk_stat_value CHECK (stat_value >= 0 AND stat_value <= 100000),
+    -- Prevent future-dated stats; 5-min grace covers clock skew between client and server
+    CONSTRAINT chk_played_at  CHECK (played_at <= NOW() + INTERVAL '5 minutes')
 );
 
 

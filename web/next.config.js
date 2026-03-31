@@ -12,7 +12,7 @@ const nextConfig = {
             key: "Content-Security-Policy",
             value: [
               // Only load scripts from self and the Flask API origin
-              `script-src 'self' 'unsafe-inline' ${FLASK_API}`,
+              `script-src 'self' 'unsafe-inline' ${FLASK_API} https://cdn.plot.ly`,
               // Iframes may only embed content from self (Plotly srcdoc = same origin)
               `frame-src 'self'`,
               // Stylesheets from self only

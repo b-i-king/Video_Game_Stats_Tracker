@@ -758,6 +758,19 @@ def add_stats(user_email):
     if not all([game_name, player_name, stats]) or not isinstance(stats, list) or len(stats) == 0:
         return jsonify({"error": "Missing or invalid fields: game_name, player_name, and stats (must be a non-empty list)"}), 400
 
+    # --- Batch-level validation (fast-fail before DB connection) ---
+    if len(stats) > 10:
+        return jsonify({"error": "Maximum 10 stat rows per submission."}), 400
+
+    seen_stat_types = set()
+    for s in stats:
+        t = (s.get('stat_type') or '').strip().title()
+        if not t:
+            continue
+        if t in seen_stat_types:
+            return jsonify({"error": f"Duplicate stat type in submission: '{t}'"}), 400
+        seen_stat_types.add(t)
+
     # --- Content safety checks ---
     err = _content_check(player_name, "Player name", _NAME_RE)
     if err: return jsonify(err[0]), err[1]
@@ -844,6 +857,22 @@ def add_stats(user_email):
         else:
             player_id = player_record[0]
 
+        # --- Duplicate session guard (2-minute window) ---
+        # Prevents double-submits from double-clicks or form re-submissions.
+        # Uses Python datetime so the comparison is DB-agnostic (works on both
+        # Redshift and Supabase without changing GETDATE() / NOW() syntax).
+        two_min_ago = datetime.now(timezone.utc) - timedelta(minutes=2)
+        cur.execute("""
+            SELECT 1 FROM fact.fact_game_stats
+            WHERE player_id = %s AND game_id = %s AND played_at > %s
+            LIMIT 1;
+        """, (player_id, game_id, two_min_ago))
+        if cur.fetchone():
+            return jsonify({
+                "error": "A session was already submitted in the last 2 minutes. "
+                         "Check your recent stats before resubmitting."
+            }), 409
+
         # --- Stat Insertion ---
         # Capture a single timestamp for the entire batch so all stats in this
         # session share the exact same played_at — prevents COUNT(DISTINCT played_at)
@@ -872,6 +901,21 @@ def add_stats(user_email):
                 v = stat_record.get(bool_field)
                 if v is not None and v not in (0, 1):
                     return jsonify({"error": f"'{bool_field}' must be 0, 1, or null — got: {v}"}), 400
+
+            # Validate game_level (0–10,000, integers only)
+            lvl = stat_record.get('game_level')
+            if lvl is not None and (not isinstance(lvl, int) or lvl < 0 or lvl > 10_000):
+                return jsonify({"error": f"game_level must be an integer between 0 and 10,000 — got: {lvl}"}), 400
+
+            # Validate party_size against the frontend dropdown whitelist
+            _VALID_PARTY_SIZES = {'1', '2', '3', '4', '5+'}
+            ps = stat_record.get('party_size')
+            if ps is not None and str(ps) not in _VALID_PARTY_SIZES:
+                return jsonify({"error": f"Invalid party_size: '{ps}'. Must be one of: 1, 2, 3, 4, 5+"}), 400
+
+            # Cross-field: ranked session requires a pre-match rank value
+            if stat_record.get('ranked') == 1 and not stat_record.get('pre_match_rank_value'):
+                return jsonify({"error": "ranked=1 requires pre_match_rank_value to be set"}), 400
 
             cur.execute("""
                 INSERT INTO fact.fact_game_stats
