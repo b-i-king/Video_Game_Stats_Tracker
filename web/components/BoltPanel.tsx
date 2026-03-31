@@ -27,7 +27,7 @@ export default function BoltPanel({ jwt }: { jwt: string }) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function send(text: string) {
-    const trimmed = text.trim();
+    const trimmed = text.trim().slice(0, 500);
     if (!trimmed || loading) return;
 
     setMessages((prev) => [...prev, { role: "user", text: trimmed }]);
@@ -110,6 +110,7 @@ export default function BoltPanel({ jwt }: { jwt: string }) {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send(input)}
           disabled={loading}
+          maxLength={500}
         />
         <button
           onClick={() => send(input)}

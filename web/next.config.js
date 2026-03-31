@@ -1,8 +1,44 @@
 /** @type {import('next').NextConfig} */
+
+const FLASK_API = process.env.NEXT_PUBLIC_FLASK_API_URL ?? "";
+
 const nextConfig = {
-  // Allow the app to call your Flask backend during SSR
   async headers() {
-    return [];
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: [
+              // Only load scripts from self and the Flask API origin
+              `script-src 'self' 'unsafe-inline' ${FLASK_API}`,
+              // Iframes may only embed content from self (Plotly srcdoc = same origin)
+              `frame-src 'self'`,
+              // Stylesheets from self only
+              `style-src 'self' 'unsafe-inline'`,
+              // Images from self and data URIs (Plotly exports)
+              `img-src 'self' data:`,
+              // API calls to self and Flask backend only
+              `connect-src 'self' ${FLASK_API}`,
+              `default-src 'self'`,
+            ].join("; "),
+          },
+          {
+            key: "X-Frame-Options",
+            value: "SAMEORIGIN",
+          },
+          {
+            key: "X-Content-Type-Options",
+            value: "nosniff",
+          },
+          {
+            key: "Referrer-Policy",
+            value: "strict-origin-when-cross-origin",
+          },
+        ],
+      },
+    ];
   },
 };
 

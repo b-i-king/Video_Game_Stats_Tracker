@@ -436,7 +436,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
           {!chartLoading && chartHtml && (
             <iframe
               srcDoc={chartHtml}
-              sandbox="allow-scripts allow-same-origin allow-downloads"
+              sandbox="allow-scripts allow-downloads"
               className="w-full rounded-lg border border-[var(--border)]"
               style={{ height: 420 }}
               title="Performance Trend"

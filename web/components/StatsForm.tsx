@@ -31,6 +31,10 @@ import {
 } from "@/lib/constants";
 import Tooltip from "@/components/Tooltip";
 
+// Mirror flask_app.py regexes for immediate client-side feedback
+const STAT_TYPE_RE = /^[A-Za-z0-9 \-]{1,50}$/;
+const NAME_RE = /^[A-Za-z0-9 _\-\.]{1,100}$/;
+
 interface Props {
   jwt: string;
   isTrusted: boolean;
@@ -194,12 +198,15 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
     playerRestored.current = true;
   }, [players]);
 
-  // Save draft whenever relevant fields change
+  // Save draft whenever relevant fields change (skip if serialised draft exceeds 10 KB)
   useEffect(() => {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      const serialised = JSON.stringify({
         playerName, creditStyle, matchType, inputDevice, platform, partySize, difficulty,
-      }));
+      });
+      if (serialised.length <= 10_000) {
+        localStorage.setItem(DRAFT_KEY, serialised);
+      }
     } catch {}
   }, [playerName, creditStyle, matchType, inputDevice, platform, partySize, difficulty]);
 
@@ -326,8 +333,32 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       ? !postRankCustom.trim()
       : postRank === "(Enter New Rank)" && !postRankCustom.trim());
 
+  // Name / stat-type format checks
+  const invalidStatTypes = filledStats
+    .map((r) => r.type.trim())
+    .filter((t) => t && !STAT_TYPE_RE.test(t));
+  const invalidNewPlayerName =
+    addingNewPlayer && newPlayerName.trim() && !NAME_RE.test(newPlayerName.trim());
+  const invalidNewFranchise =
+    isNewFranchiseMode && newFranchiseName.trim() && !NAME_RE.test(newFranchiseName.trim());
+  const invalidNewInstallment =
+    isNewInstallmentMode && newInstallmentName.trim() && !NAME_RE.test(newInstallmentName.trim());
+  const outOfRangeStats = filledStats.filter(
+    (r) => r.value !== "" && (Number(r.value) < 0 || Number(r.value) > 100_000)
+  ).map((r) => r.type);
+
   const issues: { level: "error" | "warning" | "info"; msg: string }[] = [];
   if (hasDuplicates) issues.push({ level: "error", msg: "⛔ Duplicate stat types" });
+  if (invalidStatTypes.length > 0)
+    issues.push({ level: "error", msg: `⛔ Invalid stat type (letters, numbers, spaces, hyphens only): ${invalidStatTypes.join(", ")}` });
+  if (outOfRangeStats.length > 0)
+    issues.push({ level: "error", msg: `⛔ Stat value out of range (0–100,000): ${outOfRangeStats.join(", ")}` });
+  if (invalidNewPlayerName)
+    issues.push({ level: "error", msg: "⛔ Player name: letters, numbers, spaces, hyphens, underscores, periods only (max 100)" });
+  if (invalidNewFranchise)
+    issues.push({ level: "error", msg: "⛔ Game name: letters, numbers, spaces, hyphens, underscores, periods only (max 100)" });
+  if (invalidNewInstallment)
+    issues.push({ level: "error", msg: "⛔ Game installment: letters, numbers, spaces, hyphens, underscores, periods only (max 100)" });
   if (negativeStats.length > 0)
     issues.push({ level: "error", msg: `⛔ Negative stat value: ${negativeStats.join(", ")}` });
   if (rankedMissingPre)
@@ -356,7 +387,16 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
     if (isLive && obsActive)
       issues.push({ level: "info", msg: "ℹ️ Live post — #Live hashtags and stream links included" });
   }
-  const hasCritical = hasDuplicates || negativeStats.length > 0 || rankedMissingPre || rankedMissingPost;
+  const hasCritical =
+    hasDuplicates ||
+    negativeStats.length > 0 ||
+    outOfRangeStats.length > 0 ||
+    invalidStatTypes.length > 0 ||
+    invalidNewPlayerName ||
+    invalidNewFranchise ||
+    invalidNewInstallment ||
+    rankedMissingPre ||
+    rankedMissingPost;
 
   // ── Final derived values ──────────────────────────────────────────────────
   const finalGameMode = gameMode.trim() || "Main";
@@ -516,6 +556,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                   value={newPlayerName}
                   onChange={(e) => setNewPlayerName(e.target.value)}
                   placeholder="Enter name…"
+                  maxLength={100}
                 />
               </div>
             )}
@@ -590,6 +631,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                     value={newFranchiseName}
                     onChange={(e) => setNewFranchiseName(e.target.value)}
                     placeholder="e.g. Call of Duty, Elden Ring"
+                    maxLength={100}
                   />
                 </div>
                 <div>
@@ -603,6 +645,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                     value={newInstallmentName}
                     onChange={(e) => setNewInstallmentName(e.target.value)}
                     placeholder="e.g. Black Ops 7 — leave blank for standalone"
+                    maxLength={100}
                   />
                 </div>
               </div>
@@ -637,6 +680,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                   value={newInstallmentName}
                   onChange={(e) => setNewInstallmentName(e.target.value)}
                   placeholder="e.g. Warzone, Black Ops 7"
+                  maxLength={100}
                 />
               </div>
             )}
@@ -1073,6 +1117,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                       value={row.type}
                       onChange={(e) => updateStatRow(i, "type", e.target.value)}
                       placeholder="e.g. Eliminations, Points, Wins"
+                      maxLength={50}
                     />
                   </div>
                   <div>
@@ -1081,6 +1126,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                       className="input"
                       type="number"
                       min={0}
+                      max={100000}
                       value={row.value}
                       onChange={(e) => updateStatRow(i, "value", e.target.value)}
                       onFocus={(e) => e.target.select()}

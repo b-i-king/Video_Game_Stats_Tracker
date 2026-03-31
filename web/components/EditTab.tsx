@@ -4,6 +4,10 @@
 
 import { useState } from "react";
 
+// Mirror flask_app.py regexes for immediate client-side feedback
+const STAT_TYPE_RE = /^[A-Za-z0-9 \-]{1,50}$/;
+const NAME_RE = /^[A-Za-z0-9 _\-\.]{1,100}$/;
+
 function fullGameName(s: { game_name: string; game_installment?: string | null }): string {
   return s.game_installment ? `${s.game_name}: ${s.game_installment}` : s.game_name;
 }
@@ -160,11 +164,17 @@ function EditPlayer({ jwt }: Props) {
                 className="input"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
+                maxLength={100}
               />
+              {newName.trim() && !NAME_RE.test(newName.trim()) && (
+                <p className="text-xs text-red-400 mt-1">
+                  Letters, numbers, spaces, hyphens, underscores, periods only (max 100).
+                </p>
+              )}
               <button
                 className="btn-primary"
                 onClick={handleUpdate}
-                disabled={!newName.trim() || newName === selected.player_name}
+                disabled={!newName.trim() || newName === selected.player_name || !NAME_RE.test(newName.trim())}
               >
                 Update Player Name
               </button>
@@ -448,7 +458,13 @@ function EditStats({ jwt }: Props) {
                     onChange={(e) =>
                       setForm((f) => ({ ...f, stat_type: e.target.value }))
                     }
+                    maxLength={50}
                   />
+                  {(form.stat_type ?? "").trim() && !STAT_TYPE_RE.test((form.stat_type ?? "").trim()) && (
+                    <p className="text-xs text-red-400 mt-1">
+                      Letters, numbers, spaces, hyphens only (max 50).
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="label">Stat Value</label>
@@ -495,6 +511,7 @@ function EditStats({ jwt }: Props) {
               {!readyToSubmit ? (
                 <button
                   className="btn-primary"
+                  disabled={!!(form.stat_type?.trim() && !STAT_TYPE_RE.test(form.stat_type.trim()))}
                   onClick={() => setReadyToSubmit(true)}
                 >
                   Review Changes

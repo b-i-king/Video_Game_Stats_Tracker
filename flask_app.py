@@ -17,6 +17,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 import os
+import re
 import time
 import threading
 import psycopg2
@@ -92,6 +93,45 @@ def _user_cache_get(email: str):
 
 def _user_cache_set(email: str, user_id, is_trusted: bool, ttl: int = 300):
     _user_cache[email] = (user_id, is_trusted, time.monotonic() + ttl)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CONTENT SAFETY & RATE LIMITING
+# ──────────────────────────────────────────────────────────────────────────────
+try:
+    from better_profanity import profanity as _profanity
+    _profanity.load_censor_words()
+    _PROFANITY_AVAILABLE = True
+except ImportError:
+    _PROFANITY_AVAILABLE = False
+    print("⚠️  better-profanity not installed — profanity checks skipped")
+
+# Stat type: letters, numbers, spaces, hyphens only (1–50 chars)
+_STAT_TYPE_RE = re.compile(r'^[A-Za-z0-9 \-]{1,50}$')
+# Player/game name: letters, numbers, spaces, hyphens, underscores, periods (1–100 chars)
+_NAME_RE = re.compile(r'^[A-Za-z0-9 _\-\.]{1,100}$')
+
+# Free tier limits
+MAX_FREE_PLAYERS = 2
+
+def _content_check(value: str, field: str, pattern=None):
+    """Returns (error_dict, 400) if value fails content checks, else None."""
+    if not value or not value.strip():
+        return {"error": f"'{field}' cannot be empty."}, 400
+    if pattern and not pattern.match(value.strip()):
+        return {"error": f"'{field}' contains invalid characters."}, 400
+    if _PROFANITY_AVAILABLE and _profanity.contains_profanity(value):
+        return {"error": f"'{field}' contains inappropriate language."}, 400
+    return None
+
+def _rate_limit_check(user_email: str, action: str, max_per_hour: int):
+    """Returns True if within limit, False if exceeded. Uses in-memory cache."""
+    key = f"rl_{action}_{user_email}"
+    cached = _cache_get(key)
+    count = cached[0].get("n", 0) if cached else 0
+    if count >= max_per_hour:
+        return False
+    _cache_set(key, {"n": count + 1}, 200, ttl_seconds=3600)
+    return True
 
 # --- Environment Variable Check ---
 DB_URL = os.environ.get("DB_URL")
@@ -718,6 +758,17 @@ def add_stats(user_email):
     if not all([game_name, player_name, stats]) or not isinstance(stats, list) or len(stats) == 0:
         return jsonify({"error": "Missing or invalid fields: game_name, player_name, and stats (must be a non-empty list)"}), 400
 
+    # --- Content safety checks ---
+    err = _content_check(player_name, "Player name", _NAME_RE)
+    if err: return jsonify(err[0]), err[1]
+
+    err = _content_check(game_name, "Game name", _NAME_RE)
+    if err: return jsonify(err[0]), err[1]
+
+    if game_installment:
+        err = _content_check(game_installment, "Game installment", _NAME_RE)
+        if err: return jsonify(err[0]), err[1]
+
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -729,16 +780,27 @@ def add_stats(user_email):
         user_id, is_trusted = user_result
         if not is_trusted: return jsonify({"error": "User not authorized"}), 403
 
-         # --- Game Handling ---
+        # --- Rate limiting (trusted users are exempt) ---
+        if not is_trusted:
+            if not _rate_limit_check(user_email, "add_stats", max_per_hour=50):
+                return jsonify({"error": "Too many submissions. Please try again later."}), 429
+
+        # --- Game Handling ---
         # Handle NULL game_installment properly
         if game_installment:
             cur.execute("SELECT game_id FROM dim.dim_games WHERE game_name = %s AND game_installment = %s;", (game_name, game_installment))
         else:
             cur.execute("SELECT game_id FROM dim.dim_games WHERE game_name = %s AND game_installment IS NULL;", (game_name,))
-        
+
         game_record = cur.fetchone()
         game_id = None
         if not game_record:
+            # Trusted users can create new games freely; public users must request
+            if not is_trusted:
+                return jsonify({
+                    "error": "Game not found. Please select an existing game or submit a request to add it.",
+                    "request_game": True
+                }), 404
             print(f"Game '{game_name}' (Series: '{game_installment}') not found, creating.")
             cur.execute("""
                 INSERT INTO dim.dim_games (game_name, game_installment, game_genre, game_subgenre, created_at, last_played_at)
@@ -756,11 +818,22 @@ def add_stats(user_email):
             game_id = game_record[0]
             cur.execute("UPDATE dim.dim_games SET last_played_at = GETDATE() WHERE game_id = %s;", (game_id,))
 
-        # --- Player Handling (Redshift Safe) ---
+        # --- Player Handling ---
         cur.execute("SELECT player_id FROM dim.dim_players WHERE player_name = %s AND user_id = %s;", (player_name, user_id))
         player_record = cur.fetchone()
         player_id = None
         if not player_record:
+            # Enforce player limit for non-trusted users
+            if not is_trusted:
+                cur.execute("SELECT COUNT(*) FROM dim.dim_players WHERE user_id = %s;", (user_id,))
+                player_count = cur.fetchone()[0]
+                if player_count >= MAX_FREE_PLAYERS:
+                    return jsonify({
+                        "error": f"Free accounts are limited to {MAX_FREE_PLAYERS} players. Upgrade to Premium for more."
+                    }), 403
+            # Rate limit new player creation
+            if not is_trusted and not _rate_limit_check(user_email, "create_player", max_per_hour=5):
+                return jsonify({"error": "Too many player creations. Try again later."}), 429
             print(f"Player '{player_name}' for user {user_id} not found, creating.")
             cur.execute("INSERT INTO dim.dim_players (player_name, user_id, created_at) VALUES (%s, %s, GETDATE());", (player_name, user_id))
             conn.commit()
@@ -784,6 +857,10 @@ def add_stats(user_email):
 
             # Normalize stat_type casing (e.g. "kills" → "Kills", "head shots" → "Head Shots")
             stat_record['stat_type'] = stat_record['stat_type'].strip().title()
+
+            # Validate stat_type format and profanity
+            err = _content_check(stat_record['stat_type'], "Stat type", _STAT_TYPE_RE)
+            if err: return jsonify(err[0]), err[1]
 
             # Validate stat_value is numeric and in range
             val = stat_record.get('stat_value')
@@ -2875,15 +2952,15 @@ def get_ticker_facts(user_email, game_id):
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT game_name, game_series
+            SELECT game_name, game_installment
             FROM dim.dim_games
             WHERE game_id = %s;
         """, (game_id,))
         row = cur.fetchone()
         if not row:
             return jsonify({"error": "Game not found"}), 404
-        game_name, game_series = row
-        full_game_name = f"{game_name}: {game_series}" if game_series else game_name
+        game_name, game_installment = row
+        full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
 
         cur.execute("""
             SELECT player_id FROM dim.dim_players WHERE player_name = %s LIMIT 1;

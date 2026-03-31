@@ -16,6 +16,20 @@ function authHeaders(jwt: string) {
   };
 }
 
+/** If the server returns 401 the Flask JWT has expired — redirect to sign-in. */
+function handle401(res: Response): void {
+  if (res.status === 401 && typeof window !== "undefined") {
+    window.location.href = "/api/auth/signin";
+  }
+}
+
+/** Wrapper around fetch that automatically triggers 401 redirect. */
+async function fetchWithAuth(url: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(url, init);
+  handle401(res);
+  return res;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface Player {
@@ -131,7 +145,7 @@ export function pingHealth(): void {
 // ── Player endpoints ──────────────────────────────────────────────────────────
 
 export async function getPlayers(jwt: string): Promise<Player[]> {
-  const res = await fetch(`${BASE}/api/get_players`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_players`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load players (${res.status})`);
@@ -142,7 +156,7 @@ export async function getPlayers(jwt: string): Promise<Player[]> {
 // ── Game endpoints ────────────────────────────────────────────────────────────
 
 export async function getFranchises(jwt: string): Promise<string[]> {
-  const res = await fetch(`${BASE}/api/get_game_franchises`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_game_franchises`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load franchises (${res.status})`);
@@ -155,7 +169,7 @@ export async function getInstallments(
   franchise: string
 ): Promise<Installment[]> {
   const encoded = encodeURIComponent(franchise);
-  const res = await fetch(`${BASE}/api/get_game_installments/${encoded}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_game_installments/${encoded}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load installments (${res.status})`);
@@ -167,7 +181,7 @@ export async function getGameRanks(
   jwt: string,
   gameId: number
 ): Promise<string[]> {
-  const res = await fetch(`${BASE}/api/get_game_ranks/${gameId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_game_ranks/${gameId}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) return [];
@@ -178,7 +192,7 @@ export async function getGameModes(
   jwt: string,
   gameId: number
 ): Promise<string[]> {
-  const res = await fetch(`${BASE}/api/get_game_modes/${gameId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_game_modes/${gameId}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) return ["Main"];
@@ -189,7 +203,7 @@ export async function getGameStatTypes(
   jwt: string,
   gameId: number
 ): Promise<string[]> {
-  const res = await fetch(`${BASE}/api/get_game_stat_types/${gameId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_game_stat_types/${gameId}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) return [];
@@ -200,7 +214,7 @@ export async function getGameContext(
   jwt: string,
   gameId: number
 ): Promise<{ ranks: string[]; modes: string[]; stat_types: string[] }> {
-  const res = await fetch(`${BASE}/api/get_game_context/${gameId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_game_context/${gameId}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) return { ranks: [], modes: ["Main"], stat_types: [] };
@@ -211,7 +225,7 @@ export async function getGameDetails(
   jwt: string,
   gameId: number
 ): Promise<GameDetails | null> {
-  const res = await fetch(`${BASE}/api/get_game_details/${gameId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_game_details/${gameId}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) return null;
@@ -219,7 +233,7 @@ export async function getGameDetails(
 }
 
 export async function getAllGames(jwt: string): Promise<GameDetails[]> {
-  const res = await fetch(`${BASE}/api/get_games`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_games`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load games (${res.status})`);
@@ -233,7 +247,7 @@ export async function addStats(
   jwt: string,
   payload: AddStatsPayload
 ): Promise<{ message: string; social_media: string }> {
-  const res = await fetch(`${BASE}/api/add_stats`, {
+  const res = await fetchWithAuth(`${BASE}/api/add_stats`, {
     method: "POST",
     headers: authHeaders(jwt),
     body: JSON.stringify(payload),
@@ -248,7 +262,7 @@ export async function addStats(
 }
 
 export async function getRecentStats(jwt: string): Promise<StatEntry[]> {
-  const res = await fetch(`${BASE}/api/get_recent_stats`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_recent_stats`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load recent stats (${res.status})`);
@@ -257,7 +271,7 @@ export async function getRecentStats(jwt: string): Promise<StatEntry[]> {
 }
 
 export async function deleteStats(jwt: string, statId: number): Promise<void> {
-  const res = await fetch(`${BASE}/api/delete_stats/${statId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/delete_stats/${statId}`, {
     method: "DELETE",
     headers: authHeaders(jwt),
   });
@@ -269,7 +283,7 @@ export async function updateStats(
   statId: number,
   payload: Partial<StatEntry>
 ): Promise<void> {
-  const res = await fetch(`${BASE}/api/update_stats/${statId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/update_stats/${statId}`, {
     method: "PUT",
     headers: authHeaders(jwt),
     body: JSON.stringify(payload),
@@ -284,7 +298,7 @@ export async function updatePlayer(
   playerId: number,
   newName: string
 ): Promise<void> {
-  const res = await fetch(`${BASE}/api/update_player/${playerId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/update_player/${playerId}`, {
     method: "PUT",
     headers: authHeaders(jwt),
     body: JSON.stringify({ player_name: newName }),
@@ -296,7 +310,7 @@ export async function deletePlayer(
   jwt: string,
   playerId: number
 ): Promise<void> {
-  const res = await fetch(`${BASE}/api/delete_player/${playerId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/delete_player/${playerId}`, {
     method: "DELETE",
     headers: authHeaders(jwt),
   });
@@ -308,7 +322,7 @@ export async function updateGame(
   gameId: number,
   payload: Partial<GameDetails>
 ): Promise<void> {
-  const res = await fetch(`${BASE}/api/update_game/${gameId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/update_game/${gameId}`, {
     method: "PUT",
     headers: authHeaders(jwt),
     body: JSON.stringify(payload),
@@ -320,7 +334,7 @@ export async function deleteGame(
   jwt: string,
   gameId: number
 ): Promise<void> {
-  const res = await fetch(`${BASE}/api/delete_game/${gameId}`, {
+  const res = await fetchWithAuth(`${BASE}/api/delete_game/${gameId}`, {
     method: "DELETE",
     headers: authHeaders(jwt),
   });
@@ -332,7 +346,7 @@ export async function deleteGame(
 export async function getObsStatus(
   jwt: string
 ): Promise<{ obs_active: boolean }> {
-  const res = await fetch(`${BASE}/api/obs_status`, {
+  const res = await fetchWithAuth(`${BASE}/api/obs_status`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) return { obs_active: false };
@@ -365,7 +379,7 @@ export async function setObsActive(
 export async function getQueueStatus(
   jwt: string
 ): Promise<{ pending: number; processing: number; sent: number; failed: number }> {
-  const res = await fetch(`${BASE}/api/queue_status`, {
+  const res = await fetchWithAuth(`${BASE}/api/queue_status`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) return { pending: 0, processing: 0, sent: 0, failed: 0 };
@@ -375,7 +389,7 @@ export async function getQueueStatus(
 export async function retryFailed(
   jwt: string
 ): Promise<{ reset_count: number }> {
-  const res = await fetch(`${BASE}/api/retry_failed`, {
+  const res = await fetchWithAuth(`${BASE}/api/retry_failed`, {
     method: "POST",
     headers: authHeaders(jwt),
   });
@@ -391,7 +405,7 @@ export async function getSummary(
 ): Promise<SummaryData> {
   const params = new URLSearchParams({ player_name: playerName });
   if (gameMode) params.set("game_mode", gameMode);
-  const res = await fetch(`${BASE}/api/get_summary/${gameId}?${params}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_summary/${gameId}?${params}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load summary (${res.status})`);
@@ -406,7 +420,7 @@ export async function getInteractiveChart(
 ): Promise<string> {
   const params = new URLSearchParams({ player_name: playerName });
   if (gameMode) params.set("game_mode", gameMode);
-  const res = await fetch(`${BASE}/api/get_interactive_chart/${gameId}?${params}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_interactive_chart/${gameId}?${params}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load chart (${res.status})`);
@@ -419,7 +433,7 @@ export async function downloadChart(
   playerName: string,
   platform: "twitter" | "instagram"
 ): Promise<void> {
-  const res = await fetch(`${BASE}/api/download_chart`, {
+  const res = await fetchWithAuth(`${BASE}/api/download_chart`, {
     method: "POST",
     headers: authHeaders(jwt),
     body: JSON.stringify({ game_id: gameId, player_name: playerName, platform }),
@@ -443,7 +457,7 @@ export async function getHeatmap(
   playerName: string
 ): Promise<HeatmapData> {
   const params = new URLSearchParams({ player_name: playerName });
-  const res = await fetch(`${BASE}/api/get_heatmap/${gameId}?${params}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_heatmap/${gameId}?${params}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load heatmap (${res.status})`);
@@ -456,7 +470,7 @@ export async function getTickerFacts(
   playerName: string
 ): Promise<{ facts: string[]; sessions: number }> {
   const params = new URLSearchParams({ player_name: playerName });
-  const res = await fetch(`${BASE}/api/get_ticker_facts/${gameId}?${params}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_ticker_facts/${gameId}?${params}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load ticker facts (${res.status})`);
@@ -469,7 +483,7 @@ export async function getStreaks(
   playerName: string
 ): Promise<StreakData> {
   const params = new URLSearchParams({ player_name: playerName });
-  const res = await fetch(`${BASE}/api/get_streaks/${gameId}?${params}`, {
+  const res = await fetchWithAuth(`${BASE}/api/get_streaks/${gameId}?${params}`, {
     headers: authHeaders(jwt),
   });
   if (!res.ok) throw new Error(`Failed to load streaks (${res.status})`);
@@ -480,7 +494,7 @@ export async function askBolt(
   jwt: string,
   prompt: string
 ): Promise<string> {
-  const res = await fetch(`${BASE}/api/ask`, {
+  const res = await fetchWithAuth(`${BASE}/api/ask`, {
     method: "POST",
     headers: authHeaders(jwt),
     body: JSON.stringify({ prompt }),
