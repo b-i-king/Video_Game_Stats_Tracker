@@ -1014,18 +1014,18 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
             SELECT play_date, stat_type, stat_value AS latest_value
             FROM (
                 SELECT
-                    CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) AS play_date,
+                    ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE AS play_date,
                     stat_type,
                     stat_value,
                     ROW_NUMBER() OVER (
-                        PARTITION BY CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE), stat_type
+                        PARTITION BY ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE, stat_type
                         ORDER BY played_at DESC
                     ) AS rn
                 FROM fact.fact_game_stats
                 WHERE player_id = %s
                   AND game_id = %s
                   AND stat_type IN ({placeholders})
-                  AND played_at >= DATEADD(day, -%s, GETDATE())
+                  AND played_at >= NOW() - (%s || ' days')::INTERVAL
             ) t
             WHERE rn = 1
             ORDER BY play_date;
@@ -1035,11 +1035,11 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
             SELECT play_date, stat_type, stat_value AS latest_value
             FROM (
                 SELECT
-                    CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) AS play_date,
+                    ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE AS play_date,
                     stat_type,
                     stat_value,
                     ROW_NUMBER() OVER (
-                        PARTITION BY CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE), stat_type
+                        PARTITION BY ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE, stat_type
                         ORDER BY played_at DESC
                     ) AS rn
                 FROM fact.fact_game_stats

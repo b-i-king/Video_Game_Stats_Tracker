@@ -182,7 +182,7 @@ def initialize_db_pool():
             database=DB_NAME,
             user=DB_USER,
             password=DB_PASSWORD,
-            port=5439,
+            port=int(os.environ.get("DB_PORT", 5432)),
             connect_timeout=30,
             sslmode='require'
         )
@@ -251,6 +251,12 @@ def release_db_connection(conn, close=True):
         
 def create_tables():
     """Creates the necessary database tables if they do not exist."""
+    # On Supabase the schema is managed via assets/sql/supabase_schema.sql.
+    # The DDL below uses Redshift syntax (IDENTITY, GETDATE) and must not
+    # run against either the personal or public Supabase project.
+    if os.environ.get("DB_TYPE") == "supabase":
+        print("Skipping create_tables(): schema managed via supabase_schema.sql on Supabase.")
+        return
     conn = None
     try:
         conn = get_db_connection()
@@ -817,7 +823,7 @@ def add_stats(user_email):
             print(f"Game '{game_name}' (Series: '{game_installment}') not found, creating.")
             cur.execute("""
                 INSERT INTO dim.dim_games (game_name, game_installment, game_genre, game_subgenre, created_at, last_played_at)
-                VALUES (%s, %s, %s, %s, GETDATE(), GETDATE());
+                VALUES (%s, %s, %s, %s, NOW(), NOW());
             """, (game_name, game_installment, game_genre, game_subgenre))
             conn.commit()
             if game_installment:
@@ -829,7 +835,7 @@ def add_stats(user_email):
             game_id = game_id_result[0]
         else:
             game_id = game_record[0]
-            cur.execute("UPDATE dim.dim_games SET last_played_at = GETDATE() WHERE game_id = %s;", (game_id,))
+            cur.execute("UPDATE dim.dim_games SET last_played_at = NOW() WHERE game_id = %s;", (game_id,))
 
         # --- Player Handling ---
         cur.execute("SELECT player_id FROM dim.dim_players WHERE player_name = %s AND user_id = %s;", (player_name, user_id))
@@ -848,7 +854,7 @@ def add_stats(user_email):
             if not is_trusted and not _rate_limit_check(user_email, "create_player", max_per_hour=5):
                 return jsonify({"error": "Too many player creations. Try again later."}), 429
             print(f"Player '{player_name}' for user {user_id} not found, creating.")
-            cur.execute("INSERT INTO dim.dim_players (player_name, user_id, created_at) VALUES (%s, %s, GETDATE());", (player_name, user_id))
+            cur.execute("INSERT INTO dim.dim_players (player_name, user_id, created_at) VALUES (%s, %s, NOW());", (player_name, user_id))
             conn.commit()
             cur.execute("SELECT player_id FROM dim.dim_players WHERE player_name = %s AND user_id = %s;", (player_name, user_id))
             player_id_result = cur.fetchone()
@@ -877,7 +883,7 @@ def add_stats(user_email):
         # Capture a single timestamp for the entire batch so all stats in this
         # session share the exact same played_at — prevents COUNT(DISTINCT played_at)
         # from counting one session as multiple games due to sub-second drift.
-        cur.execute("SELECT GETDATE();")
+        cur.execute("SELECT NOW();")
         batch_timestamp = cur.fetchone()[0]
 
         successful_inserts = 0
@@ -1751,7 +1757,7 @@ def set_live_state(user_email):
             UPDATE dim.dim_dashboard_state
             SET current_player_id = %s,
                 current_game_id = %s,
-                updated_at = GETDATE()
+                updated_at = NOW()
             WHERE state_id = 1;
         """, (player_id, game_id))
         conn.commit()
@@ -1836,11 +1842,11 @@ def get_live_dashboard():
         
         # 4. Get "today" in the user's timezone
         try:
-            cur.execute("SELECT CAST(CONVERT_TIMEZONE(%s, GETDATE()) AS DATE)", (timezone_str,))
+            cur.execute("SELECT (NOW() AT TIME ZONE %s)::DATE", (timezone_str,))
             today_date = cur.fetchone()[0]
         except (Exception, psycopg2.DatabaseError) as tz_error:
             print(f"Timezone conversion error: {tz_error}. Defaulting to UTC.")
-            cur.execute("SELECT CAST(GETDATE() AS DATE)")
+            cur.execute("SELECT CURRENT_DATE")
             today_date = cur.fetchone()[0]
             timezone_str = 'UTC'
 
@@ -1908,7 +1914,7 @@ def get_live_dashboard():
             SELECT 1 FROM fact.fact_game_stats
             WHERE player_id = %s
               AND game_id = %s
-              AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s
+              AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE = %s
             LIMIT 1;
         """, (player_id, game_id, timezone_str, today_date))
         stats_today_exist = cur.fetchone()
@@ -1920,11 +1926,11 @@ def get_live_dashboard():
         # 8. If no stats today, find most recent day
         if not stats_today_exist:
             cur.execute("""
-                SELECT MAX(CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE))
+                SELECT MAX(((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE)
                 FROM fact.fact_game_stats
                 WHERE player_id = %s
                   AND game_id = %s
-                  AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) < %s;
+                  AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE < %s;
             """, (timezone_str, player_id, game_id, timezone_str, today_date))
             most_recent_day = cur.fetchone()
             if most_recent_day and most_recent_day[0]:
@@ -1969,21 +1975,21 @@ def get_live_dashboard():
                     WHERE player_id = %s 
                       AND game_id = %s 
                       AND win = 1
-                      AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s;
+                      AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE = %s;
                 """, (player_id, game_id, timezone_str, query_date))
             else:
                 # Last day average: AVG of wins per day
                 cur.execute("""
                     SELECT AVG(daily_wins)
                     FROM (
-                        SELECT CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date,
+                        SELECT ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE as play_date,
                                COUNT(DISTINCT played_at) as daily_wins
                         FROM fact.fact_game_stats
                         WHERE player_id = %s 
                           AND game_id = %s 
                           AND win = 1
-                          AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s
-                        GROUP BY CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE)
+                          AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE = %s
+                        GROUP BY ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE
                     ) daily_win_counts;
                 """, (timezone_str, player_id, game_id, timezone_str, query_date, timezone_str))
             
@@ -2003,7 +2009,7 @@ def get_live_dashboard():
                 FROM fact.fact_game_stats
                 WHERE player_id = %s AND game_id = %s
                   AND stat_type IN ({placeholders})
-                  AND CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) = %s
+                  AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE = %s
                 GROUP BY stat_type;
             """, (player_id, game_id, *top_stats, timezone_str, query_date))
             stat_results = {row[0]: row[1] for row in cur.fetchall()}
@@ -2141,7 +2147,7 @@ def generate_basic_facts(cur, player_id, game_id, player_name, game_name, stat_t
     for stat_type in stat_types[:3]:  # Limit to top 3 stat types
         # Best performance for this stat
         cur.execute("""
-            SELECT stat_value, CAST(CONVERT_TIMEZONE(%s, played_at) AS DATE) as play_date
+            SELECT stat_value, ((played_at AT TIME ZONE 'UTC') AT TIME ZONE %s)::DATE as play_date
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s AND stat_type = %s
             ORDER BY stat_value DESC
@@ -2592,8 +2598,8 @@ def get_summary(user_email, game_id):
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s
               AND stat_type IN ({placeholders})
-              AND CAST(CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', played_at) AS DATE)
-                  = CAST(CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', GETDATE()) AS DATE)
+              AND ((played_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Los_Angeles')::DATE
+                  = (NOW() AT TIME ZONE 'America/Los_Angeles')::DATE
               {mode_clause}
             GROUP BY stat_type;
         """, (player_id, game_id) + stat_params)
@@ -2866,8 +2872,8 @@ def get_heatmap(user_email, game_id):
 
         cur.execute("""
             SELECT
-                EXTRACT(DOW  FROM CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', played_at))::int AS dow,
-                EXTRACT(HOUR FROM CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', played_at))::int AS hour,
+                EXTRACT(DOW  FROM ((played_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Los_Angeles'))::int AS dow,
+                EXTRACT(HOUR FROM ((played_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Los_Angeles'))::int AS hour,
                 COUNT(*) AS session_count
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s
@@ -2916,7 +2922,7 @@ def get_streaks(user_email, game_id):
 
         cur.execute("""
             SELECT DISTINCT
-                CAST(CONVERT_TIMEZONE('UTC', 'America/Los_Angeles', played_at) AS DATE) AS session_date
+                ((played_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Los_Angeles')::DATE AS session_date
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s
             ORDER BY session_date DESC;
