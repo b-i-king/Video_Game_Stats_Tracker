@@ -1190,6 +1190,19 @@ def generate_interactive_chart(chart_type, data, player_name, game_name,
         else:
             fig.update_layout(yaxis=dict(rangemode='tozero'))
 
+        # Date-axis formatting only makes sense for the line chart's category/date x-axis
+        fig.update_layout(
+            xaxis=dict(
+                gridcolor=grid_color,
+                linecolor=grid_color,
+                tickfont=dict(color=text_color, size=10),
+                dtick="M1",                      # one tick per month
+                tickformat="%b '%y",             # "Mar '26" — year always visible
+                tickangle=-45,
+                ticklabeloverflow="hide past div",
+            ),
+        )
+
     fig.update_layout(
         title=dict(text=title, font=dict(color=text_color, size=16), x=0.5),
         paper_bgcolor=bg_color,
@@ -1199,10 +1212,6 @@ def generate_interactive_chart(chart_type, data, player_name, game_name,
             gridcolor=grid_color,
             linecolor=grid_color,
             tickfont=dict(color=text_color, size=10),
-            dtick="M1",           # one tick per month — readable at any data density
-            tickformat="%b '%y",  # "Mar '26" — month + short year always visible
-            tickangle=-45,        # consistent diagonal, never goes vertical
-            ticklabeloverflow="hide",  # drops labels that would overlap at narrow widths
         ),
         yaxis=dict(gridcolor=grid_color, linecolor=grid_color, tickfont=dict(color=text_color)),
         legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color=text_color)),
