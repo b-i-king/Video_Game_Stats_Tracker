@@ -1195,7 +1195,15 @@ def generate_interactive_chart(chart_type, data, player_name, game_name,
         paper_bgcolor=bg_color,
         plot_bgcolor=bg_color,
         font=dict(color=text_color, family='monospace'),
-        xaxis=dict(gridcolor=grid_color, linecolor=grid_color, tickfont=dict(color=text_color)),
+        xaxis=dict(
+            gridcolor=grid_color,
+            linecolor=grid_color,
+            tickfont=dict(color=text_color, size=10),
+            dtick="M1",           # one tick per month — readable at any data density
+            tickformat="%b '%y",  # "Mar '26" — month + short year always visible
+            tickangle=-45,        # consistent diagonal, never goes vertical
+            ticklabeloverflow="hide",  # drops labels that would overlap at narrow widths
+        ),
         yaxis=dict(gridcolor=grid_color, linecolor=grid_color, tickfont=dict(color=text_color)),
         legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color=text_color)),
         margin=dict(t=60, b=100, l=60, r=40),

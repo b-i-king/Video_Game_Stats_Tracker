@@ -1752,13 +1752,14 @@ def set_live_state(user_email):
         if not cur.fetchone():
             return jsonify({"error": "User not authorized"}), 403
             
-        # Update the single row in the state table
+        # Upsert the single row — INSERT on first call, UPDATE on subsequent calls
         cur.execute("""
-            UPDATE dim.dim_dashboard_state
-            SET current_player_id = %s,
-                current_game_id = %s,
-                updated_at = NOW()
-            WHERE state_id = 1;
+            INSERT INTO dim.dim_dashboard_state (state_id, current_player_id, current_game_id, updated_at)
+            VALUES (1, %s, %s, NOW())
+            ON CONFLICT (state_id) DO UPDATE
+                SET current_player_id = EXCLUDED.current_player_id,
+                    current_game_id   = EXCLUDED.current_game_id,
+                    updated_at        = EXCLUDED.updated_at;
         """, (player_id, game_id))
         conn.commit()
         

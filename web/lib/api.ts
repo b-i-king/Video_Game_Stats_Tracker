@@ -358,11 +358,15 @@ export async function setLiveState(
   playerId: number,
   gameId: number
 ): Promise<void> {
-  await fetch(`${BASE}/api/set_live_state`, {
+  const res = await fetch(`${BASE}/api/set_live_state`, {
     method: "POST",
     headers: authHeaders(jwt),
     body: JSON.stringify({ player_id: playerId, game_id: gameId }),
   });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `set_live_state failed (${res.status})`);
+  }
 }
 
 export async function setObsActive(

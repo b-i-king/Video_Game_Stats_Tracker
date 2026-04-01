@@ -8,6 +8,7 @@ import {
   getInteractiveChart,
   getHeatmap,
   getStreaks,
+  getTickerFacts,
   type Player,
   type GameDetails,
   type KpiStat,
@@ -206,12 +207,15 @@ function StatTicker({
   gameName,
   todayStats,
   bestStats,
+  apiFacts,
 }: {
   gameName: string;
   todayStats: KpiStat[];
   bestStats: KpiStat[];
+  apiFacts: string[] | null;
 }) {
-  const items = buildTickerFacts(gameName, todayStats, bestStats);
+  // Prefer richer API facts; fall back to client-side buildTickerFacts
+  const items = apiFacts ?? buildTickerFacts(gameName, todayStats, bestStats);
   if (!items.length) return null;
 
   const content = [gameName.toUpperCase(), ...items].join("  •  ");
@@ -251,6 +255,7 @@ function EmptyState({ message }: { message: string }) {
 export default function SummaryTab({ jwt }: { jwt: string }) {
   const [players, setPlayers]         = useState<Player[]>([]);
   const [games, setGames]             = useState<GameDetails[]>([]);
+  const [dropdownLoading, setDropdownLoading] = useState(true);
   const [playerName, setPlayerName]   = useState("");
   const [gameId, setGameId]           = useState<number | null>(null);
 
@@ -261,6 +266,8 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
   const [chartHtml, setChartHtml]     = useState<string | null | undefined>(undefined);
   const [heatmap, setHeatmap]         = useState<HeatmapData | null | undefined>(undefined);
   const [streaks, setStreaks]         = useState<StreakData | null | undefined>(undefined);
+  // null = not yet fetched, [] = fetched (API or fallback)
+  const [tickerFacts, setTickerFacts] = useState<string[] | null>(null);
   const [error, setError]             = useState<string | null>(null);
 
   const loading      = todayAvg === null && !!gameId;
@@ -271,11 +278,14 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
   // Load players and games on mount
   useEffect(() => {
     if (!jwt) return;
-    Promise.all([getPlayers(jwt), getAllGames(jwt)]).then(([p, g]) => {
-      setPlayers(p);
-      setGames(g);
-      if (p.length > 0) setPlayerName(p[0].player_name);
-    }).catch(() => setError("Failed to load players or games."));
+    Promise.all([getPlayers(jwt), getAllGames(jwt)])
+      .then(([p, g]) => {
+        setPlayers(p);
+        setGames(g);
+        if (p.length > 0) setPlayerName(p[0].player_name);
+      })
+      .catch(() => setError("Failed to load players or games."))
+      .finally(() => setDropdownLoading(false));
   }, [jwt]);
 
   // Fetch all data when player + game are both selected
@@ -305,12 +315,18 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       .then((data) => setStreaks(data))
       .catch(() => setStreaks(null));
 
+    // Fetch rich ticker facts from API; fall back to client-side buildTickerFacts on failure
+    getTickerFacts(jwt, gameId, playerName)
+      .then((data) => setTickerFacts(data.facts.length > 0 ? data.facts : null))
+      .catch(() => setTickerFacts(null));
+
     return () => {
       setTodayAvg(null);
       setAllTimeBest(null);
       setChartHtml(undefined);
       setHeatmap(undefined);
       setStreaks(undefined);
+      setTickerFacts(null);
       setError(null);
     };
   }, [jwt, gameId, playerName]);
@@ -341,10 +357,13 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
           <label className="label">Game</label>
           <select
             className="input"
+            disabled={dropdownLoading}
             value={gameId ?? ""}
             onChange={(e) => setGameId(Number(e.target.value) || null)}
           >
-            <option value="">— Select a game —</option>
+            <option value="">
+              {dropdownLoading ? "Loading games…" : "— Select a game —"}
+            </option>
             {games.map((g) => (
               <option key={g.game_id} value={g.game_id}>
                 {gameLabel(g)}
@@ -354,12 +373,13 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
         </div>
       </div>
 
-      {/* ESPN Ticker */}
+      {/* ESPN Ticker — API facts preferred, buildTickerFacts as fallback */}
       {gameId && !loading && (
         <StatTicker
           gameName={games.find((g) => g.game_id === gameId)?.game_name ?? ""}
           todayStats={todayAvg ?? []}
           bestStats={allTimeBest ?? []}
+          apiFacts={tickerFacts}
         />
       )}
 
