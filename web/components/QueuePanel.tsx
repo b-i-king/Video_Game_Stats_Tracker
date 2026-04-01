@@ -90,25 +90,19 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
         )}
       </div>
 
-      {/* Counts grid — 3 columns */}
-      <div className="px-4 pt-4 shrink-0">
-        <div className="grid grid-cols-3 gap-2 text-sm">
-          <div className="rounded border border-[var(--border)] p-2 text-center">
-            <div className="text-lg font-bold text-[var(--gold)]">
-              {counts.pending + counts.processing}
-            </div>
-            <div className="text-xs text-[var(--muted)]">Pending</div>
-          </div>
-          <div className="rounded border border-[var(--border)] p-2 text-center">
-            <div className="text-lg font-bold">{counts.sent}</div>
-            <div className="text-xs text-[var(--muted)]">Sent</div>
-          </div>
-          <div className="rounded border border-[var(--border)] p-2 text-center">
-            <div className={`text-lg font-bold ${counts.failed > 0 ? "text-red-400" : ""}`}>
-              {counts.failed}
-            </div>
-            <div className="text-xs text-[var(--muted)]">Failed</div>
-          </div>
+      {/* Counts — 3 stacked rows */}
+      <div className="px-4 pt-4 shrink-0 space-y-2">
+        <div className="flex items-center justify-between rounded border border-[var(--border)] px-4 py-3">
+          <span className="text-sm text-[var(--muted)]">Pending</span>
+          <span className="text-xl font-bold text-[var(--gold)]">{counts.pending + counts.processing}</span>
+        </div>
+        <div className="flex items-center justify-between rounded border border-[var(--border)] px-4 py-3">
+          <span className="text-sm text-[var(--muted)]">Sent</span>
+          <span className="text-xl font-bold">{counts.sent}</span>
+        </div>
+        <div className="flex items-center justify-between rounded border border-[var(--border)] px-4 py-3">
+          <span className="text-sm text-[var(--muted)]">Failed</span>
+          <span className={`text-xl font-bold ${counts.failed > 0 ? "text-red-400" : ""}`}>{counts.failed}</span>
         </div>
 
         {counts.failed > 0 && (

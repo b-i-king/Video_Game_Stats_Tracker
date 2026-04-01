@@ -3,24 +3,34 @@ Holiday theme detection and color palettes
 Automatically switches chart colors based on current date
 """
 
+import os
 from datetime import datetime, date
 from dateutil.easter import easter
+from zoneinfo import ZoneInfo
 
 
-def get_current_holiday():
+def _today_local(tz: str | None = None) -> date:
+    """Return today's date in the given timezone (falls back to TIMEZONE env var).
+    Render servers run UTC — passing the user's timezone ensures heritage months
+    and holidays flip at the correct local midnight, not UTC midnight."""
+    zone = ZoneInfo(tz or os.environ.get("TIMEZONE", "America/Los_Angeles"))
+    return datetime.now(zone).date()
+
+
+def get_current_holiday(tz: str | None = None):
     """
     Determine which holiday (if any) is currently being observed.
     Returns holiday name or None.
-    
+
     Holiday window: ±1 days before to ±1 days after the actual date
     Heritage Months: Entire month (no buffer)
-    
+
     Priority: Specific holidays take precedence over heritage months
     """
-    today = date.today()
+    today = _today_local(tz)
     year = today.year
     month = today.month
-    
+
     # Define holidays with their dates
     holidays = {
         'New Year': date(year, 1, 1),
@@ -57,15 +67,15 @@ def get_current_holiday():
     return None
 
 
-def is_exact_holiday():
+def is_exact_holiday(tz: str | None = None):
     """
     Check if TODAY is the EXACT date of a holiday (not buffer days).
     Used for displaying holiday name in chart title.
-    
+
     Returns:
         str: Holiday name if today is exact date, None otherwise
     """
-    today = date.today()
+    today = _today_local(tz)
     year = today.year
     
     holidays = {
@@ -226,21 +236,26 @@ def get_color_palette(holiday=None):
     }
 
 
-def get_themed_colors():
+def get_themed_colors(tz: str | None = None):
     """
     Main function to get colors for current date.
     Call this when generating charts.
-    
+
+    Args:
+        tz: IANA timezone string (e.g. "America/Los_Angeles"). Defaults to
+            the TIMEZONE env var. Pass the user's timezone so heritage months
+            and holidays flip at the correct local midnight.
+
     Heritage Months: Colors + hashtag + TITLE for ENTIRE month (unless specific holiday)
     Specific Holidays: Colors + hashtag + title apply within ±1 day window
-    
+
     Priority: Exact holidays override heritage months for title display
-    
+
     Returns:
         dict with 'colors', 'theme_name', 'holiday', 'show_in_title' (bool), and 'hashtag' (str or None)
     """
-    current_holiday = get_current_holiday()  # Checks holidays first, then heritage months
-    exact_holiday = is_exact_holiday()        # Exact date only for specific holidays
+    current_holiday = get_current_holiday(tz)  # Checks holidays first, then heritage months
+    exact_holiday = is_exact_holiday(tz)        # Exact date only for specific holidays
     palette = get_color_palette(current_holiday)
     
     # Determine if we should show name in title

@@ -142,9 +142,12 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       // Use browser local timezone, not UTC, to determine "today"
       const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local tz
       setTodayStats(all.filter((s) => {
-        // played_at comes from server as UTC — force UTC parsing then convert to local date
-        const utc = s.played_at.includes("T") ? s.played_at : s.played_at.replace(" ", "T");
-        const localDate = new Date(utc.endsWith("Z") ? utc : utc + "Z").toLocaleDateString("en-CA");
+        // played_at may arrive as "2026-04-01 00:54:22+00" or "2026-04-01T00:54:22.971181+00"
+        // Strip any existing timezone suffix (+00, +00:00, Z) then re-add Z so the
+        // string is unambiguous UTC before converting to the browser's local date.
+        const withT = s.played_at.includes("T") ? s.played_at : s.played_at.replace(" ", "T");
+        const clean = withT.replace(/([Z]|[+-]\d{2}(:\d{2})?)$/, "") + "Z";
+        const localDate = new Date(clean).toLocaleDateString("en-CA");
         return localDate === today;
       }));
     } catch {

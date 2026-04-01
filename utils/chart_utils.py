@@ -406,7 +406,7 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
     return buf
 
 
-def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter', game_mode=None):
+def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter', game_mode=None, tz=None):
     """
     Generate a HORIZONTAL bar chart for first-time game stats.
     
@@ -460,7 +460,7 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     
     # Count stats, get theme early, and branch for single-stat KPI visual
     num_stats = len(stats)
-    theme = get_themed_colors()
+    theme = get_themed_colors(tz)
     colors = theme['colors']
 
     if num_stats == 1:
@@ -658,7 +658,7 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     return buf
 
 
-def generate_line_chart(stat_history, player_name, game_name, game_installment=None, size='twitter', game_mode=None):
+def generate_line_chart(stat_history, player_name, game_name, game_installment=None, size='twitter', game_mode=None, tz=None):
     """
     Generate a line chart showing stat trends over time.
     
@@ -684,7 +684,7 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         raise ValueError("No dates provided in stat_history")
     
     # Get themed colors
-    theme = get_themed_colors()
+    theme = get_themed_colors(tz)
     colors = theme['colors']
     
 
@@ -1080,7 +1080,7 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
 
 
 def generate_interactive_chart(chart_type, data, player_name, game_name,
-                               game_installment=None, game_mode=None):
+                               game_installment=None, game_mode=None, tz=None):
     """Generate an interactive Plotly HTML chart from already-computed in-memory data.
 
     No database queries — data must be pre-computed before calling this function.
@@ -1103,7 +1103,7 @@ def generate_interactive_chart(chart_type, data, player_name, game_name,
     bg_color = "#111111"
     grid_color = "#2a2a2a"
     text_color = "#e0e0e0"
-    theme = get_themed_colors()
+    theme = get_themed_colors(tz)
     accent_colors = theme['colors']  # Dynamically matches holiday_themes.py
 
     fig = go.Figure()
@@ -1198,7 +1198,7 @@ def generate_interactive_chart(chart_type, data, player_name, game_name,
         xaxis=dict(gridcolor=grid_color, linecolor=grid_color, tickfont=dict(color=text_color)),
         yaxis=dict(gridcolor=grid_color, linecolor=grid_color, tickfont=dict(color=text_color)),
         legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color=text_color)),
-        margin=dict(t=60, b=60, l=60, r=40),
+        margin=dict(t=60, b=100, l=60, r=40),
         hovermode='x unified' if chart_type == 'line' else 'closest',
         hoverlabel=dict(font_color='white', bgcolor='#1e1e1e', bordercolor='#444444'),
     )
