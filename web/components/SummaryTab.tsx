@@ -231,7 +231,7 @@ function StatTicker({
         .ticker-track {
           display: inline-block;
           white-space: nowrap;
-          animation: ticker-scroll 80s linear infinite;
+          animation: ticker-scroll 150s linear infinite;
         }
         .ticker-track:hover { animation-play-state: paused; }
       `}</style>
@@ -303,7 +303,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
         setAllTimeBest([]);
       });
 
-    getInteractiveChart(jwt, gameId, playerName)
+    getInteractiveChart(jwt, gameId, playerName, undefined, Intl.DateTimeFormat().resolvedOptions().timeZone)
       .then((html) => setChartHtml(html))
       .catch(() => setChartHtml(null));
 

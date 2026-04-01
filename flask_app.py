@@ -2730,6 +2730,7 @@ def get_interactive_chart(user_email, game_id):
     """
     player_name = request.args.get('player_name', '').strip()
     game_mode   = request.args.get('game_mode', '').strip() or None
+    tz          = request.args.get('tz', 'America/Los_Angeles').strip() or 'America/Los_Angeles'
 
     if not player_name:
         return jsonify({"error": "player_name is required"}), 400
@@ -2784,12 +2785,12 @@ def get_interactive_chart(user_email, game_id):
                 data[f'stat{i}'] = {'label': stype, 'value': sval, 'prev_value': None}
             chart_type = 'bar'
         else:
-            data = get_stat_history_from_db(cur, player_id, game_id, top_stats, days_back=365)
+            data = get_stat_history_from_db(cur, player_id, game_id, top_stats, timezone_str=tz, days_back=365)
             chart_type = 'line'
 
         html_bytes = generate_interactive_chart(
             chart_type, data, player_name, game_name,
-            game_installment=game_installment, game_mode=game_mode
+            game_installment=game_installment, game_mode=game_mode, tz=tz
         )
         return html_bytes, 200, {'Content-Type': 'text/html; charset=utf-8'}
 

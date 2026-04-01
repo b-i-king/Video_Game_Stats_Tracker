@@ -420,10 +420,12 @@ export async function getInteractiveChart(
   jwt: string,
   gameId: number,
   playerName: string,
-  gameMode?: string
+  gameMode?: string,
+  tz?: string
 ): Promise<string> {
   const params = new URLSearchParams({ player_name: playerName });
   if (gameMode) params.set("game_mode", gameMode);
+  if (tz) params.set("tz", tz);
   const res = await fetchWithAuth(`${BASE}/api/get_interactive_chart/${gameId}?${params}`, {
     headers: authHeaders(jwt),
   });
