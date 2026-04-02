@@ -25,7 +25,7 @@ function formatPlayedAt(raw: string): string {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: "America/Los_Angeles",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     timeZoneName: "short",
   });
   // e.g. "May 13, 2026 @ 2:05 PM PDT"

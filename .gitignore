@@ -23,6 +23,7 @@ config/.env
 .env.*
 !config/.env.example
 .streamlit/secrets.toml
+**/secrets.toml
 test_variables_backend.txt
 
 # Google Cloud service account keys

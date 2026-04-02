@@ -22,7 +22,7 @@
 -- (post_queue, user_integrations) is a personal streaming feature only.
 --
 -- Run order: Schemas → dim [BOTH] → dim [PERSONAL] → fact → app [BOTH]
---            → app [PERSONAL] → app [PUBLIC] → triggers → indexes
+--            → app [PERSONAL] → app [PUBLIC] → triggers → indexes → analytics
 -- ============================================================
 
 
@@ -158,9 +158,11 @@ CREATE TABLE IF NOT EXISTS fact.fact_game_stats (
 -- ── app.ml_model_runs ─────────────────────────────────────────
 -- Audit log of every ML training run per (user, game, stat_type, model).
 -- feature_importances JSONB shape: { "ranked": 0.31, "game_mode": 0.22 }
--- model_type: 'random_forest' | 'xgboost'
+-- model_coefficients  JSONB shape: { "coef": [[...]], "intercept": [float], "classes": [0,1] }
+--   LR only — served to frontend for client-side sigmoid inference (zero extra API calls).
+-- model_type: 'logistic_regression' | 'random_forest' | 'xgboost'
 -- gcs_path:   gs://bucket/models/personal/{user_email}/{game_id}/{stat_type}/{model_type}.joblib
---             gs://bucket/models/generalized/{game_id}/{stat_type}/{model_type}.joblib
+--             (RF/XGBoost only — LR uses model_coefficients JSONB instead)
 CREATE TABLE IF NOT EXISTS app.ml_model_runs (
     id                  INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_email          TEXT    NOT NULL REFERENCES dim.dim_users(user_email),
@@ -171,6 +173,7 @@ CREATE TABLE IF NOT EXISTS app.ml_model_runs (
     mae                 NUMERIC(10, 2),
     sessions_used       INTEGER,
     feature_importances JSONB,
+    model_coefficients  JSONB,
     gcs_path            TEXT,
     trained_at          TIMESTAMPTZ DEFAULT NOW()
 );
@@ -233,6 +236,7 @@ CREATE TABLE IF NOT EXISTS app.user_integrations (
     user_email       TEXT NOT NULL,
     platform         TEXT NOT NULL,
     platform_user_id TEXT NOT NULL,  -- puuid, steam_id, etc.
+    platform_username TEXT,          -- human-readable: "BOL#NA1", display only
     access_token     TEXT,           -- encrypted at app layer
     refresh_token    TEXT,
     token_expires_at TIMESTAMPTZ,
@@ -545,3 +549,87 @@ CREATE INDEX IF NOT EXISTS idx_post_queue_status
 -- app.game_requests — admin review dashboard
 CREATE INDEX IF NOT EXISTS idx_game_requests_status
     ON app.game_requests (status, created_at DESC);
+
+-- app.ml_model_runs — latest run lookup per (user, game, model_type)
+CREATE INDEX IF NOT EXISTS idx_ml_runs_user_game
+    ON app.ml_model_runs (user_email, game_id, model_type, trained_at DESC);
+
+-- app.user_integrations — active integration lookup per user
+CREATE INDEX IF NOT EXISTS idx_user_integrations_active
+    ON app.user_integrations (user_email, platform)
+    WHERE is_active = TRUE;
+
+-- app.integration_imports — dedup check (hot path on every Riot poll cycle)
+CREATE INDEX IF NOT EXISTS idx_integration_imports_dedup
+    ON app.integration_imports (platform, external_match_id);
+
+-- app.leaderboard_entries — leaderboard reads by game + stat
+CREATE INDEX IF NOT EXISTS idx_leaderboard_entries_game_stat
+    ON app.leaderboard_entries (game_id, stat_type, best_value DESC);
+
+-- app.ai_usage — usage check on every /api/ask call
+CREATE INDEX IF NOT EXISTS idx_ai_usage_user_date
+    ON app.ai_usage (user_email, query_date DESC);
+
+
+-- ══════════════════════════════════════════════════════════════
+-- ANALYTICS SCHEMA — MATERIALIZED VIEWS               [BOTH]
+-- ══════════════════════════════════════════════════════════════
+-- Pre-aggregated views refreshed via FastAPI BackgroundTasks after add_stats.
+-- Use REFRESH MATERIALIZED VIEW CONCURRENTLY (requires unique index on each).
+-- BOTH projects run mv_heatmap + mv_session_days.
+-- PUBLIC project additionally runs mv_leaderboard_percentiles (uncomment below).
+
+CREATE SCHEMA IF NOT EXISTS analytics;
+
+-- Heatmap: session frequency by day-of-week × hour (America/Los_Angeles).
+-- FastAPI passes tz param — materialized view uses LA as default baseline.
+CREATE MATERIALIZED VIEW IF NOT EXISTS analytics.mv_heatmap AS
+SELECT
+    player_id,
+    game_id,
+    EXTRACT(DOW  FROM played_at AT TIME ZONE 'America/Los_Angeles')::INT AS dow,
+    EXTRACT(HOUR FROM played_at AT TIME ZONE 'America/Los_Angeles')::INT AS hour,
+    COUNT(*) AS session_count
+FROM fact.fact_game_stats
+GROUP BY player_id, game_id, dow, hour;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_heatmap
+    ON analytics.mv_heatmap (player_id, game_id, dow, hour);
+
+-- Session days: distinct play dates used by streak calculation.
+-- Replaces the full-table DISTINCT scan in get_streaks on every request.
+CREATE MATERIALIZED VIEW IF NOT EXISTS analytics.mv_session_days AS
+SELECT
+    player_id,
+    game_id,
+    (played_at AT TIME ZONE 'America/Los_Angeles')::DATE AS session_date
+FROM fact.fact_game_stats
+GROUP BY player_id, game_id, session_date
+ORDER BY player_id, game_id, session_date DESC;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_session_days
+    ON analytics.mv_session_days (player_id, game_id, session_date);
+
+-- Leaderboard percentiles: PERCENT_RANK per (game, stat_type) across opted-in users.
+-- PUBLIC project only — uncomment after app.leaderboard_opts_in has data.
+-- Hidden in UI when sample_size < 3.
+--
+-- CREATE MATERIALIZED VIEW IF NOT EXISTS analytics.mv_leaderboard_percentiles AS
+-- SELECT
+--     l.game_id,
+--     l.stat_type,
+--     l.user_email,
+--     l.best_value                                                AS avg_value,
+--     PERCENT_RANK() OVER (
+--         PARTITION BY l.game_id, l.stat_type
+--         ORDER BY l.best_value DESC
+--     )                                                           AS percentile_rank,
+--     COUNT(*) OVER (PARTITION BY l.game_id, l.stat_type)        AS sample_size
+-- FROM app.leaderboard_entries l
+-- JOIN app.leaderboard_opts_in o
+--     ON l.user_email = o.user_email AND l.game_id = o.game_id
+-- WHERE o.is_public = TRUE;
+--
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_leaderboard_percentiles
+--     ON analytics.mv_leaderboard_percentiles (user_email, game_id, stat_type);

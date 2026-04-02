@@ -48,7 +48,11 @@ jobs:
 
           secret = get_current_secret()
           token = secret['access_token']
+          has_app_id = bool(secret.get('app_id'))
+          has_app_secret = bool(secret.get('app_secret'))
           print(f"Current token suffix: ...{token[-8:]}")
+          print(f"app_id present:       {has_app_id}")
+          print(f"app_secret present:   {has_app_secret}")
           print("ℹ️  Dry run complete — no changes made.")
           EOF
 

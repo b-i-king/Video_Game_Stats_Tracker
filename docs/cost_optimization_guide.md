@@ -7,9 +7,24 @@
 
 | Stage | Services | Cost |
 |---|---|---|
-| Personal live | Render Starter + Supabase Pro + Vercel Hobby | $32/mo |
-| Personal + Public | + Vercel Pro (required for commercial) | $52/mo |
-| + ML live | + Render Standard (only if OOM on Starter) | $70/mo |
+| Personal live | Render Starter ($7) + Supabase Pro ($25) + Vercel Hobby ($0) | **$32/mo** |
+| Personal + Public | + second Supabase Pro project ($25) + Vercel Pro ($20, required for commercial) | **$77/mo** |
+| + ML live | + Render Standard ($25, only if OOM on Starter with XGBoost) | **$102/mo** |
+
+> **Supabase Pro — $25/month per project** includes:
+> - 8 GB database, 250 GB bandwidth, 100 GB file storage
+> - Shared PgBouncer pooler (port 6543, transaction mode) — free, sufficient for FastAPI
+> - Dedicated pooler available on Pro+ at additional cost — **not needed** for this stack
+>   (shared pooler handles asyncpg + `statement_cache_size=0` correctly)
+> - Daily backups, custom domains, email support
+>
+> **Pooler strategy (confirmed):**
+> - FastAPI (asyncpg) → port **6543** transaction pooler with `statement_cache_size=0`
+> - Flask/Lambda (psycopg2) → port **5432** session pooler (prepared statements require this)
+> - Next.js direct Supabase calls → PostgREST REST API (no pooler needed, uses anon key + RLS)
+>
+> **Status as of 2026-04-01:** Redshift archived ($0 AWS), Streamlit archived.
+> Neon eliminated after `app.post_queue` migrates to Supabase in Phase 3 step 6.
 
 ---
 
@@ -238,11 +253,116 @@ highest-traffic public page.
 
 | Date | Milestone |
 |---|---|
-| 2026-03-31 | Supabase migration live (personal) |
-| 2026-04-03 | FastAPI migration (see `docs/fastapi_app.py`) |
+| ✅ 2026-03-31 | Supabase migration live (personal) |
+| ✅ 2026-04-01 | Redshift archived ($0 AWS), Streamlit archived |
+| ~2026-04-07 | FastAPI migration, Neon eliminated (post_queue → Supabase) |
 | After FastAPI stable | Steps 3–4: direct Supabase calls + materialized views |
-| After Supabase public live | Step 6: ISR on leaderboard |
+| After first paying user | Second Supabase Pro + Vercel Pro ($45/mo increase) |
+| After 10 premium users | ML public storage viable, leaderboard ISR (Step 6) |
 | After ML endpoints live | Step 5: model cache + LR frontend inference |
+
+---
+
+## Phase-Gated Cost Strategy
+
+The single biggest lever is **don't pay for public infrastructure until you have public users.** Every feature below can be deferred until a revenue trigger is met.
+
+### Stage 0 — Personal only (current) · $32/mo
+
+All premium features work for you personally at $32/mo. Nothing changes.
+
+| Feature | Personal cost | How |
+|---|---|---|
+| ML (LR) | ~$0 | Coefficients stored as JSONB in Supabase |
+| ML (RF / XGBoost) | ~$0.02/mo | Pickle in GCS bucket (already paying $0 for it) |
+| AI / Bolt | ~$0–$1/mo | Gemini Flash billed per token; your usage is minimal |
+| Game API | $0 | Direct Supabase queries via FastAPI personal pool |
+| Leaderboard | N/A | Personal only — no leaderboard |
+
+---
+
+### Stage 1 — Public launch trigger · +$45/mo → $77/mo
+
+Add the second Supabase Pro project + Vercel Pro **only when you have paying users.**
+At $10/month premium: **5 premium users = break-even on public infrastructure.**
+
+| New cost | What unlocks |
+|---|---|
+| Supabase Pro #2 ($25) | Public user data, RLS, game catalog, leaderboard |
+| Vercel Pro ($20) | Commercial use allowed, team features, higher limits |
+
+Break-even math:
+```
+Public infra cost:  $45/mo
+Premium plan:       $10/user/mo
+Break-even:         5 premium users
+Profit starts at:   6 premium users (+$10/mo net)
+```
+
+---
+
+### Stage 2 — ML public storage · included in Supabase Pro #2
+
+Supabase Pro includes **100 GB file storage** — public ML models (RF/XGBoost pickles)
+live here at no extra cost until you exceed 100 GB, which requires thousands of users.
+
+Cost controls already in the plan:
+- **50-session gate** — no model trained until user has 50 sessions (prevents wasted compute on new users)
+- **90-day eviction** — inactive user models deleted from Supabase Storage automatically
+- **LR always free** — coefficients are JSONB, never touch file storage
+
+---
+
+### Stage 3 — AI / Bolt cost controls
+
+Gemini pricing (approximate):
+| Model | Input | Output |
+|---|---|---|
+| `gemini-2.0-flash` (premium/trusted) | ~$0.075/1M tokens | ~$0.30/1M tokens |
+| `gemini-2.0-flash-lite` (free tier) | ~$0.04/1M tokens | ~$0.15/1M tokens |
+
+A typical Bolt message (game context + question + reply) ≈ 800 tokens total.
+
+| Tier | Messages/mo | Est. Gemini cost/user |
+|---|---|---|
+| Free | 20 | ~$0.001 |
+| Premium | 200 | ~$0.02 |
+| Trusted | Unlimited | track and review monthly |
+
+At $10/month premium, AI cost per premium user is **< $0.03/mo** — negligible.
+The main control is the `app.ai_usage` monthly cap enforced in `/api/ask`.
+
+Additional controls (implement before public launch):
+- **15-minute server cache** on `/api/get_ticker_facts` (already in Flask) — prevents repeated identical AI calls
+- **Last-3-session context only** — keeps prompt tokens bounded regardless of history size
+- **No AI for guests** — blocked at JWT auth layer, zero cost
+
+---
+
+### Stage 4 — Leaderboard cost (near zero until scale)
+
+The leaderboard is a public good — it drives user acquisition and is free to run:
+- Materialized views (Step 4) eliminate full-table scans — one DB refresh per stat submit
+- ISR on Vercel (Step 6) — leaderboard page cached for 5 minutes, no serverless invocation per visitor
+- Supabase PostgREST serves leaderboard reads directly from Next.js — no Render roundtrip
+
+Leaderboard only becomes a cost concern above ~10,000 monthly active users.
+
+---
+
+### Stage 5 — Game Integration API cost
+
+| Caller | Method | Cost |
+|---|---|---|
+| Personal web app | FastAPI personal pool → Supabase | Covered by $7 Render + $25 Supabase |
+| Public web app (simple reads) | Next.js → PostgREST direct | $0 extra (Step 3) |
+| Public web app (analytics) | FastAPI public pool → Supabase | Covered by $25 Supabase #2 |
+| Instagram Lambda | psycopg2 → Supabase session pooler | $0 (AWS Lambda free tier) |
+
+The only material compute cost is Render. FastAPI + asyncpg runs ~180MB RAM,
+meaning the $7 Starter tier handles all API traffic including ML inference for LR
+models. Only upgrade to Standard ($25) if XGBoost inference causes OOM — and
+only after that is confirmed in production logs.
 
 ---
 

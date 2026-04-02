@@ -104,10 +104,14 @@ AWS_SECRET_ACCESS_KEY  (if only used for Redshift Data API)
 
 ## Phase 3 — Scaffold FastAPI + ML in parallel (~2026-04-07)
 
-**Status as of 2026-04-01:** `api/` scaffold created and committed. Flask stays
-live on existing Render service. FastAPI deploys as a second Render service.
-Cut-over = flip `NEXT_PUBLIC_FLASK_API_URL` on Vercel. Flask archived to
-`archive/backend/flask_app.py` 24 hours after cut-over with no regressions.
+**Status as of 2026-04-01:**
+- ✅ Redshift Serverless workgroup and database archived — $0 AWS bill
+- ✅ Streamlit app archived to `archive/streamlit/` — web app is the only UI
+- ✅ `api/` scaffold created and committed
+- Flask stays live on existing Render service until cut-over
+- FastAPI deploys as a second Render service
+- Cut-over = flip `NEXT_PUBLIC_FLASK_API_URL` on Vercel
+- Flask archived to `archive/backend/flask_app.py` 24 hours after cut-over with no regressions
 
 ML is scaffolded **in parallel** with FastAPI — the `ml.py` router, `ml_service.py`,
 and `app.ml_model_runs` DDL are built alongside the other routers. ML inference
@@ -317,14 +321,138 @@ Migrate one router at a time, test, then move on:
 7. `admin.py` — game sync between pools
 8. `game_requests.py` + `leaderboard.py` — public launch prep
 
+### app.post_queue migration
+
+`app.post_queue` is the Instagram/automation job queue, currently on Neon.
+Target: personal Supabase project (already in the architecture diagram).
+
+**When:** migrate as part of step 6 (`queue.py` router) — do not migrate
+earlier, as Flask's queue worker and the table must cut over together.
+
+**DDL** (already in `cost_optimization_guide.md` Step 1 — run in Supabase
+personal SQL editor before starting step 6):
+```sql
+CREATE TABLE IF NOT EXISTS app.post_queue (
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    payload      JSONB        NOT NULL,
+    status       TEXT         NOT NULL DEFAULT 'pending',
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    processed_at TIMESTAMPTZ
+);
+```
+
+**What changes in `queue.py` router:**
+- Replace `NEON_DB_URL` pool with `personal_pool` (already available via deps)
+- Port queue worker logic from Flask `process_queue` / `queue_status` / `retry_failed`
+- Update `utils/queue_utils.py` connection string to use Supabase pooler
+
+**Cut-over sequence for queue:**
+1. Create `app.post_queue` table in Supabase personal
+2. Drain existing Neon queue (let all pending jobs finish or manually migrate rows)
+3. Switch `NEON_DB_URL` → `SUPABASE_DB_URL` in Render env vars
+4. Delete Neon project → eliminates one more monthly cost
+
+---
+
+### Leaderboard cold-start — percentile benchmarks
+
+Before the public leaderboard has enough users to be meaningful, show users
+how they rank against **aggregate opted-in data** — no friends required.
+
+**How it works:**
+- Any user who opts into a `game_id` contributes their stats to an aggregate
+- Every other opted-in user for the same game sees percentile ranks
+- No mutual connection, no friend request — just opt-in and compete
+
+**API endpoint (add to `stats.py` or `leaderboard.py`):**
+```
+GET /api/leaderboard/percentile/{game_id}?stat_type=Eliminations
+→ { "your_avg": 8.4, "percentile": 73, "sample_size": 42, "top_10_avg": 14.2 }
+```
+
+**DB query (materialized view — refresh on `add_stats`):**
+```sql
+CREATE MATERIALIZED VIEW analytics.mv_leaderboard_percentiles AS
+SELECT
+    l.game_id,
+    l.stat_type,
+    l.user_email,
+    l.avg_value,
+    PERCENT_RANK() OVER (
+        PARTITION BY l.game_id, l.stat_type
+        ORDER BY l.avg_value DESC
+    ) AS percentile_rank,
+    COUNT(*) OVER (PARTITION BY l.game_id, l.stat_type) AS sample_size
+FROM app.leaderboard_entries l
+JOIN app.leaderboard_opts_in o
+    ON l.user_email = o.user_email AND l.game_id = o.game_id
+WHERE o.is_public = TRUE;
+```
+
+**UI placement:** `SummaryTab` — below streak bar, above chart.
+Shows: `"You're in the top 27% for Eliminations (42 players)"`
+Hidden if `sample_size < 3` (not enough data to be meaningful).
+
+**Phases:**
+| Users opted in | What shows |
+|---|---|
+| 0 | Hidden |
+| 1–2 | Hidden (below threshold) |
+| 3–9 | "Top X% — small sample" badge |
+| 10+ | Full percentile leaderboard |
+
+---
+
+### Riot Games API — migration placement
+
+Full plan: `docs/riot_api_pilot.md`. Prerequisites now met (Supabase live).
+
+**When:** implement as router step 9 after `leaderboard.py`, or in parallel
+with Phase 3b ML (they share `app.user_integrations` table).
+
+**Two schema additions missing from `supabase_schema.sql` (gap — add before Riot work):**
+```sql
+-- Stores connected platform accounts (Riot, Steam, PSN, etc.)
+CREATE TABLE IF NOT EXISTS app.user_integrations (
+    id                 SERIAL PRIMARY KEY,
+    user_email         TEXT NOT NULL REFERENCES dim.dim_users(user_email),
+    platform           TEXT NOT NULL,              -- 'riot', 'steam', 'psn'
+    platform_user_id   TEXT NOT NULL,              -- PUUID for Riot
+    platform_username  TEXT,                       -- "BOL#NA1" display name
+    connected_at       TIMESTAMPTZ DEFAULT NOW(),
+    last_synced_at     TIMESTAMPTZ,
+    UNIQUE (user_email, platform)
+);
+
+-- Dedup gate — prevents re-importing already-seen match IDs
+CREATE TABLE IF NOT EXISTS app.integration_imports (
+    id                 SERIAL PRIMARY KEY,
+    user_email         TEXT NOT NULL,
+    platform           TEXT NOT NULL,
+    external_match_id  TEXT NOT NULL,
+    imported_at        TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (platform, external_match_id)
+);
+```
+
+**Two columns missing from `fact_game_stats` (gap — add before Riot work):**
+```sql
+ALTER TABLE fact.fact_game_stats
+    ADD COLUMN IF NOT EXISTS source      TEXT DEFAULT 'manual',  -- 'manual' | 'riot' | 'steam'
+    ADD COLUMN IF NOT EXISTS is_editable BOOLEAN DEFAULT TRUE;   -- FALSE for auto-imported rows
+```
+
+---
+
 ### Cut-over checklist
 - [ ] All routers tested against Supabase
+- [ ] `app.post_queue` created in Supabase personal, Neon queue drained
 - [ ] Web app `NEXT_PUBLIC_FLASK_API_URL` updated to FastAPI Render URL on Vercel
 - [ ] Instagram Lambda still uses psycopg2 directly (not calling FastAPI)
 - [ ] One full end-to-end session: submit → summary → chart → OBS overlay
-- [ ] Move `flask_app.py` → `archive/flask_app.py`
-- [ ] Move `docs/fastapi_app.py` → `api/` (it becomes the live file)
+- [ ] Move `flask_app.py` → `archive/backend/flask_app.py`
 - [ ] Delete old Render Flask service
+- [ ] Delete Neon project after queue confirmed on Supabase
 
 ---
 
@@ -577,9 +705,36 @@ joblib>=1.3.0        # pickle alternative for RF
 | `flask_app.py` | Active backend — Supabase-ready as of 2026-03-31 |
 | `utils/chart_utils.py` | SQL fixed (Phase 1 complete) |
 | `instagram_poster.py` | psycopg2 rewrite (Phase 2 complete) |
-| `docs/fastapi_app.py` | FastAPI migration placeholder — becomes `api/main.py` |
+| `api/main.py` | FastAPI entry point — scaffold committed 2026-04-01 |
+| `api/routers/*.py` | All routers stubbed — migrate logic from Flask one by one |
 | `assets/sql/supabase_schema.sql` | Source of truth for both Supabase projects |
-| `archive/flask_app.py` | Flask archived after FastAPI cut-over (~2026-04-07) |
+| `assets/sql/migrations/002_add_user_role.sql` | role column migration — applied 2026-04-01 |
+| `archive/backend/flask_app.py` | Flask archived after FastAPI cut-over |
+| `archive/streamlit/game_tracker_streamlit_app.py` | Archived 2026-04-01 |
+| `docs/riot_api_pilot.md` | Riot integration plan — implement post-FastAPI |
 | `api/routers/ml.py` | ML endpoints — Phase 4 |
-| `web/components/InsightsTab.tsx` | Insights tab — Phase 4 |
+| `web/components/InsightsTab.tsx` | Insights tab — Phase 4 (not yet created) |
 | `web/components/SummaryTab.tsx` | Add PredictionBanner — Phase 4 |
+
+---
+
+## Known gaps (pre-public launch)
+
+These items are documented or partially planned but not yet implemented.
+Address before public launch.
+
+| Gap | Where | Priority |
+|---|---|---|
+| ✅ `app.user_integrations` + `app.integration_imports` tables | Already in schema | Done |
+| ✅ `fact_game_stats.source` + `is_editable` columns | Already in schema | Done |
+| ✅ `analytics` schema + materialized views | Migration 003 + schema | Done |
+| ✅ `app.ml_model_runs.model_coefficients` JSONB | Migration 003 + schema | Done |
+| ✅ `app.user_integrations.platform_username` | Migration 003 + schema | Done |
+| ✅ Missing indexes (ml_runs, user_integrations, integration_imports, leaderboard_entries, ai_usage) | Migration 003 + schema | Done |
+| ✅ `formatPlayedAt` hardcoded `America/Los_Angeles` | `DeleteTab.tsx`, `EditTab.tsx` fixed | Done |
+| Stripe webhook handler + subscription lifecycle | No doc exists | Before premium launch |
+| BoltPanel progress bar (`app.ai_usage` → UI) | Phase 4 checklist missing it | Before public launch |
+| Vercel env var list | No doc exists | Before cut-over |
+| Personal → Public game sync logic (`admin.py`) | Router stubbed, logic not documented | Phase 3 |
+| Instagram token refresh automation | 400 error root cause unknown — logging fix deployed, re-trigger workflow | Investigate |
+| Timezone hardcodes in `get_summary`, `get_heatmap`, `get_ticker_facts` | `flask_app.py` | Fix in FastAPI versions |

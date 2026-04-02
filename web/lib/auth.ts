@@ -75,7 +75,6 @@ export const authOptions: AuthOptions = {
   },
 
   pages: {
-    // Custom sign-in page (optional — remove to use NextAuth's built-in page)
-    // signIn: '/auth/signin',
+    signIn: "/auth/signin",
   },
 };

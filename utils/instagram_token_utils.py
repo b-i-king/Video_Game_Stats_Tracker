@@ -11,8 +11,20 @@ needed.
 Manual token check:
   https://developers.facebook.com/tools/debug/accesstoken/
 
-Instagram token refresh API reference:
-  https://developers.facebook.com/docs/instagram-platform/reference/access_token/
+Token refresh API reference (Instagram Graph API / Facebook):
+  https://developers.facebook.com/docs/facebook-login/guides/access-tokens/get-long-lived/
+
+NOTE: The old graph.instagram.com endpoint (Instagram Basic Display API) was
+shut down December 2024. Refresh now goes through graph.facebook.com and
+requires app_id + app_secret stored in the same Secrets Manager secret.
+
+Secret JSON shape expected:
+  {
+    "access_token": "EAA...",
+    "account_id": "...",
+    "app_id": "...",
+    "app_secret": "..."
+  }
 """
 
 import json
@@ -22,21 +34,25 @@ import requests
 
 SECRET_NAME = "instagram-poster/instagram"
 AWS_REGION = "us-west-1"
-REFRESH_URL = "https://graph.instagram.com/refresh_access_token"
+REFRESH_URL = "https://graph.facebook.com/v21.0/oauth/access_token"
 
 
 def get_current_secret() -> dict:
     """Read the full Instagram secret from AWS Secrets Manager.
 
-    Returns the parsed JSON dict, which includes 'access_token' and 'account_id'.
+    Returns the parsed JSON dict, which includes 'access_token', 'account_id',
+    'app_id', and 'app_secret'.
     """
     client = boto3.client("secretsmanager", region_name=AWS_REGION)
     response = client.get_secret_value(SecretId=SECRET_NAME)
     return json.loads(response["SecretString"])
 
 
-def refresh_token(current_token: str) -> dict:
-    """Call the Instagram Graph API token refresh endpoint.
+def refresh_token(current_token: str, app_id: str, app_secret: str) -> dict:
+    """Exchange the current long-lived token for a fresh 60-day long-lived token.
+
+    Uses the fb_exchange_token grant on graph.facebook.com — the replacement
+    for the deprecated graph.instagram.com/refresh_access_token endpoint.
 
     Returns the API response dict containing 'access_token' and 'expires_in'
     (seconds). Raises requests.HTTPError on a non-2xx response so the workflow
@@ -45,8 +61,10 @@ def refresh_token(current_token: str) -> dict:
     response = requests.get(
         REFRESH_URL,
         params={
-            "grant_type": "ig_refresh_token",
-            "access_token": current_token,
+            "grant_type": "fb_exchange_token",
+            "client_id": app_id,
+            "client_secret": app_secret,
+            "fb_exchange_token": current_token,
         },
         timeout=15,
     )
@@ -55,7 +73,7 @@ def refresh_token(current_token: str) -> dict:
             error_body = response.json()
         except Exception:
             error_body = response.text
-        print(f"❌ Instagram API error ({response.status_code}): {error_body}")
+        print(f"❌ Facebook token exchange error ({response.status_code}): {error_body}")
         response.raise_for_status()
     return response.json()
 
@@ -82,10 +100,12 @@ def run_token_refresh() -> None:
     print("🔐 Reading current token from Secrets Manager...")
     secret = get_current_secret()
     current_token = secret["access_token"]
+    app_id = secret["app_id"]
+    app_secret = secret["app_secret"]
     print(f"   Current token suffix: ...{current_token[-8:]}")
 
-    print("🔄 Calling Instagram token refresh endpoint...")
-    result = refresh_token(current_token)
+    print("🔄 Calling Facebook token exchange endpoint...")
+    result = refresh_token(current_token, app_id, app_secret)
     new_token = result["access_token"]
     expires_in_days = result.get("expires_in", 5184000) // 86400
     print(f"   New token suffix:     ...{new_token[-8:]}")
