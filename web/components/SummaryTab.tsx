@@ -311,7 +311,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       .then((data) => setHeatmap(data))
       .catch(() => setHeatmap(null));
 
-    getStreaks(jwt, gameId, playerName)
+    getStreaks(jwt, gameId, playerName, Intl.DateTimeFormat().resolvedOptions().timeZone)
       .then((data) => setStreaks(data))
       .catch(() => setStreaks(null));
 

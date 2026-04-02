@@ -104,12 +104,128 @@ AWS_SECRET_ACCESS_KEY  (if only used for Redshift Data API)
 
 ## Phase 3 — Scaffold FastAPI + ML in parallel (~2026-04-07)
 
-Reference: `docs/fastapi_app.py` — existing FastAPI migration placeholder with
-all route stubs. SQL bodies stay the same; only framework boilerplate changes.
+**Status as of 2026-04-01:** `api/` scaffold created and committed. Flask stays
+live on existing Render service. FastAPI deploys as a second Render service.
+Cut-over = flip `NEXT_PUBLIC_FLASK_API_URL` on Vercel. Flask archived to
+`archive/backend/flask_app.py` 24 hours after cut-over with no regressions.
 
 ML is scaffolded **in parallel** with FastAPI — the `ml.py` router, `ml_service.py`,
 and `app.ml_model_runs` DDL are built alongside the other routers. ML inference
 goes live as soon as `stats.py` is wired (retrain fires on `add_stats`).
+
+---
+
+### Schema changes completed before FastAPI (2026-04-01)
+
+These migrations are already live in both Supabase projects. FastAPI must
+reflect the new column names — do not write to `is_trusted` directly.
+
+#### dim.dim_users — role column (migration 002)
+
+`is_trusted BOOLEAN` replaced by a `role TEXT` column. `is_trusted` is kept
+as a `GENERATED ALWAYS AS (role = 'trusted') STORED` column for backward
+compatibility with any remaining Flask reads.
+
+| role value | Who | Access |
+|---|---|---|
+| `'trusted'` | Developer / owner / promoted loyals | All features, no cost, can manage game catalog |
+| `'registered'` | General public via Google auth | Free + premium subscription plans |
+| *(no row)* | Guest | Landing page only, no app access |
+
+**FastAPI rule:** all writes use `role`, never `is_trusted`.
+- New user insert: `INSERT INTO dim.dim_users (user_email, role) VALUES ($1, $2)`
+- Promote user: `UPDATE dim.dim_users SET role = 'trusted' WHERE user_email = $1`
+- JWT payload still includes `is_trusted` (reads from generated column — no change needed)
+
+#### app.subscriptions — billing_interval + plan rename (public only)
+
+```sql
+-- plan now CHECK (plan IN ('free', 'premium'))  -- was 'free' | 'pro'
+-- new column:
+billing_interval TEXT CHECK (billing_interval IN ('month', 'year'))  -- NULL = free tier
+```
+
+`app.subscriptions` exists on the **public Supabase project only**. Personal
+project does not have this table — trusted users always have full access.
+
+---
+
+### User tier system — FastAPI dependency design
+
+Three tiers enforced in `api/core/deps.py`:
+
+```python
+async def get_current_user(credentials) -> dict:
+    # decodes JWT, returns {"player_id": ..., "email": ..., "is_trusted": bool}
+
+async def require_trusted(user = Depends(get_current_user)):
+    if not user["is_trusted"]:
+        raise HTTPException(403, "Trusted access required")
+
+async def require_registered(user = Depends(get_current_user)):
+    # any authenticated user passes — guest = no valid JWT
+    return user
+```
+
+Trusted users skip all limit checks. Registered users are gated by
+`app.subscriptions.plan` on the public project. Guests cannot reach any
+`/api/` endpoint (JWT required).
+
+---
+
+### Bolt AI — usage limits + BoltPanel progress bar
+
+`app.ai_usage` table tracks monthly message counts (public project only).
+
+| Tier | Monthly Bolt limit |
+|---|---|
+| Trusted | Unlimited (skip check entirely) |
+| Premium | 200 messages / month |
+| Free | 20 messages / month |
+| Guest | 0 (blocked at auth layer) |
+
+**FastAPI `/api/ask` implementation requirements:**
+1. Decode `is_trusted` from JWT — if trusted, skip usage check and use
+   `gemini-2.0-flash`; otherwise check `app.ai_usage` and use
+   `gemini-2.0-flash-lite` for free tier
+2. Upsert usage on every successful response:
+   ```sql
+   INSERT INTO app.ai_usage (user_email, period_start, messages_used)
+   VALUES ($1, date_trunc('month', NOW()), 1)
+   ON CONFLICT (user_email, period_start)
+   DO UPDATE SET messages_used = app.ai_usage.messages_used + 1
+   ```
+3. Return `usage: {used, limit}` alongside `reply` in the response body
+4. Frontend `BoltPanel.tsx` reads `usage` and renders a progress bar above
+   the input (gold < 70%, yellow 70–90%, red > 90%, hidden for trusted)
+
+---
+
+### Timezone — all endpoints must accept `tz`
+
+Every endpoint that buckets `played_at` by date must accept a `tz` query
+param and use it for both the DB query and any Python `date` comparisons.
+**Never use `date.today()` or `datetime.now()` without a timezone on Render
+(Render runs UTC — this breaks streak/summary/chart for users after ~5 PM PT).**
+
+Pattern (already applied to streaks, chart, holiday themes):
+```python
+from zoneinfo import ZoneInfo
+from datetime import datetime
+
+tz = request.args.get("tz", "America/Los_Angeles")
+today = datetime.now(ZoneInfo(tz)).date()
+# DB: (played_at AT TIME ZONE $1)::DATE
+```
+
+Endpoints requiring `tz`:
+- `GET /api/get_streaks/{game_id}` ✓ fixed
+- `GET /api/get_interactive_chart/{game_id}` ✓ fixed
+- `GET /api/get_summary/{game_id}` — fix in FastAPI
+- `GET /api/get_heatmap/{game_id}` — fix in FastAPI
+- `GET /api/get_ticker_facts/{game_id}` — fix in FastAPI
+
+Frontend always passes: `Intl.DateTimeFormat().resolvedOptions().timeZone`
 
 ### New folder structure
 ```

@@ -486,9 +486,11 @@ export async function getTickerFacts(
 export async function getStreaks(
   jwt: string,
   gameId: number,
-  playerName: string
+  playerName: string,
+  tz?: string
 ): Promise<StreakData> {
   const params = new URLSearchParams({ player_name: playerName });
+  if (tz) params.set("tz", tz);
   const res = await fetchWithAuth(`${BASE}/api/get_streaks/${gameId}?${params}`, {
     headers: authHeaders(jwt),
   });

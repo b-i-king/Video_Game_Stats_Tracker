@@ -2954,6 +2954,7 @@ def get_streaks(user_email, game_id):
     #   played_at AT TIME ZONE 'America/Los_Angeles'
     """
     player_name = request.args.get('player_name', '').strip()
+    tz          = request.args.get('tz', 'America/Los_Angeles').strip() or 'America/Los_Angeles'
     if not player_name:
         return jsonify({"error": "player_name is required"}), 400
 
@@ -2970,13 +2971,14 @@ def get_streaks(user_email, game_id):
 
         cur.execute("""
             SELECT DISTINCT
-                (played_at AT TIME ZONE 'America/Los_Angeles')::DATE AS session_date
+                (played_at AT TIME ZONE %s)::DATE AS session_date
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s
             ORDER BY session_date DESC;
-        """, (player_id, game_id))
+        """, (tz, player_id, game_id))
 
         from datetime import date, timedelta
+        from zoneinfo import ZoneInfo
         dates = [r[0] for r in cur.fetchall()]   # list of date objects, newest first
 
         if not dates:
@@ -2985,8 +2987,11 @@ def get_streaks(user_email, game_id):
                 "last_session": None, "total_session_days": 0,
             }), 200
 
-        # Current streak: consecutive days going back from today or yesterday
-        today = date.today()
+        # Current streak: consecutive days going back from today or yesterday.
+        # Use the user's local date — date.today() on Render returns UTC which
+        # can be 1 day ahead of the user's timezone after ~5 PM PT.
+        from datetime import datetime
+        today = datetime.now(ZoneInfo(tz)).date()
         current_streak = 0
         if dates[0] >= today - timedelta(days=1):
             expected = dates[0]
