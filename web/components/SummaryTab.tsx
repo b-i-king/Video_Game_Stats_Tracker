@@ -231,7 +231,7 @@ function StatTicker({
         .ticker-track {
           display: inline-block;
           white-space: nowrap;
-          animation: ticker-scroll 150s linear infinite;
+          animation: ticker-scroll 200s linear infinite;
         }
         .ticker-track:hover { animation-play-state: paused; }
       `}</style>

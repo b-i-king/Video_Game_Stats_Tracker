@@ -17,7 +17,7 @@ const features = [
   {
     icon: "🎮",
     title: "Track Any Game",
-    desc: "Log stats for any game — kills, wins, scores, waves — with full history.",
+    desc: "Log stats for any game — points, wins, scores, waves — with full history.",
   },
   {
     icon: "📊",

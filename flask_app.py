@@ -408,8 +408,9 @@ def login():
         if not user_email:
             return jsonify({"status": "error", "message": "Email is required"}), 400
 
-        # Determine if this email SHOULD be trusted based on environment variable
+        # Determine role based on the TRUSTED_EMAILS env list
         should_be_trusted = user_email in TRUSTED_EMAILS_LIST
+        target_role = 'trusted' if should_be_trusted else 'registered'
 
         # Fast path: user is cached and trust status hasn't changed — skip Redshift
         cached_user = _user_cache_get(user_email)
@@ -437,8 +438,8 @@ def login():
 
             if not user_record:
                 # User doesn't exist, create them. Trust status based on env list.
-                print(f"User {user_email} not found. Creating. Should be trusted: {should_be_trusted}")
-                cur.execute("INSERT INTO dim.dim_users (user_email, is_trusted) VALUES (%s, %s);", (user_email, should_be_trusted))
+                print(f"User {user_email} not found. Creating. Role: {target_role}")
+                cur.execute("INSERT INTO dim.dim_users (user_email, role) VALUES (%s, %s);", (user_email, target_role))
                 conn.commit()
                 # Fetch the new user's ID and trust status
                 cur.execute("SELECT user_id, is_trusted FROM dim.dim_users WHERE user_email = %s;", (user_email,))
@@ -454,10 +455,10 @@ def login():
                 print(f"Existing user {user_email} found. DB Trusted: {db_is_trusted}. Should be trusted: {should_be_trusted}")
                 # Sync DB trust status with environment list if different
                 if should_be_trusted != db_is_trusted:
-                    print(f"Updating user {user_email} trust status in DB to: {should_be_trusted}")
-                    cur.execute("UPDATE dim.dim_users SET is_trusted = %s WHERE user_id = %s;", (should_be_trusted, user_id))
+                    print(f"Updating user {user_email} role in DB to: {target_role}")
+                    cur.execute("UPDATE dim.dim_users SET role = %s WHERE user_id = %s;", (target_role, user_id))
                     conn.commit()
-                    db_is_trusted = should_be_trusted # Update local variable to reflect change
+                    db_is_trusted = should_be_trusted
 
             _user_cache_set(user_email, user_id, db_is_trusted)
 
@@ -509,7 +510,7 @@ def add_user():
         exists = cur.fetchone()
 
         if not exists:
-            cur.execute("INSERT INTO dim.dim_users (user_email, is_trusted) VALUES (%s, %s);", (user_email, False))
+            cur.execute("INSERT INTO dim.dim_users (user_email) VALUES (%s);", (user_email,))
             conn.commit()
             print(f"Registered guest user: {user_email}")
             return jsonify({"message": f"User {user_email} registered successfully."}), 201
@@ -550,15 +551,16 @@ def add_trusted_user():
         cur.execute("SELECT user_id FROM dim.dim_users WHERE user_email = %s;", (user_email,))
         user_record = cur.fetchone()
 
+        role_value = 'trusted' if is_trusted_flag else 'registered'
         if user_record:
-            print(f"Updating trust status for existing user: {user_email} to {is_trusted_flag}")
-            cur.execute("UPDATE dim.dim_users SET is_trusted = %s WHERE user_email = %s;", (is_trusted_flag, user_email))
+            print(f"Updating role for existing user: {user_email} to {role_value}")
+            cur.execute("UPDATE dim.dim_users SET role = %s WHERE user_email = %s;", (role_value, user_email))
         else:
-            print(f"Adding new user with trust status: {user_email}, Trusted: {is_trusted_flag}")
-            cur.execute("INSERT INTO dim.dim_users (user_email, is_trusted) VALUES (%s, %s);", (user_email, is_trusted_flag))
+            print(f"Adding new user: {user_email}, role: {role_value}")
+            cur.execute("INSERT INTO dim.dim_users (user_email, role) VALUES (%s, %s);", (user_email, role_value))
 
         conn.commit()
-        print(f"Admin action: User {user_email} added/updated. Trusted status set to: {is_trusted_flag}.")
+        print(f"Admin action: User {user_email} added/updated. Role set to: {role_value}.")
         return jsonify({"message": f"User {user_email} added/updated successfully. Trusted status set to: {is_trusted_flag}."}), 201
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error while adding/updating trusted user via admin endpoint: {error}")

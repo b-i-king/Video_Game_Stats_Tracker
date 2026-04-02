@@ -50,7 +50,13 @@ def refresh_token(current_token: str) -> dict:
         },
         timeout=15,
     )
-    response.raise_for_status()
+    if not response.ok:
+        try:
+            error_body = response.json()
+        except Exception:
+            error_body = response.text
+        print(f"❌ Instagram API error ({response.status_code}): {error_body}")
+        response.raise_for_status()
     return response.json()
 
 

@@ -41,10 +41,22 @@ CREATE SCHEMA IF NOT EXISTS app;
 
 -- ── dim.dim_users ─────────────────────────────────────────────
 -- PUBLIC: enable RLS — users can only read their own row.
+--
+-- Tiers (mutually exclusive, single source of truth):
+--   role = 'trusted'    → developer / owner / promoted loyal
+--                          all features, no cost, can manage game catalog
+--   role = 'registered' → general public via Google auth
+--                          access to free + premium subscription plans
+--   (no row)            → guest — landing page only, no app access
+--
+-- is_trusted is a generated column kept for backward compatibility.
+-- To promote a user:  UPDATE dim.dim_users SET role = 'trusted' WHERE user_email = '...';
 CREATE TABLE IF NOT EXISTS dim.dim_users (
-    user_id    INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id    INT  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_email VARCHAR(255) NOT NULL UNIQUE,
-    is_trusted BOOLEAN      NOT NULL DEFAULT FALSE,
+    role       TEXT NOT NULL DEFAULT 'registered'
+                   CHECK (role IN ('registered', 'trusted')),
+    is_trusted BOOLEAN GENERATED ALWAYS AS (role = 'trusted') STORED,
     created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
@@ -285,7 +297,7 @@ CREATE TABLE IF NOT EXISTS app.push_tokens (
 --   ON CONFLICT (user_email, query_date)
 --   DO UPDATE SET query_count = app.ai_usage.query_count + 1;
 -- Cutoff check: SELECT query_count ... WHERE user_email = $1 AND query_date = CURRENT_DATE
--- Free plan limit: 20/day. Pro plan: unlimited (skip the check).
+-- Free plan limit: 20/day. Premium plan: 200/month. Trusted: unlimited (skip the check).
 CREATE TABLE IF NOT EXISTS app.ai_usage (
     user_email  TEXT    NOT NULL,
     query_date  DATE    NOT NULL DEFAULT CURRENT_DATE,
@@ -295,7 +307,7 @@ CREATE TABLE IF NOT EXISTS app.ai_usage (
 
 -- ── app.subscriptions ─────────────────────────────────────────
 -- Stripe billing state per user.
--- plan: 'free' | 'pro'
+-- plan: 'free' | 'premium'
 -- Lifecycle:
 --   checkout.session.completed  → insert row, set plan='pro', is_active=TRUE
 --   customer.subscription.updated → update expires_at if billing date changes
@@ -306,7 +318,9 @@ CREATE TABLE IF NOT EXISTS app.ai_usage (
 CREATE TABLE IF NOT EXISTS app.subscriptions (
     id                     INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_email             TEXT NOT NULL UNIQUE REFERENCES dim.dim_users(user_email),
-    plan                   TEXT NOT NULL DEFAULT 'free',
+    plan                   TEXT NOT NULL DEFAULT 'free'
+                               CHECK (plan IN ('free', 'premium')),
+    billing_interval       TEXT CHECK (billing_interval IN ('month', 'year')), -- NULL = free tier
     stripe_customer_id     TEXT UNIQUE,
     stripe_subscription_id TEXT UNIQUE,
     started_at             TIMESTAMPTZ DEFAULT NOW(),
