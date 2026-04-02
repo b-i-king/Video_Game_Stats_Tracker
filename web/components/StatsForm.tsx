@@ -21,6 +21,8 @@ import {
 } from "@/lib/api";
 import {
   GENRES,
+  STAT_ALIASES,
+  isBlockedStatName,
   CREDIT_STYLE_OPTIONS,
   MATCH_TYPES,
   WIN_LOSS_OPTIONS,
@@ -29,6 +31,10 @@ import {
   INPUT_DEVICES,
   PLATFORMS,
 } from "@/lib/constants";
+
+function resolveAlias(input: string) {
+  return STAT_ALIASES[input.trim().toLowerCase()] ?? null;
+}
 import Tooltip from "@/components/Tooltip";
 
 // Mirror flask_app.py regexes for immediate client-side feedback
@@ -340,6 +346,9 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   const invalidStatTypes = filledStats
     .map((r) => r.type.trim())
     .filter((t) => t && !STAT_TYPE_RE.test(t));
+  const blockedStatTypes = filledStats
+    .map((r) => r.type.trim())
+    .filter((t) => t && isBlockedStatName(t));
   const invalidNewPlayerName =
     addingNewPlayer && newPlayerName.trim() && !NAME_RE.test(newPlayerName.trim());
   const invalidNewFranchise =
@@ -354,6 +363,8 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
   if (hasDuplicates) issues.push({ level: "error", msg: "⛔ Duplicate stat types" });
   if (invalidStatTypes.length > 0)
     issues.push({ level: "error", msg: `⛔ Invalid stat type (letters, numbers, spaces, hyphens only): ${invalidStatTypes.join(", ")}` });
+  if (blockedStatTypes.length > 0)
+    issues.push({ level: "error", msg: `⛔ Stat name not allowed: ${blockedStatTypes.join(", ")}` });
   if (outOfRangeStats.length > 0)
     issues.push({ level: "error", msg: `⛔ Stat value out of range (0–100,000): ${outOfRangeStats.join(", ")}` });
   if (invalidNewPlayerName)
@@ -427,7 +438,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       return;
 
     const statsPayload: StatRow[] = filledStats.map((s) => ({
-      stat_type: s.type.trim(),
+      stat_type: resolveAlias(s.type)?.canonical ?? s.type.trim(),
       stat_value: Number(s.value) || 0,
       game_mode: finalGameMode || "Main",
       solo_mode: matchType === "Solo" ? 1 : 0,
@@ -1122,6 +1133,14 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
                       placeholder="e.g. Eliminations, Points, Wins"
                       maxLength={50}
                     />
+                    {(() => {
+                      const alias = resolveAlias(row.type);
+                      return alias ? (
+                        <p className="text-xs text-[var(--gold)] mt-0.5">
+                          → Saved as &ldquo;{alias.display}&rdquo;
+                        </p>
+                      ) : null;
+                    })()}
                   </div>
                   <div>
                     <label className="label">Stat Value {i + 1} <Tooltip text="Numeric value of this statistic." /></label>

@@ -403,6 +403,187 @@ Hidden if `sample_size < 3` (not enough data to be meaningful).
 
 ---
 
+### IGDB API — game catalog search (all authenticated users)
+
+**Why:** The `dim.dim_games` catalog is currently managed manually by the
+trusted user. IGDB (358k+ games) provides canonical game names, genres, and
+cover art so both trusted and registered users can search instead of free-typing.
+
+**Auth:** IGDB uses Twitch OAuth client_credentials flow.
+- Register app at dev.twitch.tv → get `IGDB_CLIENT_ID` + `IGDB_CLIENT_SECRET`
+- Token endpoint: `POST https://id.twitch.tv/oauth2/token?client_id=...&client_secret=...&grant_type=client_credentials`
+- Tokens last ~60 days — cache in Render env, refresh via GitHub Actions
+  workflow (same pattern as Instagram token refresh)
+- All IGDB requests: `Client-ID: {client_id}` + `Authorization: Bearer {token}`
+
+**Rate limits:** 4 requests/second, no monthly cap (free with Twitch auth).
+
+**What IGDB auto-fills on game selection:**
+
+| Field | IGDB source | Editable after? |
+|---|---|---|
+| `game_name` | `name` | Yes |
+| `game_installment` | parsed from `name` (e.g. "Modern Warfare III") | Yes |
+| `genre` | `genres[0].name` → mapped to app taxonomy | Yes |
+| `subgenre` | `genres[1].name` or `themes[0].name` → mapped | Yes |
+| `cover_url` | `cover.url` | Search dropdown thumbnail only — not saved to DB |
+
+`stat_types` remain fully manual — IGDB has no stat data.
+
+Cover art appears as a small thumbnail next to the game name in the search
+dropdown results only. It is not stored, not shown in the form after selection,
+and not saved to `dim.dim_games`.
+
+**Genre mapping (IGDB → app taxonomy):**
+IGDB genre names are mapped to the app's existing genre/subgenre values on the
+FastAPI side. Unmapped genres fall back to empty (user fills manually). The
+mapping lives in `api/routers/game_requests.py` as a simple dict and can be
+extended over time.
+
+**Flow by user tier:**
+
+*Trusted user (personal project — add/edit game form):*
+- IGDB search is **optional** — selecting a result pre-fills name, installment,
+  genre, and subgenre; all fields remain editable before saving
+- Selecting an IGDB result and saving **immediately inserts** into `dim.dim_games`
+  (personal) — no approval step
+- Manual entry (no IGDB search) still works for games not in IGDB
+
+*Registered user (public project — stats form / game selection):*
+- User types a game name → frontend searches IGDB
+- **If found in IGDB:** game is auto-added to `dim.dim_games` (public) on first
+  use — no approval required, no waiting
+- **If NOT in IGDB:** falls back to manual game request → trusted user reviews
+  and approves → `admin.py` syncs to both Supabase projects
+- `stat_types` for auto-added games default to a genre-based preset (see below)
+  and can be extended by the user over time
+
+**Stat_type suggestion — tiered fallback chain:**
+
+When a user adds a game, stat_type suggestions are resolved in this order:
+
+| Priority | Condition | Source |
+|---|---|---|
+| 1 | Game already tracked by other users | Community stats ranked by frequency from `fact_game_stats` |
+| 2 | Game found in seed table | Curated canonical stats (`dim.dim_game_stat_templates`) |
+| 3 | IGDB genre maps to a known preset | Genre preset table |
+| 4 | Nothing matches | `Score`, `Wins` |
+
+All suggestions are editable — users can add, remove, or rename before saving.
+
+**Community query (priority 1):**
+```sql
+SELECT stat_type, COUNT(*) AS usage_count
+FROM fact.fact_game_stats
+WHERE game_id = $1
+GROUP BY stat_type
+ORDER BY usage_count DESC
+LIMIT 10;
+```
+
+**Seed table DDL (priority 2 — add to `supabase_schema.sql`, personal only):**
+```sql
+CREATE TABLE IF NOT EXISTS dim.dim_game_stat_templates (
+    igdb_id    INTEGER PRIMARY KEY,
+    game_name  TEXT    NOT NULL,
+    stat_types TEXT[]  NOT NULL
+);
+
+-- Seed data — expand as needed, igdb_id never changes so this never goes stale
+INSERT INTO dim.dim_game_stat_templates (igdb_id, game_name, stat_types) VALUES
+(1372,  'Call of Duty: Warzone', ARRAY['Eliminations','Respawns','Damage','Placement']),
+(21366, 'Apex Legends',          ARRAY['Eliminations','Damage','Placement','Revives']),
+(127,   'League of Legends',     ARRAY['Eliminations','Respawns','Assists','CS','Vision Score']),
+(1904,  'Valorant',              ARRAY['Eliminationss','Respawns','Assists','ACS','HS%']),
+(512,   'Fortnite',              ARRAY['Eliminations','Placement','Damage','Materials']),
+(11133, 'Rocket League',         ARRAY['Goals','Assists','Saves','Score','Shots']),
+(18232, 'Overwatch 2',           ARRAY['Eliminations','Respawns','Damage','Healing']),
+(9590,  'FIFA',                  ARRAY['Goals','Assists','Possession','Shots on Target'])
+ON CONFLICT (igdb_id) DO NOTHING;
+```
+
+**Genre preset fallback (priority 3):**
+
+| IGDB Genre | Default stat_types |
+|---|---|
+| Shooter (FPS/TPS) | `Eliminations`, `Deaths`, `Damage` |
+| Role-playing (RPG) | `Level`, `XP`, `Quests Completed` |
+| Sport | `Score`, `Goals`, `Assists` |
+| Strategy | `Wins`, `Units Lost`, `Resources Gathered` |
+| Fighting | `Wins`, `KOs`, `Combos` |
+| Racing | `Position`, `Lap Time`, `Wins` |
+| *(unmapped)* | `Score`, `Wins` |
+
+**Stat alias glossary — canonical names + child-friendly display:**
+
+A `dim.dim_stat_aliases` table maps alternate names and child-friendly labels
+to a canonical stat_type. Used in two places:
+1. **Community frequency query** — "Kills" and "Eliminations" roll up to the
+   same canonical stat so suggestions stay consistent across games
+2. **Leaderboard normalization** — users tracking "Kills" vs "Eliminations"
+   compare on the same axis without manual mapping
+
+```sql
+CREATE TABLE IF NOT EXISTS dim.dim_stat_aliases (
+    alias         TEXT PRIMARY KEY,
+    canonical     TEXT NOT NULL,  -- stored value in fact_game_stats
+    display_label TEXT            -- child-friendly label shown in UI (optional)
+);
+
+INSERT INTO dim.dim_stat_aliases (alias, canonical, display_label) VALUES
+('Kills',      'Eliminations', 'Eliminations'),
+('Frags',      'Eliminations', 'Eliminations'),
+('Takedowns',  'Eliminations', 'Eliminations'),
+('Deaths',     'Deaths',       'Respawns'),   -- child-friendly override
+('Respawns',   'Deaths',       'Respawns'),
+('KOs',        'Deaths',       'Respawns'),
+('K/D',        'K/D Ratio',    'K/D Ratio'),
+('Kill/Death', 'K/D Ratio',    'K/D Ratio'),
+('Dmg',        'Damage',       'Damage'),
+('Heals',      'Healing',      'Healing'),
+('XP',         'Experience',   'XP')
+ON CONFLICT (alias) DO NOTHING;
+```
+
+`display_label` is what the UI renders. When `display_label` is `'Respawns'`,
+the word "Deaths" never appears in the interface — the DB still stores the
+canonical value for query consistency.
+
+The alias table lives in personal Supabase and is synced to public via
+`admin.py` alongside `dim_games`.
+
+**FastAPI endpoints (add to `game_requests.py` router):**
+```
+GET  /api/games/search?q={query}          → IGDB proxy (all authenticated users)
+POST /api/games/add                       → auto-add IGDB game to dim_games
+POST /api/games/request                   → manual request for non-IGDB games only
+GET  /api/games/requests                  → list pending manual requests (trusted only)
+POST /api/games/requests/{id}/approve     → approve + sync non-IGDB game (trusted only)
+```
+
+**IGDB search proxy (server-side — hides credentials from frontend):**
+```python
+POST https://api.igdb.com/v4/games
+body: f'search "{query}"; fields name,cover.url,genres.name,themes.name,first_release_date; limit 10;'
+```
+
+**Schema addition (`app.game_requests` — public Supabase):**
+```sql
+ALTER TABLE app.game_requests
+    ADD COLUMN IF NOT EXISTS igdb_id INTEGER;
+```
+
+**Render env vars to add:**
+```
+IGDB_CLIENT_ID     = <Twitch app client ID>
+IGDB_CLIENT_SECRET = <Twitch app client secret>
+IGDB_ACCESS_TOKEN  = <cached bearer token — refresh monthly>
+```
+
+**When:** implement as part of router step 8 (`game_requests.py`).
+
+---
+
 ### Riot Games API — migration placement
 
 Full plan: `docs/riot_api_pilot.md`. Prerequisites now met (Supabase live).
@@ -669,6 +850,64 @@ Stats 🎮 | History 📊 | Dashboard 📺 | Insights 🤖 | Leaderboard 🏆 | 
 
 ---
 
+### K-Means efficiency clustering (shared model, per game)
+
+Unlike LR/RF/XGBoost which are per-user, K-Means is a **shared model across
+all opted-in users for a given game**. It improves automatically as more users
+contribute stats — no per-user training cost.
+
+**What it does:** Groups sessions into performance tiers based on multi-stat
+vectors. Labels are generic so they apply to any game:
+`Elite`, `Consistent`, `Developing`, `Outlier`.
+
+**Scaling:** Models are created **lazily, on demand** — only when a game reaches
+the training threshold. The IGDB catalog has 358k+ games but your K-Means
+model count stays proportional to your active user base, not the catalog size.
+Realistically: 10–50 models at early scale, each 1–5MB.
+
+**Feature alignment constraint:** K-Means requires a consistent feature vector
+across all users for a game. Users track different stats (one logs
+Eliminations + Damage, another logs Kills + Deaths). Fix: only include
+stat_types that appear in ≥ 80% of opted-in sessions for that game.
+If fewer than 2 stat_types meet the 80% threshold, skip clustering for
+that game entirely — not enough shared signal to be meaningful.
+
+**Training thresholds (both must be met before first fit):**
+- ≥ 10 opted-in users for the game
+- ≥ 10 sessions each from those users
+- ≥ 2 stat_types with ≥ 80% coverage across sessions
+
+**When it trains:** Nightly background job. New users assigned to nearest
+centroid via `.predict()` on existing model — no re-fit per new user.
+
+**Storage:**
+- Personal: GCS bucket → `ml-models/shared/{game_id}/kmeans.pkl`
+- Public: Supabase Storage → `ml-models/shared/{game_id}/kmeans.pkl`
+
+**New FastAPI endpoint:**
+```
+GET /api/ml/cluster/{game_id}
+→ { "cluster_label": "Consistent", "cluster_id": 1, "centroid_distance": 0.42,
+    "tier_distribution": {"Elite": 18%, "Consistent": 45%, "Developing": 37%},
+    "features_used": ["Eliminations", "Damage"] }
+```
+
+**UI placement:** `SummaryTab` — inline badge next to the streak bar.
+```
+🔥 7d streak   •   Cluster: Consistent (top 45%)
+```
+Hidden until all three training thresholds are met.
+
+**DB addition:**
+```sql
+-- Cluster assignment cache — avoids re-predicting on every API call
+ALTER TABLE app.leaderboard_entries
+    ADD COLUMN IF NOT EXISTS cluster_id    INTEGER,
+    ADD COLUMN IF NOT EXISTS cluster_label TEXT;
+```
+
+---
+
 ### Requirements additions
 
 ```
@@ -732,9 +971,22 @@ Address before public launch.
 | ✅ `app.user_integrations.platform_username` | Migration 003 + schema | Done |
 | ✅ Missing indexes (ml_runs, user_integrations, integration_imports, leaderboard_entries, ai_usage) | Migration 003 + schema | Done |
 | ✅ `formatPlayedAt` hardcoded `America/Los_Angeles` | `DeleteTab.tsx`, `EditTab.tsx` fixed | Done |
+| ✅ Stat name block list (profanity / gibberish) | `constants.ts` + `StatsForm.tsx` | Done |
+| ✅ Stat alias glossary (Kills → Eliminations, Deaths → Respawns) | `constants.ts` + `StatsForm.tsx` | Done |
+| ✅ Instagram token refresh — migrated to `graph.facebook.com` | `instagram_token_utils.py` | Done |
+| ✅ RLS policies designed for all public tables | `supabase_schema.sql` — uncomment at FastAPI cut-over (psycopg2 bypasses RLS) | Enable at cut-over |
 | Stripe webhook handler + subscription lifecycle | No doc exists | Before premium launch |
 | BoltPanel progress bar (`app.ai_usage` → UI) | Phase 4 checklist missing it | Before public launch |
 | Vercel env var list | No doc exists | Before cut-over |
 | Personal → Public game sync logic (`admin.py`) | Router stubbed, logic not documented | Phase 3 |
-| Instagram token refresh automation | 400 error root cause unknown — logging fix deployed, re-trigger workflow | Investigate |
 | Timezone hardcodes in `get_summary`, `get_heatmap`, `get_ticker_facts` | `flask_app.py` | Fix in FastAPI versions |
+| **API rate limiting** | No throttle on FastAPI endpoints — add `slowapi` middleware | Phase 3 cut-over |
+| **Full account deletion cascade** | Data deletion page exists but cascade across all tables unverified | Before public launch |
+| **Data export (CSV/JSON)** | No endpoint — GDPR right to portability | Before public launch |
+| **Privacy opt-out controls** | No per-user opt-out of leaderboard / community stat templates | Phase 3 |
+| **JWT secret rotation plan** | No documented process for rotating without mass logout | Before public launch |
+| **Content moderation (server-side)** | Block list is client-side only — FastAPI must re-validate on `add_stats` | Phase 3 cut-over |
+| **Email notifications** | Weekly recap, streak alerts, milestone hits — needs Resend integration | Post-launch |
+| **Achievement / milestone system** | No gamification beyond streaks — DB tables + FastAPI + UI needed | Post-launch |
+| **Search across stat history** | No full-text search — Supabase `to_tsvector` or `WHERE ILIKE` | Post-launch |
+| **User-facing API keys** | Power users want programmatic read-only access to own data | Post-launch |
