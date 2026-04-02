@@ -7,6 +7,20 @@ import Providers from "@/components/Providers";
 import Navbar from "@/components/Navbar";
 import SocialLinks from "@/components/SocialLinks";
 import RenderWarmup from "@/components/RenderWarmup";
+import MaintenanceBanner from "@/components/MaintenanceBanner";
+
+// Edge Config is only available on Vercel — falls back to env var for local dev.
+// Layout already renders dynamically (getServerSession reads cookies), so this
+// fires on every request with no extra cache configuration needed.
+async function getMaintenanceMsg(): Promise<string> {
+  try {
+    const { get } = await import("@vercel/edge-config");
+    return (await get<string>("maintenanceMsg")) ?? "";
+  } catch {
+    // Local dev or EDGE_CONFIG env var not set — fall back to env var
+    return process.env.NEXT_PUBLIC_MAINTENANCE_MSG ?? "";
+  }
+}
 
 // Fira Code — loaded via Next.js font optimization (no layout shift, cached by CDN)
 const firaCode = Fira_Code({
@@ -122,7 +136,10 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
+  const [session, maintenanceMsg] = await Promise.all([
+    getServerSession(authOptions),
+    getMaintenanceMsg(),
+  ]);
 
   return (
     <html lang="en" className={firaCode.variable}>
@@ -135,6 +152,7 @@ export default async function RootLayout({
       <body className="min-h-screen flex flex-col font-mono">
         <Providers session={session}>
           <RenderWarmup />
+          <MaintenanceBanner msg={maintenanceMsg} />
           <Navbar />
 
           <main className="flex-1 px-4 py-6">
