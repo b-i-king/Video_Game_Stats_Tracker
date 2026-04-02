@@ -606,8 +606,10 @@ def _social_media_pipeline(player_id, player_name, game_id, game_name,
             FROM fact.fact_game_stats
             WHERE game_id = %s AND player_id = %s AND stat_type IS NOT NULL
             GROUP BY stat_type
-            HAVING AVG(stat_value) > 0
-            ORDER BY avg_value ASC
+            HAVING AVG(stat_value) > 0 AND COUNT(*) >= 2
+            ORDER BY
+                STDDEV(stat_value) / NULLIF(AVG(stat_value), 0) DESC,
+                COUNT(*) DESC
             LIMIT 3;
         """, (game_id, player_id))
         top_stats = [row[0] for row in cur2.fetchall()]
