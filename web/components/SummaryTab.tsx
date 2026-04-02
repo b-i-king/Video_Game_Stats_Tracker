@@ -221,6 +221,11 @@ function StatTicker({
   const content = [gameName.toUpperCase(), ...items].join("  •  ");
   const doubled = `${content}  •  ${content}`;
 
+  // Scale duration to content length so short lists don't fly by and long ones don't crawl.
+  // ~4 chars/second keeps the pace consistent regardless of fact count.
+  const CHARS_PER_SECOND = 4;
+  const duration = Math.max(60, Math.round(content.length / CHARS_PER_SECOND));
+
   return (
     <div className="overflow-hidden rounded border border-[var(--border)] bg-black/60 text-[var(--gold)] text-xs font-semibold py-1.5 select-none">
       <style>{`
@@ -231,11 +236,11 @@ function StatTicker({
         .ticker-track {
           display: inline-block;
           white-space: nowrap;
-          animation: ticker-scroll 200s linear infinite;
+          animation: ticker-scroll linear infinite;
         }
         .ticker-track:hover { animation-play-state: paused; }
       `}</style>
-      <span className="ticker-track px-4">{doubled}</span>
+      <span className="ticker-track px-4" style={{ animationDuration: `${duration}s` }}>{doubled}</span>
     </div>
   );
 }
