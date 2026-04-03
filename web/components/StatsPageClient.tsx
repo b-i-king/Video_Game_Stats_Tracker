@@ -140,7 +140,7 @@ export default function StatsPageClient() {
           </div>
 
           {/* Right sidebar — desktop only, all signed-in users */}
-          <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[580px]">
+          <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[500px]">
             {isOwner
               ? <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} enabledPlatforms={enabledPlatforms} setEnabledPlatforms={setEnabledPlatforms} />
               : <LastSessionPanel jwt={jwt} refreshKey={lastSessionKey} />
