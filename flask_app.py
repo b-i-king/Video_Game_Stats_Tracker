@@ -2895,8 +2895,13 @@ def get_interactive_chart(user_email, game_id):
             SELECT stat_type, AVG(stat_value) as avg_value
             FROM fact.fact_game_stats
             WHERE player_id = %s AND game_id = %s AND stat_type IS NOT NULL
-            GROUP BY stat_type HAVING AVG(stat_value) > 0
-            ORDER BY avg_value ASC LIMIT 3;
+            GROUP BY stat_type
+            HAVING COUNT(*) >= 2
+            ORDER BY
+                AVG(stat_value) DESC,
+                STDDEV(stat_value) DESC NULLS LAST,
+                COUNT(*) DESC
+            LIMIT 3;
         """, (player_id, game_id))
         top_stats = [r[0] for r in cur.fetchall()]
 
@@ -2904,7 +2909,9 @@ def get_interactive_chart(user_email, game_id):
             cur.execute("""
                 SELECT stat_type, stat_value FROM fact.fact_game_stats
                 WHERE player_id = %s AND game_id = %s
-                ORDER BY played_at DESC LIMIT 3;
+                ORDER BY
+                    stat_value DESC NULLS LAST, 
+                    played_at DESC LIMIT 3;
             """, (player_id, game_id))
             data = {}
             for i, (stype, sval) in enumerate(cur.fetchall(), 1):
