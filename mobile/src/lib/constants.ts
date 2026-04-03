@@ -1,4 +1,5 @@
 // Mirrors web/lib/constants.ts — keep both files in sync.
+// When updating either file, update the other to match.
 
 export const GENRES: Record<string, string[]> = {
   'Select a Genre': ['Select a Subgenre'],
@@ -49,3 +50,51 @@ export const PARTY_SIZES = ['1', '2', '3', '4', '5+'] as const;
 export const DIFFICULTY_OPTIONS = ['', 'Easy', 'Normal', 'Hard', 'Expert'] as const;
 export const INPUT_DEVICES = ['Controller', 'Keyboard & Mouse', 'Mixed'] as const;
 export const PLATFORMS = ['PC', 'PlayStation', 'Xbox', 'Switch', 'Mobile'] as const;
+
+// ── Stat alias glossary (WRITE PATH — input normalization only) ───────────────
+export const STAT_ALIASES: Record<string, { canonical: string; display: string }> = {
+  'kills':        { canonical: 'Eliminations', display: 'Eliminations' },
+  'kill':         { canonical: 'Eliminations', display: 'Eliminations' },
+  'frags':        { canonical: 'Eliminations', display: 'Eliminations' },
+  'takedowns':    { canonical: 'Eliminations', display: 'Eliminations' },
+  'k/d':          { canonical: 'E/R Ratio',    display: 'E/R Ratio'   },
+  'kd':           { canonical: 'E/R Ratio',    display: 'E/R Ratio'   },
+  'kill/death':   { canonical: 'E/R Ratio',    display: 'E/R Ratio'   },
+  'dmg':          { canonical: 'Damage',        display: 'Damage'      },
+  'heals':        { canonical: 'Healing',       display: 'Healing'     },
+  'heal':         { canonical: 'Healing',       display: 'Healing'     },
+  'xp':           { canonical: 'Experience',    display: 'XP'          },
+  'exp':          { canonical: 'Experience',    display: 'XP'          },
+  'ast':          { canonical: 'Assists',       display: 'Assists'     },
+  'w':            { canonical: 'Wins',          display: 'Wins'        },
+  'l':            { canonical: 'Losses',        display: 'Losses'      },
+};
+
+// ── Stat display labels (READ PATH — child-friendly overrides) ────────────────
+export const STAT_DISPLAY_LABELS: Record<string, string> = {
+  'Deaths': 'Respawns',
+};
+
+// ── Stat name block list ──────────────────────────────────────────────────────
+export const BLOCKED_STAT_TERMS = new Set([
+  'asdf', 'qwerty', 'zxcv', 'aaaa', 'bbbb', 'cccc', 'test123',
+]);
+
+export function isBlockedStatName(input: string): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { default: Filter } = require('bad-words');
+    if (new Filter().isProfane(input)) return true;
+  } catch {
+    // Package not installed yet — fall through to custom list only
+  }
+  const lower = input.toLowerCase();
+  for (const term of BLOCKED_STAT_TERMS) {
+    if (new RegExp(`\\b${term}\\b`).test(lower)) return true;
+  }
+  return false;
+}
+
+export function resolveAlias(input: string) {
+  return STAT_ALIASES[input.trim().toLowerCase()] ?? null;
+}

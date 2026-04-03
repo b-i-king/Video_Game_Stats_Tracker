@@ -207,51 +207,60 @@ export const GENRES: Record<string, string[]> = {
   ],
 };
 
-// ── Stat alias glossary ───────────────────────────────────────────────────────
-// Maps lowercase user input → { canonical: stored value, display: shown in UI }
-// Keeps child-friendly labels ("Respawns" instead of "Deaths") while storing
-// canonical names for consistent community queries and leaderboard comparisons.
+// ── Stat alias glossary (WRITE PATH — input normalization only) ───────────────
+// Maps lowercase user input → { canonical: stored in DB, display: shown in UI }
+//
+// IMPORTANT: Only add entries here when the user typed an ALTERNATE NAME that
+// should be normalized to a different canonical value on save.
+// e.g. "Kills" → stored as "Eliminations".
+//
+// Do NOT add entries where the user's typed value IS the intended stored value.
+// Display-only overrides (e.g. showing "Respawns" when DB has "Deaths") belong
+// in STAT_DISPLAY_LABELS below, not here.
 export const STAT_ALIASES: Record<string, { canonical: string; display: string }> = {
   "kills":        { canonical: "Eliminations", display: "Eliminations" },
   "kill":         { canonical: "Eliminations", display: "Eliminations" },
   "frags":        { canonical: "Eliminations", display: "Eliminations" },
   "takedowns":    { canonical: "Eliminations", display: "Eliminations" },
-  "deaths":       { canonical: "Deaths",       display: "Respawns"     },
-  "death":        { canonical: "Deaths",       display: "Respawns"     },
-  "respawns":     { canonical: "Deaths",       display: "Respawns"     },
-  "kos":          { canonical: "Deaths",       display: "Respawns"     },
-  "k/d":          { canonical: "K/D Ratio",    display: "K/D Ratio"   },
-  "kd":           { canonical: "K/D Ratio",    display: "K/D Ratio"   },
-  "kill/death":   { canonical: "K/D Ratio",    display: "K/D Ratio"   },
+  "k/d":          { canonical: "E/R Ratio",    display: "E/R Ratio"   },
+  "kd":           { canonical: "E/R Ratio",    display: "E/R Ratio"   },
+  "kill/death":   { canonical: "E/R Ratio",    display: "E/R Ratio"   },
   "dmg":          { canonical: "Damage",       display: "Damage"       },
   "heals":        { canonical: "Healing",      display: "Healing"      },
   "heal":         { canonical: "Healing",      display: "Healing"      },
   "xp":           { canonical: "Experience",   display: "XP"           },
   "exp":          { canonical: "Experience",   display: "XP"           },
-  "assists":      { canonical: "Assists",      display: "Assists"      },
   "ast":          { canonical: "Assists",      display: "Assists"      },
-  "wins":         { canonical: "Wins",         display: "Wins"         },
   "w":            { canonical: "Wins",         display: "Wins"         },
-  "losses":       { canonical: "Losses",       display: "Losses"       },
   "l":            { canonical: "Losses",       display: "Losses"       },
 };
 
+// ── Stat display labels (READ PATH — child-friendly overrides) ────────────────
+// Maps canonical DB value → label shown in the UI.
+// Does NOT affect what gets stored — only how it's rendered.
+// e.g. DB stores "Deaths" but UI shows "Respawns".
+export const STAT_DISPLAY_LABELS: Record<string, string> = {
+  "Deaths": "Respawns",
+};
+
 // ── Stat name block list ──────────────────────────────────────────────────────
-// Prevents inappropriate or nonsensical stat names from being submitted.
-// Checked case-insensitively against the full stat type string.
+// Custom terms checked with \b word boundaries (prevents false positives like
+// "ass" inside "Assists"). bad-words package covers the comprehensive dictionary.
 export const BLOCKED_STAT_TERMS = new Set([
-  // Profanity (partial list — extend as needed)
-  "fuck", "shit", "ass", "bitch", "bastard", "damn", "crap", "piss",
-  "cock", "dick", "pussy", "cunt", "whore", "slut",
-  // Slurs (abbreviated — extend as needed)
-  "fag", "dyke", "tranny", "retard", "spaz",
-  // Gibberish patterns caught separately via regex, but common ones here
+  // Gibberish / nonsense inputs
   "asdf", "qwerty", "zxcv", "aaaa", "bbbb", "cccc", "test123",
 ]);
 
-// Returns true if the stat name contains a blocked term as a whole word.
-// Uses \b word boundaries so "ass" does not falsely block "Assists", "Class", etc.
+// Returns true if the stat name should be blocked.
+// Combines bad-words comprehensive dictionary + custom BLOCKED_STAT_TERMS.
+import { Filter } from "bad-words";
+const _profanityFilter = new Filter();
+
 export function isBlockedStatName(input: string): boolean {
+  // bad-words: comprehensive profanity + slur dictionary
+  if (_profanityFilter.isProfane(input)) return true;
+
+  // Custom list: gibberish + any terms bad-words misses, checked as whole words
   const lower = input.toLowerCase();
   for (const term of BLOCKED_STAT_TERMS) {
     if (new RegExp(`\\b${term}\\b`).test(lower)) return true;

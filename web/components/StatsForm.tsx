@@ -406,6 +406,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
     negativeStats.length > 0 ||
     outOfRangeStats.length > 0 ||
     invalidStatTypes.length > 0 ||
+    blockedStatTypes.length > 0 ||
     invalidNewPlayerName ||
     invalidNewFranchise ||
     invalidNewInstallment ||
