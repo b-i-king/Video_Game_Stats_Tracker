@@ -958,25 +958,45 @@ gives the owner full control.
 
 ### Guiding principle
 
-> **Flag, don't auto-ban.** A typo that triggers a profanity filter looks identical
-> to an intentional violation in raw data — only a human can tell the difference.
-> The system collects evidence and alerts the owner; the owner decides.
+> **Two-tier response:** Auto-ban for severe, unambiguous violations (slurs,
+> derogatory language, bullying). Flag for owner review for everything else —
+> a typo that triggers a general profanity filter looks identical to intent
+> in raw data, but a racial slur does not.
 
 ---
 
-### What counts as a violation
+### Violation severity tiers
 
-Only **intentional content abuse** increments the strike counter.
-Accidental input errors are rejected silently with no strike.
+#### Tier 1 — Immediate auto-ban (zero tolerance)
+
+No strikes, no review, no appeal path at the app level.
+Logged to `app.violation_log` with `violation_type = 'severe'`.
+Owner is notified but no action is required — ban is already applied.
+
+| Content | Examples |
+|---|---|
+| Racial slurs | Dedicated slur blocklist (separate from `bad-words`) |
+| Derogatory language targeting identity | Slurs based on gender, sexuality, religion, disability |
+| Bullying / targeted harassment | Player names or stat names targeting another user by name |
+
+**Implementation:** Maintain a `SEVERE_TERMS` set in `constants.ts` and a server-side equivalent in FastAPI. Checked **before** the general profanity filter. Match on word boundaries (`\b`) to avoid false positives on substrings.
+
+> **Note:** This list is intentionally separate from `BLOCKED_STAT_TERMS` and
+> `bad-words` so it can be maintained independently without touching general
+> content moderation logic.
+
+#### Tier 2 — Strike system (owner review at threshold)
+
+Ambiguous violations where context matters. A human reviews at strike 3.
 
 | Event | Strike? | Reason |
 |---|---|---|
-| Profanity filter hit (`bad-words` / `better_profanity`) | ✅ Yes | Word-boundary matched — unlikely to be a typo |
+| General profanity filter hit (`bad-words` / `better_profanity`) | ✅ Yes | Unlikely to be a typo but not always intentional |
 | Gibberish hit (`BLOCKED_STAT_TERMS` — "asdf", "qwerty") | ✅ Yes | Never a typo |
+| Repeated same blocked stat across multiple sessions | ✅ Yes | Pattern = intent |
 | Invalid format (`STAT_TYPE_RE` failure — symbols, too long) | ❌ No | Easily a typo |
 | Stat value out of range | ❌ No | Fat-finger |
 | Duplicate submission (2-min window) | ❌ No | Double-click |
-| Repeated same blocked stat across multiple sessions | ✅ Yes | Pattern = intent |
 
 ---
 
@@ -994,15 +1014,21 @@ Violation arrives → check last_violation_at
 
 ---
 
-### Strike thresholds
+### Strike thresholds (Tier 2 only)
 
 | Count | Action | Visible to user? |
 |---|---|---|
-| 1 | Warning in API response: "Stat name not allowed." | ✅ Yes — generic message |
+| 1 | Warning: "Stat name not allowed." | ✅ Yes — generic message |
 | 2 | Escalated warning: "Repeated violations have been logged." | ✅ Yes |
-| 3 | `flagged_at` timestamp set → owner notified | ❌ No — silent flag |
-| Owner reviews → ban | `banned_at` set → JWT returns 403 on all requests | ✅ Yes — "Account suspended." |
+| 3 | `flagged_at` set → owner notified | ❌ No — silent flag |
+| Owner reviews → ban | `banned_at` set → JWT returns 403 | ✅ Yes — "Account suspended." |
 | Owner reviews → clear | `violation_count` reset, `flagged_at` cleared | ❌ No — silent |
+
+**Tier 1 (severe)** bypasses all of the above:
+- `banned_at` set immediately
+- `violation_count` set to 99 (sentinel — distinguishes auto-ban from owner ban)
+- `ban_reason` set to `'auto:severe_content'`
+- Owner receives notification but no action required
 
 Users are **never told** they are flagged (count=3) — only that their content
 was rejected. This prevents gaming the system to stay just under the threshold.
@@ -1093,12 +1119,14 @@ CREATE INDEX ON app.violation_log (user_id, created_at DESC);
 
 - [ ] Add `004_add_trust_safety.sql` migration
 - [ ] Add `app.violation_log` DDL to `supabase_schema.sql`
-- [ ] Implement `api/services/trust_service.py`
-- [ ] Wire `record_violation()` into FastAPI `add_stats` content check
+- [ ] Build `SEVERE_TERMS` word-boundary blocklist in `constants.ts` (slurs, derogatory, harassment)
+- [ ] Mirror `SEVERE_TERMS` server-side in FastAPI `trust_service.py`
+- [ ] Implement `api/services/trust_service.py` with Tier 1 auto-ban + Tier 2 strike logic
+- [ ] Wire `record_violation()` into FastAPI `add_stats` content check — Tier 1 checked first
 - [ ] Add banned check to `api/core/deps.py` JWT dependency
 - [ ] Implement `api/routers/admin.py` with 5 endpoints
-- [ ] Add Admin tab to web app (owner-only)
-- [ ] Carry over `isBlockedStatName` validation from Flask to FastAPI
+- [ ] Add Admin tab to web app (owner-only) — shows flagged queue + auto-ban log separately
+- [ ] Carry over `isBlockedStatName` + `SEVERE_TERMS` validation from Flask to FastAPI
 
 ---
 

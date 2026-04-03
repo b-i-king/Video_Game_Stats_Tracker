@@ -2,14 +2,29 @@
 // Top navigation bar with sign-in/sign-out and role indicator.
 
 import Link from "next/link";
+import { useState, useRef, useEffect } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 
 export default function Navbar() {
   const { data: session } = useSession();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   return (
     <nav className="border-b border-[var(--border)] bg-[var(--surface)]">
       <div className="w-full px-4 flex items-center justify-between h-14">
+
         {/* Logo / Home link */}
         <Link
           href="/"
@@ -19,43 +34,21 @@ export default function Navbar() {
           🎮
         </Link>
 
-        {/* Navigation links */}
-        <div className="hidden sm:flex gap-4 text-sm">
+        {/* Primary nav links — Home + Stats only */}
+        <div className="flex gap-4 text-sm">
           <Link href="/" className="hover:text-[var(--gold)] transition-colors">
             Home
           </Link>
-          {/* Stats page is visible only to logged-in users */}
           {session && (
-            <Link
-              href="/stats"
-              className="hover:text-[var(--gold)] transition-colors"
-            >
+            <Link href="/stats" className="hover:text-[var(--gold)] transition-colors">
               Stats
             </Link>
           )}
-          {session && (
-            <Link
-              href="/integrations"
-              className="hover:text-[var(--gold)] transition-colors"
-            >
-              Integrations
-            </Link>
-          )}
-          <Link
-            href="/privacy"
-            className="hover:text-[var(--gold)] transition-colors"
-          >
-            Privacy
-          </Link>
-          <Link
-            href="/terms"
-            className="hover:text-[var(--gold)] transition-colors"
-          >
-            Terms
-          </Link>
+          {/* Phase 3: History 📊 | Dashboard 📺 | Insights 🤖 | Leaderboard 🏆
+              — rendered here based on role/tier once those pages exist */}
         </div>
 
-        {/* Auth section */}
+        {/* Auth + hamburger section */}
         <div className="flex items-center gap-3 text-sm">
           {session ? (
             <>
@@ -94,8 +87,104 @@ export default function Navbar() {
               Sign in with Google
             </button>
           )}
+
+          {/* Hamburger menu */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-label="Menu"
+              className="flex flex-col justify-center items-center w-8 h-8 gap-1.5 hover:text-[var(--gold)] transition-colors"
+            >
+              <span className={`block w-5 h-0.5 bg-current transition-transform origin-center ${menuOpen ? "rotate-45 translate-y-2" : ""}`} />
+              <span className={`block w-5 h-0.5 bg-current transition-opacity ${menuOpen ? "opacity-0" : ""}`} />
+              <span className={`block w-5 h-0.5 bg-current transition-transform origin-center ${menuOpen ? "-rotate-45 -translate-y-2" : ""}`} />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-10 w-52 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg py-1 z-50">
+
+                {/* Signed-in app links */}
+                {session && (
+                  <>
+                    <MenuLink href="/integrations" onClick={() => setMenuOpen(false)}>
+                      Integrations
+                    </MenuLink>
+                    <div className="my-1 border-t border-[var(--border)]" />
+                  </>
+                )}
+
+                {/* Phase 3 role-gated tabs:
+                    History 📊     — all logged-in users (stat session history, filters, search)
+                    Dashboard 📺   — trusted + owner + premium (OBS overlay, live session view)
+                    Insights 🤖    — trusted + owner + premium (ML predictions, trend analysis)
+                    Leaderboard 🏆 — all logged-in users (opt-in, public Supabase project)
+                    Admin 🛡️       — owner only (flagged users, ban/unban, violation log)
+                */}
+
+                {/* About — app description + tier comparison (Free / Premium / Trusted / Owner) */}
+                <MenuLink href="/about" onClick={() => setMenuOpen(false)}>
+                  About
+                </MenuLink>
+
+                <div className="my-1 border-t border-[var(--border)]" />
+
+                {/* Privacy — Phase 3 adds live leaderboard opt-out toggle on this page */}
+                <MenuLink href="/privacy" onClick={() => setMenuOpen(false)}>
+                  Privacy
+                </MenuLink>
+                <MenuLink href="/terms" onClick={() => setMenuOpen(false)}>
+                  Terms
+                </MenuLink>
+
+                {session && (
+                  <>
+                    <div className="my-1 border-t border-[var(--border)]" />
+                    {/* Data — Phase 3: CSV/JSON export of user's own stats (GDPR portability) */}
+                    <MenuLink href="/data-export" onClick={() => setMenuOpen(false)}>
+                      Data
+                    </MenuLink>
+                    {/* Delete Account — Phase 3: verified cascade across all tables */}
+                    <MenuLink
+                      href="/account/delete"
+                      onClick={() => setMenuOpen(false)}
+                      danger
+                    >
+                      Delete Account
+                    </MenuLink>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </nav>
+  );
+}
+
+// ── Menu item helper ──────────────────────────────────────────────────────────
+function MenuLink({
+  href,
+  onClick,
+  danger = false,
+  children,
+}: {
+  href: string;
+  onClick: () => void;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      className={`block px-4 py-2 text-sm transition-colors ${
+        danger
+          ? "text-red-400 hover:bg-red-900/20"
+          : "text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--border)]/40"
+      }`}
+    >
+      {children}
+    </Link>
   );
 }

@@ -68,6 +68,33 @@ export default function DataDeletionPage() {
           <li>All player profiles you created.</li>
           <li>All gaming session statistics you submitted.</li>
           <li>All associated chart images stored in Google Cloud Storage.</li>
+          <li>All AI (Bolt) usage records associated with your account.</li>
+          <li>Any connected integrations (e.g. Riot Games, future platforms).</li>
+        </ul>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-semibold">What Is Not Deleted</h2>
+        <ul className="list-disc pl-6 space-y-2 text-[var(--muted)]">
+          <li>
+            <strong className="text-[var(--text)]">Anonymized aggregate data</strong> —
+            if your stats contributed to community averages or leaderboard
+            summaries, those aggregates cannot be reverse-traced to you and
+            are not individually deleted.
+          </li>
+          <li>
+            <strong className="text-[var(--text)]">Legal / compliance records</strong> —
+            any records we are required by law to retain.
+          </li>
+        </ul>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-semibold">Timeline</h2>
+        <ul className="list-disc pl-6 space-y-2 text-[var(--muted)]">
+          <li>We will confirm your request within <strong className="text-[var(--text)]">5 business days</strong>.</li>
+          <li>All personal data will be deleted within <strong className="text-[var(--text)]">30 days</strong> of confirmation.</li>
+          <li>You will receive a final confirmation email once deletion is complete.</li>
         </ul>
       </section>
 
@@ -86,6 +113,16 @@ export default function DataDeletionPage() {
           </a>{" "}
           and remove the app, then email us at the address above to confirm
           server-side deletion.
+        </p>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-semibold">Want a copy of your data first?</h2>
+        <p className="text-[var(--muted)]">
+          Before deleting, you can request a full export of your stats in CSV or
+          JSON format. Email us at the address below with the subject line{" "}
+          <em>&ldquo;Data Export Request&rdquo;</em> and include your account email.
+          A self-service export tool is coming in a future update.
         </p>
       </section>
 

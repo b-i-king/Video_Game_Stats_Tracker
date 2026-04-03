@@ -59,7 +59,7 @@ INSTAGRAM_ACCESS_TOKEN = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
 INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID")
 
 # Constants
-PLAYER_ID = 1
+SOCIAL_PLAYER_NAME = os.environ.get("SOCIAL_PLAYER_NAME", "").strip()
 TIMEZONE_STR = os.environ.get("TIMEZONE", "America/Los_Angeles")
 INSTAGRAM_IMAGE_SIZE = (1080, 1440)
 
@@ -119,6 +119,21 @@ def execute_query(sql, params=None):
 def get_field_value(field):
     """Identity shim — psycopg2 returns plain Python types, no unpacking needed."""
     return field
+
+
+def _resolve_player_id(player_name: str) -> int:
+    """Resolve PLAYER_ID from SOCIAL_PLAYER_NAME env var at startup."""
+    if not player_name:
+        raise RuntimeError("SOCIAL_PLAYER_NAME env var is not set.")
+    rows = execute_query(
+        "SELECT player_id FROM dim.dim_players WHERE player_name = %s;",
+        (player_name,)
+    )
+    if not rows:
+        raise RuntimeError(f"No player found with name '{player_name}'. Check SOCIAL_PLAYER_NAME.")
+    return rows[0][0]
+
+PLAYER_ID: int = _resolve_player_id(SOCIAL_PLAYER_NAME)
 
 
 # ============================================================================

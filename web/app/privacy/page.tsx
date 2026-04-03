@@ -10,7 +10,7 @@ export default function PrivacyPage() {
   return (
     <div className="prose prose-invert max-w-3xl mx-auto space-y-6 py-4">
       <h1 className="text-3xl font-bold text-[var(--gold)]">Privacy Policy</h1>
-      <p className="text-[var(--muted)] text-sm">Last updated: 2026-03-22</p>
+      <p className="text-[var(--muted)] text-sm">Last updated: 2026-04-03</p>
 
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Introduction</h2>
@@ -72,8 +72,8 @@ export default function PrivacyPage() {
             authentication.
           </li>
           <li>
-            <strong className="text-[var(--text)]">AWS (Redshift)</strong> —
-            for database storage.
+            <strong className="text-[var(--text)]">Supabase</strong> —
+            for database storage (hosted on AWS infrastructure).
           </li>
           <li>
             <strong className="text-[var(--text)]">IFTTT / Meta</strong> — to
