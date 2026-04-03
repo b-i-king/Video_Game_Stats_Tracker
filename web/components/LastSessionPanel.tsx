@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { getLastSession, type LastSession } from "@/lib/api";
 import { STAT_DISPLAY_LABELS } from "@/lib/constants";
 
@@ -19,20 +19,15 @@ function formatPlayedAt(iso: string | null): string {
 export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
   const [session, setSession] = useState<LastSession | null | undefined>(undefined);
 
-  const load = useCallback(async () => {
-    if (!jwt) return;
-    try {
-      const data = await getLastSession(jwt);
-      setSession(data);
-    } catch {
-      setSession(null);
-    }
-  }, [jwt]);
-
-  // Refetch on mount and whenever refreshKey changes (after a new submission)
+  // Refetch on mount and whenever jwt or refreshKey changes (after a new submission)
   useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+    if (!jwt) return;
+    let cancelled = false;
+    getLastSession(jwt)
+      .then((data) => { if (!cancelled) setSession(data); })
+      .catch(() => { if (!cancelled) setSession(null); });
+    return () => { cancelled = true; };
+  }, [jwt, refreshKey]);
 
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 h-full flex flex-col gap-3">
