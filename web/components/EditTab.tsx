@@ -41,7 +41,7 @@ import {
   type GameDetails,
   type StatEntry,
 } from "@/lib/api";
-import { GENRES } from "@/lib/constants";
+import { GENRES, STAT_DISPLAY_LABELS, isBlockedStatName } from "@/lib/constants";
 
 interface Props {
   jwt: string;
@@ -424,7 +424,7 @@ function EditStats({ jwt }: Props) {
             <option value="">— Select entry —</option>
             {stats.map((s) => (
               <option key={s.stat_id} value={s.stat_id}>
-                {s.is_outlier ? "⚡ " : ""}{fullGameName(s)} — {s.stat_type}: {s.stat_value} on {formatPlayedAt(s.played_at)}{s.percentile != null ? ` [p${s.percentile}]` : ""}
+                {s.is_outlier ? "⚡ " : ""}{fullGameName(s)} — {STAT_DISPLAY_LABELS[s.stat_type] ?? s.stat_type}: {s.stat_value} on {formatPlayedAt(s.played_at)}{s.percentile != null ? ` [p${s.percentile}]` : ""}
               </option>
             ))}
           </select>
@@ -440,7 +440,7 @@ function EditStats({ jwt }: Props) {
               <p className="text-sm">
                 Editing:{" "}
                 <strong className="text-[var(--gold)]">
-                  ({selected.stat_id}) {selected.game_name} — {selected.stat_type}
+                  ({selected.stat_id}) {selected.game_name} — {STAT_DISPLAY_LABELS[selected.stat_type] ?? selected.stat_type}
                 </strong>
               </p>
               {selected.is_outlier && selected.percentile != null && (
@@ -461,9 +461,10 @@ function EditStats({ jwt }: Props) {
                     maxLength={50}
                   />
                   {(form.stat_type ?? "").trim() && !STAT_TYPE_RE.test((form.stat_type ?? "").trim()) && (
-                    <p className="text-xs text-red-400 mt-1">
-                      Letters, numbers, spaces, hyphens only (max 50).
-                    </p>
+                    <p className="text-xs text-red-400 mt-1">Letters, numbers, spaces, hyphens only (max 50).</p>
+                  )}
+                  {(form.stat_type ?? "").trim() && STAT_TYPE_RE.test((form.stat_type ?? "").trim()) && isBlockedStatName((form.stat_type ?? "").trim()) && (
+                    <p className="text-xs text-red-400 mt-1">That stat name is not allowed.</p>
                   )}
                 </div>
                 <div>
@@ -511,7 +512,7 @@ function EditStats({ jwt }: Props) {
               {!readyToSubmit ? (
                 <button
                   className="btn-primary"
-                  disabled={!!(form.stat_type?.trim() && !STAT_TYPE_RE.test(form.stat_type.trim()))}
+                  disabled={!!(form.stat_type?.trim() && (!STAT_TYPE_RE.test(form.stat_type.trim()) || isBlockedStatName(form.stat_type.trim())))}
                   onClick={() => setReadyToSubmit(true)}
                 >
                   Review Changes

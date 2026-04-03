@@ -73,7 +73,7 @@ The Lambda writes a SHA hash of each post's content to `/tmp/instagram_post_hash
 
 - Works well for the M/W/F cadence — containers typically stay warm between runs.
 - A Saturday gap after Friday night may hit a cold start and re-allow a previously posted hash.
-- **Future improvement:** Write hashes to a Supabase table (`dim.dim_instagram_post_log`) to survive cold starts permanently.
+- **Future improvement:** Write hashes to a Supabase table (`dim.dim_instagram_post_log`) to survive cold starts permanently. Negligible storage — one short string per post (~6 posts/week starting June 2026 = ~312 rows/year).
 
 ---
 

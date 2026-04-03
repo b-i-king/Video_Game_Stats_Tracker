@@ -948,6 +948,160 @@ joblib>=1.3.0        # pickle alternative for RF
 
 ---
 
+## Trust & Safety — Violation Tracking & User Management (Phase 3)
+
+Designed for large-scale public use. No user is ever auto-banned — all bans are
+owner-reviewed. The system tracks violations, surfaces flagged accounts, and
+gives the owner full control.
+
+---
+
+### Guiding principle
+
+> **Flag, don't auto-ban.** A typo that triggers a profanity filter looks identical
+> to an intentional violation in raw data — only a human can tell the difference.
+> The system collects evidence and alerts the owner; the owner decides.
+
+---
+
+### What counts as a violation
+
+Only **intentional content abuse** increments the strike counter.
+Accidental input errors are rejected silently with no strike.
+
+| Event | Strike? | Reason |
+|---|---|---|
+| Profanity filter hit (`bad-words` / `better_profanity`) | ✅ Yes | Word-boundary matched — unlikely to be a typo |
+| Gibberish hit (`BLOCKED_STAT_TERMS` — "asdf", "qwerty") | ✅ Yes | Never a typo |
+| Invalid format (`STAT_TYPE_RE` failure — symbols, too long) | ❌ No | Easily a typo |
+| Stat value out of range | ❌ No | Fat-finger |
+| Duplicate submission (2-min window) | ❌ No | Double-click |
+| Repeated same blocked stat across multiple sessions | ✅ Yes | Pattern = intent |
+
+---
+
+### Strike decay (typo protection)
+
+Violations older than **90 days** are forgiven — the count resets before
+incrementing. A user who made a genuine mistake months ago starts fresh.
+
+```
+Violation arrives → check last_violation_at
+  If last_violation_at > 90 days ago → reset violation_count to 0
+  Increment violation_count
+  Update last_violation_at = now
+```
+
+---
+
+### Strike thresholds
+
+| Count | Action | Visible to user? |
+|---|---|---|
+| 1 | Warning in API response: "Stat name not allowed." | ✅ Yes — generic message |
+| 2 | Escalated warning: "Repeated violations have been logged." | ✅ Yes |
+| 3 | `flagged_at` timestamp set → owner notified | ❌ No — silent flag |
+| Owner reviews → ban | `banned_at` set → JWT returns 403 on all requests | ✅ Yes — "Account suspended." |
+| Owner reviews → clear | `violation_count` reset, `flagged_at` cleared | ❌ No — silent |
+
+Users are **never told** they are flagged (count=3) — only that their content
+was rejected. This prevents gaming the system to stay just under the threshold.
+
+---
+
+### DB schema changes (`dim.dim_users`)
+
+```sql
+ALTER TABLE dim.dim_users
+  ADD COLUMN violation_count    INT          NOT NULL DEFAULT 0,
+  ADD COLUMN last_violation_at  TIMESTAMPTZ,
+  ADD COLUMN flagged_at         TIMESTAMPTZ,
+  ADD COLUMN banned_at          TIMESTAMPTZ,
+  ADD COLUMN ban_reason         TEXT;
+```
+
+Add to `assets/sql/migrations/` as `004_add_trust_safety.sql`.
+
+---
+
+### FastAPI implementation
+
+**`api/core/deps.py`** — add banned check to JWT dependency:
+```python
+if user.banned_at:
+    raise HTTPException(403, "Account suspended. Contact support.")
+```
+
+**`api/routers/stats.py`** — after `_content_check()` violation:
+```python
+await trust_service.record_violation(user_id, violation_type, content)
+```
+
+**`api/services/trust_service.py`** (new file):
+- `record_violation(user_id, type, content)` — applies decay, increments, sets flagged_at at 3
+- `ban_user(user_id, reason)` — owner action
+- `clear_violations(user_id)` — owner action
+- `get_flagged_users()` — owner review list
+
+---
+
+### Owner admin endpoints (`api/routers/admin.py`)
+
+All require `requires_owner` FastAPI dependency.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/admin/flagged_users` | List all users with `flagged_at IS NOT NULL` |
+| `POST` | `/api/admin/ban_user/{user_id}` | Set `banned_at`, optional `ban_reason` |
+| `POST` | `/api/admin/unban_user/{user_id}` | Clear `banned_at` |
+| `POST` | `/api/admin/clear_violations/{user_id}` | Reset count + clear `flagged_at` |
+| `DELETE` | `/api/admin/delete_user/{user_id}` | Hard delete — cascade all stats (irreversible) |
+
+---
+
+### Owner review UI (Phase 3 web app)
+
+Add an **Admin tab** to the Stats page, visible only when `session.isOwner = true`.
+
+Displays:
+- Flagged users table (email, violation count, flagged date, last violation content)
+- Ban / Clear / Delete actions per row
+- Violation log (what was submitted, when, from which IP if available)
+
+---
+
+### Violation log table (`app.violation_log`)
+
+Separate from `dim.dim_users` to keep the user record clean.
+Used for the owner review UI and future ML abuse detection.
+
+```sql
+CREATE TABLE app.violation_log (
+  log_id         BIGSERIAL PRIMARY KEY,
+  user_id        INT REFERENCES dim.dim_users(user_id) ON DELETE CASCADE,
+  violation_type TEXT NOT NULL,   -- 'profanity' | 'gibberish' | 'pattern'
+  content        TEXT,            -- what they tried to submit
+  ip_address     TEXT,            -- optional, requires FastAPI middleware
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX ON app.violation_log (user_id, created_at DESC);
+```
+
+---
+
+### Phase 3 checklist — Trust & Safety
+
+- [ ] Add `004_add_trust_safety.sql` migration
+- [ ] Add `app.violation_log` DDL to `supabase_schema.sql`
+- [ ] Implement `api/services/trust_service.py`
+- [ ] Wire `record_violation()` into FastAPI `add_stats` content check
+- [ ] Add banned check to `api/core/deps.py` JWT dependency
+- [ ] Implement `api/routers/admin.py` with 5 endpoints
+- [ ] Add Admin tab to web app (owner-only)
+- [ ] Carry over `isBlockedStatName` validation from Flask to FastAPI
+
+---
+
 ### Phase 4 checklist
 
 - [ ] Add `app.ml_model_runs` DDL to `assets/sql/supabase_schema.sql`
@@ -1012,6 +1166,7 @@ Address before public launch.
 | **Privacy opt-out controls** | No per-user opt-out of leaderboard / community stat templates | Phase 3 |
 | **JWT secret rotation plan** | No documented process for rotating without mass logout | Before public launch |
 | **Content moderation (server-side)** | Block list is client-side only — FastAPI must re-validate on `add_stats` | Phase 3 cut-over |
+| **Trust & Safety — violation tracking + owner review** | No strike system exists — design doc in this file (Phase 3 section) | Phase 3 |
 | **Email notifications** | Weekly recap, streak alerts, milestone hits — needs Resend integration | Post-launch |
 | **Achievement / milestone system** | No gamification beyond streaks — DB tables + FastAPI + UI needed | Post-launch |
 | **Search across stat history** | No full-text search — Supabase `to_tsvector` or `WHERE ILIKE` | Post-launch |

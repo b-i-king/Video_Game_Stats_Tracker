@@ -14,6 +14,7 @@ import {
   type GameDetails,
   type StatEntry,
 } from "@/lib/api";
+import { STAT_DISPLAY_LABELS } from "@/lib/constants";
 
 interface Props {
   jwt: string;
@@ -321,7 +322,7 @@ function DeleteStat({ jwt }: Props) {
             <option value="">— Select entry —</option>
             {stats.map((s) => (
               <option key={s.stat_id} value={s.stat_id}>
-                {s.is_outlier ? "⚡ " : ""}{fullGameName(s)} — {s.stat_type}: {s.stat_value} on {formatPlayedAt(s.played_at)}
+                {s.is_outlier ? "⚡ " : ""}{fullGameName(s)} — {STAT_DISPLAY_LABELS[s.stat_type] ?? s.stat_type}: {s.stat_value} on {formatPlayedAt(s.played_at)}
               </option>
             ))}
           </select>
@@ -331,7 +332,7 @@ function DeleteStat({ jwt }: Props) {
               <p className="text-sm text-yellow-300">
                 Delete this entry?{" "}
                 <strong>
-                  {selected ? fullGameName(selected) : ""} — {selected?.stat_type}: {selected?.stat_value} on {selected ? formatPlayedAt(selected.played_at) : ""}
+                  {selected ? fullGameName(selected) : ""} — {selected ? (STAT_DISPLAY_LABELS[selected.stat_type] ?? selected.stat_type) : ""}: {selected?.stat_value} on {selected ? formatPlayedAt(selected.played_at) : ""}
                 </strong>
               </p>
               <button
