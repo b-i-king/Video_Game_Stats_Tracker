@@ -606,9 +606,10 @@ def _social_media_pipeline(player_id, player_name, game_id, game_name,
             FROM fact.fact_game_stats
             WHERE game_id = %s AND player_id = %s AND stat_type IS NOT NULL
             GROUP BY stat_type
-            HAVING AVG(stat_value) > 0 AND COUNT(*) >= 2
+            HAVING COUNT(*) >= 2
             ORDER BY
-                STDDEV(stat_value) / NULLIF(AVG(stat_value), 0) DESC,
+                AVG(stat_value) DESC,
+                STDDEV(stat_value) DESC NULLS LAST,
                 COUNT(*) DESC
             LIMIT 3;
         """, (game_id, player_id))

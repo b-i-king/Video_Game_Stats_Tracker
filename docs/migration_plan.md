@@ -564,8 +564,34 @@ POST /api/games/requests/{id}/approve     → approve + sync non-IGDB game (trus
 **IGDB search proxy (server-side — hides credentials from frontend):**
 ```python
 POST https://api.igdb.com/v4/games
-body: f'search "{query}"; fields name,cover.url,genres.name,themes.name,first_release_date; limit 10;'
+body: f'search "{query}"; fields name,cover.url,genres.name,themes.name,game_modes.name,first_release_date; limit 10;'
 ```
+
+**Game mode — dynamic population from IGDB:**
+
+The game mode dropdown for registered users is populated from IGDB's
+`game_modes` field rather than a hardcoded static list. IGDB's canonical
+game mode values are:
+
+| IGDB `game_modes.name` | App game_mode value |
+|---|---|
+| `Single player` | `Solo` |
+| `Multiplayer` | `Team` |
+| `Co-operative` | `Co-op` |
+| `Split screen` | `Split Screen` |
+| `Massively Multiplayer Online (MMO)` | `MMO` |
+| `Battle Royale` | `Battle Royale` |
+
+FastAPI maps IGDB mode names → app values on the `/api/games/add` response.
+Frontend receives `available_modes: string[]` and renders them as the
+game mode options for that specific game — no hardcoded list needed.
+
+For trusted users (personal project): game mode options remain fully manual
+via the existing dropdown. IGDB-derived modes are a registered-user feature
+only since trusted users may add custom game modes not in IGDB.
+
+For games not in IGDB (manual request path): game mode falls back to the
+existing static list (`Solo`, `Team`, `Co-op`, etc.).
 
 **Schema addition (`app.game_requests` — public Supabase):**
 ```sql

@@ -249,11 +249,12 @@ export const BLOCKED_STAT_TERMS = new Set([
   "asdf", "qwerty", "zxcv", "aaaa", "bbbb", "cccc", "test123",
 ]);
 
-// Returns true if the stat name contains a blocked term
+// Returns true if the stat name contains a blocked term as a whole word.
+// Uses \b word boundaries so "ass" does not falsely block "Assists", "Class", etc.
 export function isBlockedStatName(input: string): boolean {
   const lower = input.toLowerCase();
   for (const term of BLOCKED_STAT_TERMS) {
-    if (lower.includes(term)) return true;
+    if (new RegExp(`\\b${term}\\b`).test(lower)) return true;
   }
   return false;
 }
