@@ -107,7 +107,7 @@ export default function StatsPageClient() {
 
         <div className="flex gap-6 items-stretch">
           {/* Bolt AI sidebar — desktop only, all signed-in users */}
-          <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[580px]">
+          <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[530px]">
             <BoltPanel jwt={jwt} />
           </aside>
 
