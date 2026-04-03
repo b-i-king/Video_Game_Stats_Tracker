@@ -51,15 +51,18 @@ export const authOptions: AuthOptions = {
             const data = await res.json();
             token.flaskJwt = data.token ?? undefined;
             token.isTrusted = data.is_trusted ?? false;
+            token.isOwner = data.is_owner ?? false;
             token.role = data.is_trusted ? "trusted" : "guest";
           } else {
             // Flask login failed — treat as a registered guest with no JWT
             token.role = "guest";
             token.isTrusted = false;
+            token.isOwner = false;
           }
         } catch {
           token.role = "guest";
           token.isTrusted = false;
+          token.isOwner = false;
         }
       }
       return token;
@@ -70,6 +73,7 @@ export const authOptions: AuthOptions = {
       session.flaskJwt = token.flaskJwt;
       session.role = token.role;
       session.isTrusted = token.isTrusted;
+      session.isOwner = token.isOwner;
       return session;
     },
   },

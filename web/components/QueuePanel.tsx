@@ -4,14 +4,31 @@ import { useEffect, useState, useCallback } from "react";
 import { getQueueStatus, retryFailed } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 
+const PLATFORMS = [
+  {
+    id: "twitter",
+    label: "X (Twitter)",
+    activeStyle: { backgroundColor: "#000000" },
+  },
+  {
+    id: "instagram",
+    label: "Instagram",
+    activeStyle: {
+      background: "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)",
+    },
+  },
+] as const;
+
 interface Props {
   jwt: string;
   queueMode: boolean;
   setQueueMode: (val: boolean) => void;
   isManualOverride: boolean;
+  enabledPlatforms: string[];
+  setEnabledPlatforms: (platforms: string[]) => void;
 }
 
-export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverride }: Props) {
+export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverride, enabledPlatforms, setEnabledPlatforms }: Props) {
   const { showToast } = useToast();
   const [counts, setCounts] = useState({
     pending: 0,
@@ -81,13 +98,49 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
 
         <p className="text-xs text-[var(--muted)] mt-1">
           {queueMode
-            ? "📥 Posts will be queued, not sent immediately."
-            : "🚀 Posts sent immediately via IFTTT."}
+            ? "📥 Selected platforms will be queued."
+            : enabledPlatforms.includes("twitter")
+            ? "🚀 Twitter fires immediately via IFTTT. Instagram requires queue mode."
+            : "⏸️ Twitter is off — nothing will post."}
         </p>
 
         {isManualOverride && (
           <p className="text-xs text-yellow-400 mt-1">Manual override active</p>
         )}
+
+        {/* Per-platform toggles */}
+        <div className="mt-3 space-y-2">
+          {PLATFORMS.map((p) => {
+            const on = enabledPlatforms.includes(p.id);
+            function toggle() {
+              setEnabledPlatforms(
+                on
+                  ? enabledPlatforms.filter((x) => x !== p.id)
+                  : [...enabledPlatforms, p.id]
+              );
+            }
+            return (
+              <label key={p.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                <div
+                  onClick={toggle}
+                  style={on ? p.activeStyle : undefined}
+                  className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${
+                    on ? "" : "bg-[var(--border)]"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                      on ? "translate-x-5" : ""
+                    }`}
+                  />
+                </div>
+                <span className={on ? "text-[var(--text)]" : "text-[var(--muted)]"}>
+                  {p.label}
+                </span>
+              </label>
+            );
+          })}
+        </div>
       </div>
 
       {/* Counts — 3 stacked rows */}

@@ -97,7 +97,8 @@ export interface AddStatsPayload {
   game_subgenre?: string | null;
   stats: StatRow[];
   is_live: boolean;
-  queue_mode: boolean;
+  queue_platforms: string[];
+  active_platforms: string[];
   credit_style: string;
 }
 
@@ -268,6 +269,26 @@ export async function getRecentStats(jwt: string): Promise<StatEntry[]> {
   if (!res.ok) throw new Error(`Failed to load recent stats (${res.status})`);
   const data = await res.json();
   return data.stats ?? [];
+}
+
+export interface LastSession {
+  game_title: string;
+  player_name: string;
+  game_mode: string | null;
+  difficulty: string | null;
+  platform: string | null;
+  played_at: string | null;
+  win_loss: "Win" | "Loss" | null;
+  stats: { stat_type: string; stat_value: number }[];
+}
+
+export async function getLastSession(jwt: string): Promise<LastSession | null> {
+  const res = await fetchWithAuth(`${BASE}/api/last_session`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error(`Failed to load last session (${res.status})`);
+  const data = await res.json();
+  return data.session ?? null;
 }
 
 export async function deleteStats(jwt: string, statId: number): Promise<void> {

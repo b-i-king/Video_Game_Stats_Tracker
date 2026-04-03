@@ -45,6 +45,8 @@ interface Props {
   jwt: string;
   isTrusted: boolean;
   queueMode: boolean;
+  activePlatforms: string[];
+  onSuccess?: () => void;
 }
 
 interface StatInput {
@@ -52,7 +54,7 @@ interface StatInput {
   value: string;
 }
 
-export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
+export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, onSuccess }: Props) {
   // ── Player state ──────────────────────────────────────────────────────────
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerName, setPlayerName] = useState("");
@@ -484,7 +486,8 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
         game_subgenre: isNewInstallmentMode ? gameSubgenre : null,
         stats: statsPayload,
         is_live: isLive,
-        queue_mode: queueMode,
+        queue_platforms: queueMode ? activePlatforms : [],
+        active_platforms: activePlatforms,
         credit_style: CREDIT_STYLE_OPTIONS[creditStyle] ?? "shoutout",
       });
 
@@ -492,6 +495,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode }: Props) {
       setConfirmed(false);
       setStatRows((rows) => rows.map((r) => ({ ...r, value: "" })));
       loadTodayStats();
+      onSuccess?.();
     } catch (err) {
       setSubmitResult({
         ok: false,

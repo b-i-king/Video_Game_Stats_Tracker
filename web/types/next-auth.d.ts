@@ -11,6 +11,8 @@ declare module "next-auth" {
     /** "trusted" | "guest" */
     role?: string;
     isTrusted?: boolean;
+    /** True only for emails in the OWNER_EMAILS env var */
+    isOwner?: boolean;
   }
 }
 
@@ -19,5 +21,6 @@ declare module "next-auth/jwt" {
     flaskJwt?: string;
     role?: string;
     isTrusted?: boolean;
+    isOwner?: boolean;
   }
 }

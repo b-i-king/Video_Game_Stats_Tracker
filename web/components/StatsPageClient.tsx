@@ -7,6 +7,7 @@ import EditTab from "./EditTab";
 import DeleteTab from "./DeleteTab";
 import QueuePanel from "./QueuePanel";
 import BoltPanel from "./BoltPanel";
+import LastSessionPanel from "./LastSessionPanel";
 import { ToastProvider } from "./Toast";
 import SummaryTab from "./SummaryTab";
 
@@ -70,13 +71,16 @@ function isBusinessHoursPST(): boolean {
 export default function StatsPageClient() {
   const { data: session } = useSession();
   const isTrusted = session?.isTrusted ?? false;
+  const isOwner = session?.isOwner ?? false;
   const jwt = session?.flaskJwt ?? "";
 
   const [activeTab, setActiveTab] = useState<Tab>("enter");
+  const [lastSessionKey, setLastSessionKey] = useState(0);
 
   // Auto-ON during weekdays 9am–5pm PST (excl. federal holidays), manual override respected
   const [queueMode, setQueueModeState] = useState(() => isBusinessHoursPST());
   const [isManualOverride, setIsManualOverride] = useState(false);
+  const [enabledPlatforms, setEnabledPlatforms] = useState<string[]>(["twitter"]);
   const [mobilePanel, setMobilePanel] = useState<"bolt" | "queue" | null>(null);
 
   function setQueueMode(val: boolean) {
@@ -102,12 +106,10 @@ export default function StatsPageClient() {
         )}
 
         <div className="flex gap-6 items-stretch">
-          {/* Bolt AI sidebar — desktop only, trusted only */}
-          {isTrusted && (
-            <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[480px]">
-              <BoltPanel jwt={jwt} />
-            </aside>
-          )}
+          {/* Bolt AI sidebar — desktop only, all signed-in users */}
+          <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[480px]">
+            <BoltPanel jwt={jwt} />
+          </aside>
 
           <div className="flex-1 min-w-0">
             {/* Tabs */}
@@ -130,47 +132,46 @@ export default function StatsPageClient() {
             </div>
 
             {activeTab === "enter" && (
-              <StatsForm jwt={jwt} isTrusted={isTrusted} queueMode={queueMode} />
+              <StatsForm jwt={jwt} isTrusted={isTrusted} queueMode={queueMode} activePlatforms={enabledPlatforms} onSuccess={() => setLastSessionKey((k) => k + 1)} />
             )}
             {activeTab === "summary" && <SummaryTab jwt={jwt} />}
             {activeTab === "edit" && isTrusted && <EditTab jwt={jwt} />}
             {activeTab === "delete" && isTrusted && <DeleteTab jwt={jwt} />}
           </div>
 
-          {/* Queue sidebar — desktop only, trusted only */}
-          {isTrusted && (
-            <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[480px]">
-              <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} />
-            </aside>
-          )}
+          {/* Right sidebar — desktop only, all signed-in users */}
+          <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[480px]">
+            {isOwner
+              ? <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} enabledPlatforms={enabledPlatforms} setEnabledPlatforms={setEnabledPlatforms} />
+              : <LastSessionPanel jwt={jwt} refreshKey={lastSessionKey} />
+            }
+          </aside>
         </div>
 
-        {/* Mobile bottom bar — trusted only, hidden on desktop */}
-        {isTrusted && (
-          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex border-t border-[var(--border)] bg-[var(--surface)]">
-            <button
-              onClick={() => setMobilePanel((p) => (p === "bolt" ? null : "bolt"))}
-              className={`flex-1 py-3 text-xs flex flex-col items-center gap-0.5 transition-colors ${
-                mobilePanel === "bolt" ? "text-[var(--gold)]" : "text-[var(--muted)]"
-              }`}
-            >
-              <span className="text-lg">⚡</span>
-              <span>Bolt</span>
-            </button>
-            <button
-              onClick={() => setMobilePanel((p) => (p === "queue" ? null : "queue"))}
-              className={`flex-1 py-3 text-xs flex flex-col items-center gap-0.5 transition-colors ${
-                mobilePanel === "queue" ? "text-[var(--gold)]" : "text-[var(--muted)]"
-              }`}
-            >
-              <span className="text-lg">📬</span>
-              <span>Queue</span>
-            </button>
-          </div>
-        )}
+        {/* Mobile bottom bar — all signed-in users, hidden on desktop */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex border-t border-[var(--border)] bg-[var(--surface)]">
+          <button
+            onClick={() => setMobilePanel((p) => (p === "bolt" ? null : "bolt"))}
+            className={`flex-1 py-3 text-xs flex flex-col items-center gap-0.5 transition-colors ${
+              mobilePanel === "bolt" ? "text-[var(--gold)]" : "text-[var(--muted)]"
+            }`}
+          >
+            <span className="text-lg">⚡</span>
+            <span>Bolt</span>
+          </button>
+          <button
+            onClick={() => setMobilePanel((p) => (p === "queue" ? null : "queue"))}
+            className={`flex-1 py-3 text-xs flex flex-col items-center gap-0.5 transition-colors ${
+              mobilePanel === "queue" ? "text-[var(--gold)]" : "text-[var(--muted)]"
+            }`}
+          >
+            <span className="text-lg">{isOwner ? "📬" : "🕹️"}</span>
+            <span>{isOwner ? "Queue" : "Last Session"}</span>
+          </button>
+        </div>
 
         {/* Mobile drawer */}
-        {isTrusted && mobilePanel && (
+        {mobilePanel && (
           <div
             className="lg:hidden fixed inset-0 z-30 bg-black/50"
             onClick={() => setMobilePanel(null)}
@@ -181,7 +182,9 @@ export default function StatsPageClient() {
             >
               {mobilePanel === "bolt" && <BoltPanel jwt={jwt} />}
               {mobilePanel === "queue" && (
-                <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} />
+                isOwner
+                  ? <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} enabledPlatforms={enabledPlatforms} setEnabledPlatforms={setEnabledPlatforms} />
+                  : <LastSessionPanel jwt={jwt} refreshKey={lastSessionKey} />
               )}
             </div>
           </div>

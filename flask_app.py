@@ -368,7 +368,7 @@ def requires_jwt_auth(f):
         if not auth_header or not auth_header.startswith('Bearer '):
             print("JWT missing or malformed.")
             return jsonify({"error": "JWT is missing or malformed"}), 401
-        
+
         token = auth_header.split(" ")[1]
         try:
             payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'], leeway=timedelta(seconds=10))
@@ -376,16 +376,57 @@ def requires_jwt_auth(f):
             if not user_email:
                 print("Invalid JWT payload: email missing.")
                 return jsonify({"error": "Invalid JWT payload"}), 401
-            # Add user_email from token payload into function arguments
             kwargs['user_email'] = user_email
-            # print(f"JWT authenticated for user: {user_email}") # Less verbose
         except jwt.ExpiredSignatureError:
             print("JWT has expired.")
             return jsonify({"error": "JWT has expired"}), 401
         except jwt.InvalidTokenError as e:
             print(f"Invalid JWT: {e}")
             return jsonify({"error": "Invalid JWT"}), 401
-        
+
+        return f(*args, **kwargs)
+    decorated_function.__name__ = f.__name__
+    return decorated_function
+
+
+# Comma-separated list of emails permitted to manage the post queue and
+# trigger social media posts. e.g. "you@gmail.com,wife@gmail.com"
+# Trusted users have NO posting access regardless of their role.
+_OWNER_EMAILS: set[str] = {
+    e.strip().lower()
+    for e in os.environ.get('OWNER_EMAILS', '').split(',')
+    if e.strip()
+}
+
+
+def requires_owner_auth(f):
+    """Decorator that restricts an endpoint to OWNER_EMAILS only.
+
+    Used for post queue management and anything that touches social media
+    accounts. No other user — including trusted users — can access these
+    endpoints. Manage via OWNER_EMAILS env var on Render (comma-separated).
+    """
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({"error": "JWT is missing or malformed"}), 401
+
+        token = auth_header.split(" ")[1]
+        try:
+            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'], leeway=timedelta(seconds=10))
+            user_email = payload.get('email')
+            if not user_email:
+                return jsonify({"error": "Invalid JWT payload"}), 401
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "JWT has expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid JWT"}), 401
+
+        if not _OWNER_EMAILS or user_email.lower().strip() not in _OWNER_EMAILS:
+            print(f"🚫 Owner-only endpoint blocked for: {user_email}")
+            return jsonify({"error": "Forbidden"}), 403
+
+        kwargs['user_email'] = user_email
         return f(*args, **kwargs)
     decorated_function.__name__ = f.__name__
     return decorated_function
@@ -427,7 +468,7 @@ def login():
                 print(f"JWT generated for {user_email} (cached), Trusted: {db_is_trusted}")
                 release_db_connection(conn)
                 conn = None
-                return jsonify(token=access_token, is_trusted=db_is_trusted), 200
+                return jsonify(token=access_token, is_trusted=db_is_trusted, is_owner=(user_email in _OWNER_EMAILS)), 200
 
         with conn.cursor() as cur:
             # Check if user exists
@@ -472,7 +513,7 @@ def login():
             access_token = jwt.encode(payload, JWT_SECRET_KEY, algorithm='HS256')
             print(f"JWT generated for {user_email}, Final DB Trusted: {db_is_trusted}")
             # Return token and the trust status confirmed/updated in DB
-            return jsonify(token=access_token, is_trusted=db_is_trusted), 200
+            return jsonify(token=access_token, is_trusted=db_is_trusted, is_owner=(user_email in _OWNER_EMAILS)), 200
             
     except (Exception, psycopg2.DatabaseError) as error:
         print(f"Error during login: {error}")
@@ -571,16 +612,20 @@ def add_trusted_user():
         
 # --- Stat Management Endpoints (add, delete, update) ---
 def _social_media_pipeline(player_id, player_name, game_id, game_name,
-                            game_installment, stats, is_live, credit_style, queue_platforms=None):
+                            game_installment, stats, is_live, credit_style,
+                            queue_platforms=None, active_platforms=None):
     """Run chart generation, GCS upload, and IFTTT trigger in a background thread.
     Uses its own DB connection so the main request can return immediately.
 
-    queue_platforms: list of platform strings to enqueue e.g. ['twitter'], ['twitter', 'instagram'].
-    GCS uploads always run regardless (backup). Platforms not in the list fire immediately via IFTTT
-    (twitter) or are skipped (instagram — Lambda handles Instagram separately).
+    queue_platforms:  platforms to enqueue e.g. ['twitter', 'instagram']. Controls timing.
+    active_platforms: platforms the user wants to post to at all.
+                      None = legacy mode (Twitter always fires if not queued; Instagram only if queued).
+                      [...] = explicit list; platforms not listed are skipped entirely.
     """
     if queue_platforms is None:
         queue_platforms = []
+    # Resolve which platforms are active. None means legacy (Twitter always on).
+    active = None if active_platforms is None else {p.lower() for p in active_platforms}
     import traceback
     conn2 = None
     try:
@@ -690,12 +735,16 @@ def _social_media_pipeline(player_id, player_name, game_id, game_name,
                 credit_style=credit_style, game_mode=batch_game_mode,
                 interactive_url=interactive_url
             )
-            if 'twitter' in queue_platforms:
-                qid = enqueue_post(player_id, 'twitter', twitter_public_url, caption)
-                print(f"📥 [bg] Twitter post queued (queue_id={qid})")
+            twitter_active = active is None or 'twitter' in active
+            if twitter_active:
+                if 'twitter' in queue_platforms:
+                    qid = enqueue_post(player_id, 'twitter', twitter_public_url, caption)
+                    print(f"📥 [bg] Twitter post queued (queue_id={qid})")
+                else:
+                    success = trigger_ifttt_post(twitter_public_url, caption, 'twitter')
+                    print(f"{'✅' if success else '⚠️'} [bg] Twitter post {'triggered' if success else 'failed'}")
             else:
-                success = trigger_ifttt_post(twitter_public_url, caption, 'twitter')
-                print(f"{'✅' if success else '⚠️'} [bg] Twitter post {'triggered' if success else 'failed'}")
+                print("⏭️ [bg] Twitter skipped (not in active_platforms)")
         else:
             print("⚠️ [bg] Failed to upload Twitter chart")
 
@@ -706,9 +755,13 @@ def _social_media_pipeline(player_id, player_name, game_id, game_name,
                 games_played, platform='instagram', is_live=is_live,
                 credit_style=credit_style, game_mode=batch_game_mode
             )
-            if 'instagram' in queue_platforms:
+            instagram_active = active is None and 'instagram' in queue_platforms or \
+                               active is not None and 'instagram' in active and 'instagram' in queue_platforms
+            if instagram_active:
                 qid = enqueue_post(player_id, 'instagram', instagram_url, instagram_caption)
                 print(f"📥 [bg] Instagram post queued (queue_id={qid})")
+            elif active is not None and 'instagram' not in active:
+                print("⏭️ [bg] Instagram skipped (not in active_platforms)")
 
     except Exception as e:
         print(f"⚠️ [bg] Social media pipeline error (stats already saved): {e}")
@@ -741,6 +794,8 @@ def add_stats(user_email):
         queue_platforms = data.get('queue_platforms', [])
     else:
         queue_platforms = ['twitter'] if data.get('queue_mode', False) else []
+    # active_platforms: which platforms the user wants to post to at all (None = legacy)
+    active_platforms = data.get('active_platforms', None)
     credit_style = data.get('credit_style', 'shoutout')
     conn = None
 
@@ -963,6 +1018,7 @@ def add_stats(user_email):
                 'is_live': is_live,
                 'credit_style': credit_style,
                 'queue_platforms': queue_platforms,
+                'active_platforms': active_platforms,
             }
             threading.Thread(
                 target=_social_media_pipeline,
@@ -1048,7 +1104,7 @@ def process_queue():
 
 
 @app.route('/api/queue_status', methods=['GET'])
-@requires_jwt_auth
+@requires_owner_auth
 def queue_status(user_email):
     """Return pending/processing/sent/failed counts for the Streamlit UI."""
     try:
@@ -1060,7 +1116,7 @@ def queue_status(user_email):
 
 
 @app.route('/api/retry_failed', methods=['POST'])
-@requires_jwt_auth
+@requires_owner_auth
 def retry_failed(user_email):
     """Reset all failed queue items back to pending."""
     try:
@@ -1344,6 +1400,71 @@ def delete_stats(stat_id, user_email):
         return jsonify({"error": f"An error occurred while deleting the entry: {str(error)}"}), 500
     finally:
         release_db_connection(conn)
+
+@app.route('/api/last_session', methods=['GET'])
+@requires_jwt_auth
+def last_session(user_email):
+    """Returns all stats from the user's most recent submission batch."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            WITH latest_batch AS (
+                SELECT gs.played_at, gs.game_id, gs.player_id
+                FROM fact.fact_game_stats gs
+                JOIN dim.dim_players p ON gs.player_id = p.player_id
+                JOIN dim.dim_users u ON p.user_id = u.user_id
+                WHERE u.user_email = %s
+                ORDER BY gs.played_at DESC
+                LIMIT 1
+            )
+            SELECT
+                g.game_name,
+                g.game_installment,
+                p.player_name,
+                gs.stat_type,
+                gs.stat_value,
+                gs.win,
+                gs.game_mode,
+                gs.difficulty,
+                gs.platform,
+                gs.played_at
+            FROM fact.fact_game_stats gs
+            JOIN dim.dim_games g ON gs.game_id = g.game_id
+            JOIN dim.dim_players p ON gs.player_id = p.player_id
+            JOIN latest_batch lb
+              ON gs.played_at = lb.played_at
+             AND gs.game_id   = lb.game_id
+             AND gs.player_id = lb.player_id
+            ORDER BY gs.stat_type;
+        """, (user_email,))
+        rows = cur.fetchall()
+        if not rows:
+            return jsonify({"session": None}), 200
+        first = rows[0]
+        installment = first[1]
+        game_title = f"{first[0]}: {installment}" if installment else first[0]
+        win_val = first[5]
+        win_loss = "Win" if win_val == 1 else ("Loss" if win_val == 0 else None)
+        return jsonify({
+            "session": {
+                "game_title": game_title,
+                "player_name": first[2],
+                "game_mode": first[6],
+                "difficulty": first[7],
+                "platform": first[8],
+                "played_at": first[9].isoformat() if first[9] else None,
+                "win_loss": win_loss,
+                "stats": [{"stat_type": r[3], "stat_value": r[4]} for r in rows],
+            }
+        }), 200
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error in last_session: {error}")
+        return jsonify({"error": str(error)}), 500
+    finally:
+        release_db_connection(conn)
+
 
 @app.route('/api/get_recent_stats', methods=['GET'])
 @requires_jwt_auth
