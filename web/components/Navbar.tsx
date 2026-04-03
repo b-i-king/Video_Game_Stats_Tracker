@@ -59,20 +59,25 @@ export default function Navbar() {
         <div className="flex items-center gap-3 text-sm">
           {session ? (
             <>
-              {/* Role badge */}
-              <span
-                className={`px-2 py-0.5 rounded text-xs font-medium ${
-                  session.isTrusted
-                    ? "bg-[var(--gold)] text-black"
-                    : "bg-[var(--border)] text-[var(--muted)]"
-                }`}
-              >
-                {session.isTrusted ? "Admin" : "Guest"}
-              </span>
-
               <span className="text-[var(--muted)] hidden sm:block truncate max-w-[160px]">
                 {session.user?.email}
               </span>
+
+              {/* Tier badge — 5 levels, Phase 3 adds Premium via role column */}
+              {(() => {
+                const isOwner   = session.isOwner;
+                const isTrusted = session.isTrusted;
+                const cfg =
+                  isOwner   ? { label: "Owner",   cls: "text-[var(--gold)] border-yellow-600 bg-yellow-900/30" } :
+                  isTrusted ? { label: "Trusted",  cls: "text-blue-300 border-blue-700 bg-blue-900/30" } :
+                  /* Phase 3: premium check here */
+                              { label: "Free",     cls: "text-emerald-300 border-emerald-700 bg-emerald-900/30" };
+                return (
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}>
+                    {cfg.label}
+                  </span>
+                );
+              })()}
 
               <button
                 onClick={() => signOut({ callbackUrl: "/" })}

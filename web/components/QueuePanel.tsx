@@ -7,7 +7,7 @@ import { useToast } from "@/components/Toast";
 const PLATFORMS = [
   {
     id: "twitter",
-    label: "X (Twitter)",
+    label: "X",
     activeStyle: { backgroundColor: "#000000" },
   },
   {
@@ -76,6 +76,7 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
 
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b border-[var(--border)] shrink-0">
+
         <h3 className="font-semibold text-sm">📬 Post Queue</h3>
 
         {/* Queue mode toggle */}
@@ -96,20 +97,25 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
           Queue Mode
         </label>
 
-        <p className="text-xs text-[var(--muted)] mt-1">
-          {queueMode
-            ? "📥 Selected platforms will be queued."
-            : enabledPlatforms.includes("twitter")
-            ? "🚀 Twitter fires immediately via IFTTT. Instagram requires queue mode."
-            : "⏸️ Twitter is off — nothing will post."}
-        </p>
+        {/* Status line + tooltip */}
+        <div className="flex items-start gap-1 mt-1">
+          <p className="text-xs text-[var(--muted)] flex-1">
+            {queueMode ? "📥 Posts will be queued." : "🚀 Posts fire immediately via IFTTT."}
+          </p>
+          <span
+            title={`Active: ${enabledPlatforms.length ? enabledPlatforms.join(", ") : "none"}. Instagram only posts when queue mode is ON.`}
+            className="text-[10px] text-[var(--muted)] border border-[var(--border)] rounded-full w-4 h-4 flex items-center justify-center cursor-help shrink-0 mt-0.5 hover:text-[var(--gold)] hover:border-[var(--gold)] transition-colors"
+          >
+            ?
+          </span>
+        </div>
 
         {isManualOverride && (
           <p className="text-xs text-yellow-400 mt-1">Manual override active</p>
         )}
 
-        {/* Per-platform toggles */}
-        <div className="mt-3 space-y-2">
+        {/* Per-platform toggles — two columns, side by side */}
+        <div className="mt-3 flex gap-3">
           {PLATFORMS.map((p) => {
             const on = enabledPlatforms.includes(p.id);
             function toggle() {
@@ -120,11 +126,14 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
               );
             }
             return (
-              <label key={p.id} className="flex items-center gap-2 cursor-pointer text-sm">
+              <div
+                key={p.id}
+                onClick={toggle}
+                className="flex-1 flex flex-col items-center gap-1 cursor-pointer"
+              >
                 <div
-                  onClick={toggle}
                   style={on ? p.activeStyle : undefined}
-                  className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
                     on ? "" : "bg-[var(--border)]"
                   }`}
                 >
@@ -134,10 +143,10 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
                     }`}
                   />
                 </div>
-                <span className={on ? "text-[var(--text)]" : "text-[var(--muted)]"}>
+                <span className={`text-[11px] leading-tight text-center ${on ? "text-[var(--text)]" : "text-[var(--muted)]"}`}>
                   {p.label}
                 </span>
-              </label>
+              </div>
             );
           })}
         </div>
