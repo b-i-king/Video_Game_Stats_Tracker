@@ -1198,4 +1198,171 @@ Address before public launch.
 | **Email notifications** | Weekly recap, streak alerts, milestone hits — needs Resend integration | Post-launch |
 | **Achievement / milestone system** | No gamification beyond streaks — DB tables + FastAPI + UI needed | Post-launch |
 | **Search across stat history** | No full-text search — Supabase `to_tsvector` or `WHERE ILIKE` | Post-launch |
+| **Gamification — streaks, badges, seasonal challenges** | Full design in Gamification section below | Post-launch |
 | **User-facing API keys** | Power users want programmatic read-only access to own data | Post-launch |
+
+
+---
+
+## Gamification (Post-launch)
+
+The core retention loop is already in place — users play daily, log stats, and
+want to see improvement. Gamification layers meaning on top of that data to
+make *logging* feel as rewarding as *playing*.
+
+---
+
+### Features
+
+#### Streaks & Consistency
+- Log a session at least once per day (or per week — configurable) → streak counter
+- Streak displayed on the Stats page and user profile
+- Streak break is a powerful re-engagement trigger → email/push notification (Resend)
+
+#### Personal Milestones & Badges
+- Auto-detect when a user hits a new personal best and surface it prominently
+- Example triggers: "First time averaging 10+ kills", "50 sessions logged", "30-day streak"
+- Each milestone unlocks a badge stored in `app.user_badges`
+- Badges are displayable on the user's profile and shareable to social media
+
+#### Seasonal Challenges
+- Monthly stat goals users opt into ("Average 8 assists/game in April")
+- Resets on the 1st of each month — creates a recurring reason to return
+- On completion: unlock a **downloadable season badge image** (PNG/SVG)
+  - Free/Premium users without social media integration can download the badge
+    and post it manually to their own social accounts
+  - Trusted/Owner users can push directly via the existing social pipeline
+- Owner can define new challenges via the Admin panel (Phase 3)
+
+#### Leaderboard (Phase 3)
+- Opt-in public ranking by game + stat type
+- Even seeing someone ranked above you is a daily pull-back
+- Backed by `app.leaderboard_entries` (already in schema)
+
+#### Bolt AI Weekly Recap
+- Bolt generates a personalized weekly summary: trends, streaks, milestone progress
+- "You're trending up in kills but your death rate increased — here's what changed"
+- Delivered in-app and optionally via email (Resend)
+- Makes Bolt feel like a coach, not just a query tool
+
+---
+
+### DB Schema
+
+```sql
+-- Badges catalog (seeded by owner)
+CREATE TABLE app.badges (
+  badge_id    SERIAL PRIMARY KEY,
+  slug        TEXT UNIQUE NOT NULL,        -- e.g. 'first_pb', 'streak_30'
+  name        TEXT NOT NULL,
+  description TEXT,
+  image_url   TEXT,                        -- e.g. /badges/streak_30.png (Vercel static asset)
+  tier_required TEXT DEFAULT 'free'        -- 'free' | 'premium' | 'trusted' | 'owner'
+);
+
+-- Badges earned by users
+CREATE TABLE app.user_badges (
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     INT REFERENCES dim.dim_users(user_id) ON DELETE CASCADE,
+  badge_id    INT REFERENCES app.badges(badge_id),
+  earned_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, badge_id)
+);
+CREATE INDEX ON app.user_badges (user_id);
+
+-- Seasonal challenges
+CREATE TABLE app.challenges (
+  challenge_id  SERIAL PRIMARY KEY,
+  title         TEXT NOT NULL,
+  description   TEXT,
+  stat_type     TEXT,                      -- NULL = any stat
+  target_value  NUMERIC,
+  period_start  DATE NOT NULL,
+  period_end    DATE NOT NULL,
+  badge_id      INT REFERENCES app.badges(badge_id),
+  created_by    INT REFERENCES dim.dim_users(user_id)
+);
+
+-- User challenge enrollment + progress
+CREATE TABLE app.user_challenges (
+  id            BIGSERIAL PRIMARY KEY,
+  user_id       INT REFERENCES dim.dim_users(user_id) ON DELETE CASCADE,
+  challenge_id  INT REFERENCES app.challenges(challenge_id),
+  enrolled_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at  TIMESTAMPTZ,
+  progress      NUMERIC DEFAULT 0,
+  UNIQUE (user_id, challenge_id)
+);
+CREATE INDEX ON app.user_challenges (user_id, challenge_id);
+
+-- Streak tracking (one row per user per streak type)
+CREATE TABLE app.user_streaks (
+  user_id       INT REFERENCES dim.dim_users(user_id) ON DELETE CASCADE,
+  streak_type   TEXT NOT NULL DEFAULT 'daily_log',
+  current       INT  NOT NULL DEFAULT 0,
+  longest       INT  NOT NULL DEFAULT 0,
+  last_activity DATE,
+  PRIMARY KEY (user_id, streak_type)
+);
+```
+
+---
+
+### Downloadable Badge Flow (Free / Premium users)
+
+Badge assets live in `web/public/badges/{slug}.png` and are served by
+Vercel's CDN — no GCS, no signed URLs, no cost.
+
+The URL is technically public, but the frontend only renders the download
+button if `app.user_badges` contains a row for that user + badge. This is
+soft enforcement — sufficient for a gaming stats app. If hard enforcement is
+ever needed, a FastAPI endpoint can gate the URL behind a `user_badges` check.
+
+```
+User completes seasonal challenge
+         ↓
+FastAPI marks app.user_challenges.completed_at
+         ↓
+Milestone check → award badge → app.user_badges insert (earned_at = NOW())
+         ↓
+Return badge slug to frontend
+         ↓
+Frontend queries user_badges — row exists → show "Download Badge" button
+         ↓
+<a href="/badges/{slug}.png" download> served by Vercel CDN
+         ↓
+User downloads PNG → posts manually to social media
+```
+
+Trusted / Owner users skip the manual download — badge post fires through the
+existing `_social_media_pipeline` using the `/badges/{slug}.png` URL.
+
+**Asset location:**
+```
+web/public/badges/
+  first_pb.png
+  streak_7.png
+  streak_30.png
+  sessions_50.png
+  sessions_100.png
+  challenge_{slug}.png   ← one per seasonal challenge
+  ...
+```
+
+---
+
+### Phase checklist — Gamification
+
+- [ ] Add `005_add_gamification.sql` migration (badges, user_badges, challenges, user_challenges, user_streaks)
+- [ ] Seed `app.badges` with initial set (personal best, streak milestones, session counts)
+- [ ] Implement `api/routers/gamification.py` — milestone check, challenge enrollment, streak update
+- [ ] Wire streak update into `add_stats` route (fires after successful insert)
+- [ ] Wire milestone check into `add_stats` route (personal best detection)
+- [ ] Add badge PNG assets to `web/public/badges/` (one file per badge slug)
+- [ ] Frontend: query `user_badges` on load — render download button only if row exists
+- [ ] Wire badge post into `_social_media_pipeline` using `/badges/{slug}.png` URL (trusted/owner path)
+- [ ] Add `ChallengesTab` or section to web app — enroll, track progress, download badge
+- [ ] Add `BadgesPanel` to user profile / Stats page sidebar
+- [ ] Add streak counter to Stats page header
+- [ ] Owner: Admin panel UI to create/edit seasonal challenges (Phase 3)
+- [ ] Bolt weekly recap endpoint + Resend email integration (post-launch)
