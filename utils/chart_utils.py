@@ -173,14 +173,17 @@ def abbreviate_game_mode(game_mode):
 def format_large_number(value):
     """
     Format large numbers with abbreviations for display.
-    
+
     Examples:
         1500 -> "1.5k"
         1000000 -> "1.0M"
         50 -> "50"
     """
     if not isinstance(value, (int, float)):
-        return str(value)
+        try:
+            value = float(value)  # handles decimal.Decimal from psycopg2 NUMERIC columns
+        except (TypeError, ValueError):
+            return str(value)
     
      
     if value >= 1_000_000_000_000:

@@ -288,11 +288,21 @@ def post_to_instagram(image_url, caption):
             'access_token': INSTAGRAM_ACCESS_TOKEN
         }
 
-        response = requests.post(upload_url, data=data, timeout=30)
-        response_data = response.json()
-
-        if 'id' not in response_data:
-            raise Exception(f"Failed to create container: {response_data}")
+        # Retry up to 3 times for transient Instagram API errors
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            response = requests.post(upload_url, data=data, timeout=30)
+            response_data = response.json()
+            if 'id' in response_data:
+                break
+            error = response_data.get('error', {})
+            is_transient = error.get('is_transient', False)
+            if is_transient and attempt < max_retries:
+                wait = 2 ** attempt  # 2s, 4s
+                logger.warning(f"⚠️ Transient error on attempt {attempt}/{max_retries}, retrying in {wait}s: {error}")
+                time.sleep(wait)
+            else:
+                raise Exception(f"Failed to create container: {response_data}")
 
         media_id = response_data['id']
         logger.info(f"✅ Media container created: {media_id}")
@@ -371,8 +381,8 @@ def receive_and_post(event, context):
                         from instagram_poster import save_content_hash
                         save_content_hash(content_hash)
                         logger.info(f"✅ Content hash saved")
-                    except ImportError:
-                        pass
+                    except Exception as hash_err:
+                        logger.warning(f"⚠️ Could not save content hash (non-fatal): {hash_err}")
 
                 logger.info("✅ Successfully posted to Instagram!")
 

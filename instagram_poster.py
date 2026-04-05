@@ -2531,7 +2531,7 @@ def generate_weekly_caption(summary, player_name):
         f"📅 Top gaming day: {summary['top_day']}",
         f"🏆 Best stat: {summary['top_stat_name']} — {summary['top_stat_value']}",
         "",
-        "Another week, another grind. Full breakdown on YouTube!",
+        "Another week, another grind. Follow the Data Journey!",
         "",
         "💬 How was your gaming week? Share your best moment below 👇",
         "❤️ Like if you hit a personal best this week & 🔁 repost to support the weekly grind!",
