@@ -146,43 +146,44 @@ export default function Navbar() {
                   </>
                 )}
 
-                {/* Account info — always visible, shows tier + sign out or sign in */}
+                {/* Account info — always visible, stacked: email → tier → sign out/in */}
                 <div className="my-1 border-t border-[var(--border)]" />
-                <div className="px-4 py-2 flex items-center justify-between gap-2">
-                  <div className="flex flex-col min-w-0">
-                    {session ? (
-                      <span className="text-xs text-[var(--muted)] truncate">{session.user?.email}</span>
-                    ) : (
-                      <span className="text-xs text-[var(--muted)]">Not signed in</span>
-                    )}
-                    {(() => {
-                      const cfg = !session
-                        ? { label: "Guest",   cls: "text-zinc-400 border-zinc-600 bg-zinc-800/30" }
-                        : session.isOwner
-                        ? { label: "Owner",   cls: "text-[var(--gold)] border-yellow-600 bg-yellow-900/30" }
-                        : session.isTrusted
-                        ? { label: "Trusted", cls: "text-blue-300 border-blue-700 bg-blue-900/30" }
-                        : (session.role as string) === "premium"
-                        ? { label: "Premium", cls: "text-purple-300 border-purple-700 bg-purple-900/30" }
-                        : { label: "Free",    cls: "text-emerald-300 border-emerald-700 bg-emerald-900/30" };
-                      return (
-                        <span className={`mt-0.5 self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border ${cfg.cls}`}>
-                          {cfg.label}
-                        </span>
-                      );
-                    })()}
-                  </div>
+                <div className="px-3 py-2 flex flex-col gap-1.5">
+                  {/* Email */}
+                  <span className="text-xs text-[var(--muted)] truncate px-1">
+                    {session ? session.user?.email : "Not signed in"}
+                  </span>
+
+                  {/* Tier badge */}
+                  {(() => {
+                    const cfg = !session
+                      ? { label: "Guest",   cls: "text-zinc-400 border-zinc-600 bg-zinc-800/30" }
+                      : session.isOwner
+                      ? { label: "Owner",   cls: "text-[var(--gold)] border-yellow-600 bg-yellow-900/30" }
+                      : session.isTrusted
+                      ? { label: "Trusted", cls: "text-blue-300 border-blue-700 bg-blue-900/30" }
+                      : (session.role as string) === "premium"
+                      ? { label: "Premium", cls: "text-purple-300 border-purple-700 bg-purple-900/30" }
+                      : { label: "Free",    cls: "text-emerald-300 border-emerald-700 bg-emerald-900/30" };
+                    return (
+                      <span className={`w-full text-center text-[10px] font-semibold px-1.5 py-0.5 rounded border ${cfg.cls}`}>
+                        {cfg.label}
+                      </span>
+                    );
+                  })()}
+
+                  {/* Sign out / Sign in — full width */}
                   {session ? (
                     <button
                       onClick={() => { setMenuOpen(false); signOut({ callbackUrl: "/" }); }}
-                      className="shrink-0 text-xs px-2 py-1 rounded border border-[var(--border)] hover:border-[var(--gold)] hover:text-[var(--gold)] transition-colors"
+                      className="w-full text-sm py-1.5 rounded border border-[var(--border)] hover:border-[var(--gold)] hover:text-[var(--gold)] transition-colors"
                     >
                       Sign out
                     </button>
                   ) : (
                     <button
                       onClick={() => { setMenuOpen(false); signIn("google"); }}
-                      className="shrink-0 text-xs px-2 py-1 rounded bg-[var(--gold)] text-black font-semibold hover:opacity-90 transition-opacity"
+                      className="w-full text-sm py-1.5 rounded bg-[var(--gold)] text-black font-semibold hover:opacity-90 transition-opacity"
                     >
                       Sign in
                     </button>
