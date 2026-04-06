@@ -23,7 +23,7 @@ export default function Navbar() {
 
   return (
     <nav className="border-b border-[var(--border)] bg-[var(--surface)]">
-      <div className="w-full px-4 flex items-center justify-between h-14">
+      <div className="w-full px-4 flex items-center justify-between h-14 relative">
 
         {/* Logo / Home link */}
         <Link
@@ -34,8 +34,8 @@ export default function Navbar() {
           🎮
         </Link>
 
-        {/* Primary nav links — Home + Stats only */}
-        <div className="flex gap-4 text-sm">
+        {/* Primary nav links — absolutely centered on the full navbar width */}
+        <div className="absolute left-1/2 -translate-x-1/2 flex gap-4 text-sm">
           <Link href="/" className="hover:text-[var(--gold)] transition-colors">
             Home
           </Link>

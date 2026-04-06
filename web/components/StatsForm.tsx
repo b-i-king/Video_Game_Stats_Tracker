@@ -269,7 +269,13 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
     getGameContext(jwt, selectedGameId)
       .then(({ ranks, modes, stat_types }) => {
         setGameRanks(ranks);
-        setGameModes(modes.length ? modes : ["Main"]);
+        // Strip "Main" from the list when real modes exist — it stays available
+        // as an explicit fallback option at the bottom of the dropdown.
+        const realModes = modes.filter((m: string) => m !== "Main");
+        const finalModes = realModes.length ? realModes : ["Main"];
+        setGameModes(finalModes);
+        // Default to the first real mode rather than "Main" when modes exist
+        setGameMode(finalModes[0]);
         setPrevStatTypes(stat_types);
       })
       .catch(console.error)
@@ -952,6 +958,10 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
                     {gameModes.map((m) => (
                       <option key={m}>{m}</option>
                     ))}
+                    {/* Show Main as explicit fallback only when real modes exist */}
+                    {!gameModes.includes("Main") && (
+                      <option value="Main">Main (default)</option>
+                    )}
                     <option value="__custom__">(Enter Custom)</option>
                   </select>
                   {gameModeIsCustom && (
