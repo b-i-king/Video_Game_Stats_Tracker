@@ -52,7 +52,7 @@ export default function Navbar() {
         <div className="flex items-center gap-3 text-sm">
           {session ? (
             <>
-              <span className="text-[var(--muted)] hidden sm:block truncate max-w-[160px]">
+              <span className="text-[var(--muted)] hidden xl:block truncate max-w-[160px]">
                 {session.user?.email}
               </span>
 
