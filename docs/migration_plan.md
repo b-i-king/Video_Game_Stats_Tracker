@@ -1373,6 +1373,142 @@ STRIPE_PRICE_ANNUAL=price_annual_xxx
 
 ---
 
+## Steam Integration (Post-launch)
+
+### Purpose
+
+Steam does not provide match-level game stats — only playtime. This makes it a
+**read-only enrichment layer** for the Summary tab rather than a core stat
+source. Steam data informs context alongside manually logged sessions but never
+replaces them.
+
+---
+
+### What Steam API Provides
+
+| Endpoint | Data | Use |
+|---|---|---|
+| `GetOwnedGames` | All owned games + `playtime_forever` (minutes) | Total hours per game |
+| `GetRecentlyPlayedGames` | Last 2 weeks playtime per game | Recent activity widget |
+| `GetPlayerSummaries` | Display name, avatar, profile visibility | Profile enrichment |
+
+**Key caveat:** Steam profiles must be set to **public** by the user for any
+data to be returned. Private profiles return empty results — handle this
+gracefully in the UI with a "Set your Steam profile to public to enable this
+feature" message.
+
+---
+
+### API Access
+
+- **Public API** — any Steam account holder can request a free key at
+  `steamcommunity.com/dev/apikey`
+- No OAuth2 — Steam uses an **OpenID** login flow for user identity
+- Add to Render env vars:
+  ```
+  STEAM_API_KEY=your_steam_api_key
+  ```
+
+---
+
+### Auth Flow (OpenID)
+
+Steam does not use OAuth2. The connect flow is:
+
+1. User clicks **Connect Steam** in web app
+2. Redirect to `https://steamcommunity.com/openid/login` with your return URL
+3. Steam redirects back with a signed `openid.claimed_id` containing the user's
+   64-bit `steamid`
+4. FastAPI verifies the OpenID signature and stores `steamid` in
+   `app.user_integrations`
+5. All subsequent API calls use the stored `steamid` — no token to refresh
+
+---
+
+### Schema
+
+Steam playtime does not belong in `fact_game_stats` (no match context).
+Store it in a dedicated table on the **public Supabase project**:
+
+```sql
+CREATE TABLE app.steam_playtime (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER REFERENCES dim.dim_users(user_id),
+    steam_app_id    INTEGER NOT NULL,           -- Steam's internal game ID
+    game_name       TEXT,                       -- from Steam API
+    playtime_total  INTEGER NOT NULL,           -- minutes, lifetime
+    playtime_2weeks INTEGER,                    -- minutes, last 2 weeks (NULL if not recent)
+    last_synced_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (user_id, steam_app_id)
+);
+```
+
+`app.user_integrations` already has a `platform` column — add a row with
+`platform='steam'` and store the `steamid` in `platform_user_id`.
+
+---
+
+### Summary Tab — What Gets Surfaced
+
+- **Total hours played** for each game in your `dim_games` table (matched by
+  Steam app ID — requires a `steam_app_id` column on `dim_games`)
+- **"Time played this week"** from `playtime_2weeks` — visible even on days
+  with no logged session
+- **Completeness ratio** — "You've logged X sessions covering Y% of your total
+  Warzone playtime" (motivates more logging)
+- **Game library** — Steam cover art + official title for `dim_games` enrichment
+
+---
+
+### `dim_games` Enrichment
+
+Add a `steam_app_id` column to `dim_games` so playtime can be matched to your
+tracked games:
+
+```sql
+ALTER TABLE dim.dim_games ADD COLUMN IF NOT EXISTS steam_app_id INTEGER;
+```
+
+An admin sync endpoint can pre-populate known app IDs (e.g. Warzone = 1962663).
+
+---
+
+### FastAPI Routes
+
+```
+GET  /api/integrations/steam/connect      → initiates OpenID redirect
+GET  /api/integrations/steam/callback     → verifies OpenID, stores steamid
+POST /api/integrations/steam/sync         → pulls latest playtime, upserts app.steam_playtime
+GET  /api/integrations/steam/playtime     → returns playtime rows for Summary tab
+DELETE /api/integrations/steam/disconnect → removes steamid + playtime rows
+```
+
+---
+
+### Sync Strategy
+
+- Sync is **on-demand** (user triggers) or **on login** if last sync > 24 hours
+- Do not poll continuously — Steam rate limits are generous but unnecessary load
+- If profile is private, return a clear error: `{ "error": "profile_private" }`
+  so the frontend can show the "make your profile public" prompt
+
+---
+
+### Phase checklist — Steam
+
+- [ ] Add `steam_app_id` column to `dim_games` (migration `007_add_steam_app_id.sql`)
+- [ ] Create `app.steam_playtime` table (same migration)
+- [ ] Add `STEAM_API_KEY` to Render env vars
+- [ ] Create `api/routers/steam.py` with OpenID connect + playtime sync routes
+- [ ] Handle private profile gracefully — surface "make profile public" message in UI
+- [ ] Build **Connect Steam** button in web app integrations settings
+- [ ] Summary tab — add playtime widget (total hours + 2-week activity per game)
+- [ ] Summary tab — add completeness ratio ("X% of playtime logged")
+- [ ] Enrich `dim_games` cover art + official names from Steam app details endpoint
+- [ ] Admin: pre-populate `steam_app_id` for known games in `dim_games`
+
+---
+
 ## Gamification (Post-launch)
 
 The core retention loop is already in place — users play daily, log stats, and
