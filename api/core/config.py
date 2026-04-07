@@ -1,42 +1,68 @@
 import os
 from functools import lru_cache
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Supabase / Postgres
-    personal_db_url: str = os.getenv("SUPABASE_DB_URL", "")   # asyncpg DSN, port 6543 (Transaction pooler)
-    public_db_url: str   = os.getenv("PUBLIC_DB_URL", "")     # asyncpg DSN for public pool
+    # ── Personal Supabase — individual parts matching existing Render env vars ───
+    # TODO Phase 3 cleanup: consolidate into a single PERSONAL_DATABASE_URL DSN
+    # and remove these five vars from Render once Flask is archived.
+    db_host: str     = Field(default="", alias="DB_URL")       # host only, e.g. aws-0-us-west-2.pooler.supabase.com
+    db_name: str     = Field(default="postgres", alias="DB_NAME")
+    db_user: str     = Field(default="", alias="DB_USER")
+    db_password: str = Field(default="", alias="DB_PASSWORD")
+    db_port: int     = Field(default=6543, alias="DB_PORT")    # 6543 = Supabase transaction pooler
 
-    # Auth
-    secret_key: str = os.getenv("SECRET_KEY", "change-me")
-    jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60  # 60 min
+    # ── Public Supabase — full DSN ────────────────────────────────────────────────
+    # TODO Phase 3 cleanup: rename to PUBLIC_DATABASE_URL for consistency
+    public_db_url: str = Field(default="", alias="PUBLIC_DB_URL")
 
-    # API key — separate from FLASK_API_KEY so both services run independently
-    # during transition. Deprecate FLASK_API_KEY when Flask is archived.
-    api_key: str = os.getenv("FASTAPI_API_KEY", "")
+    # ── Auth ──────────────────────────────────────────────────────────────────────
+    secret_key: str            = Field(default="change-me", alias="SECRET_KEY")
+    jwt_algorithm: str         = "HS256"
+    access_token_expire_minutes: int = 60
 
-    # Trusted / owner email lists (comma-separated)
-    trusted_emails: str = os.getenv("TRUSTED_EMAILS", "")
-    owner_emails: str = os.getenv("OWNER_EMAILS", "")
+    # ── API key — separate from FLASK_API_KEY during transition ───────────────────
+    # TODO Phase 3 cleanup: rename to API_KEY once Flask is archived
+    api_key: str               = Field(default="", alias="FASTAPI_API_KEY")
 
-    # CORS — comma-separated list in env
-    allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "*")
+    # ── Trusted / owner email lists (comma-separated) ─────────────────────────────
+    trusted_emails: str        = Field(default="", alias="TRUSTED_EMAILS")
+    owner_emails: str          = Field(default="", alias="OWNER_EMAILS")
 
-    # GCS
-    gcs_bucket: str = os.getenv("GCS_BUCKET_NAME", "gaming-stats-images-thebolgroup")
+    # ── CORS ──────────────────────────────────────────────────────────────────────
+    allowed_origins: str       = Field(default="*", alias="ALLOWED_ORIGINS")
 
-    # Gemini
-    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    # ── GCS ───────────────────────────────────────────────────────────────────────
+    gcs_bucket: str            = Field(default="gaming-stats-images-thebolgroup", alias="GCS_BUCKET_NAME")
 
-    # Instagram / IFTTT
-    instagram_access_token: str = os.getenv("INSTAGRAM_ACCESS_TOKEN", "")
-    ifttt_key: str = os.getenv("IFTTT_KEY", "")
+    # ── Gemini ────────────────────────────────────────────────────────────────────
+    gemini_api_key: str        = Field(default="", alias="GEMINI_API_KEY")
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    # ── Instagram / IFTTT ─────────────────────────────────────────────────────────
+    instagram_access_token: str = Field(default="", alias="INSTAGRAM_ACCESS_TOKEN")
+    ifttt_key: str              = Field(default="", alias="IFTTT_KEY")
+
+    # ── Constructed DSN — built from parts, used by database.py ──────────────────
+    # Not an env var — derived automatically via model_validator below
+    personal_db_url: str = ""
+
+    @model_validator(mode="after")
+    def build_personal_dsn(self) -> "Settings":
+        """Construct the asyncpg DSN from individual Render env var parts."""
+        if self.db_host and self.db_user and self.db_password:
+            self.personal_db_url = (
+                f"postgresql://{self.db_user}:{self.db_password}"
+                f"@{self.db_host}:{self.db_port}/{self.db_name}"
+            )
+        return self
+
+    model_config = {
+        "env_file": ".env",
+        "extra": "ignore",
+        "populate_by_name": True,
+    }
 
 
 @lru_cache
