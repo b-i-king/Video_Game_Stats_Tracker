@@ -43,6 +43,7 @@ from utils.game_handles_utils import get_game_handle, get_game_hashtags
 
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import matplotlib.patheffects as pe
 import seaborn as sns
 
 # Configure logging
@@ -931,23 +932,27 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
                     # Bar too short — place label to the right of the bar, centered
                     ax.text(width * 1.15, bar_center_y,
                             display_val, ha='left', va='center',
-                            fontsize=value_fontsize, fontweight='bold', color='white')
+                            fontsize=value_fontsize, fontweight='bold', color='white',
+                            path_effects=[pe.withStroke(linewidth=3, foreground='#111111')])
                 else:
                     # Right-align label at the end of the bar
                     ax.text(width * 0.95, bar_center_y,
                             display_val, ha='right', va='center',
-                            fontsize=value_fontsize, fontweight='bold', color='white')
+                            fontsize=value_fontsize, fontweight='bold', color='white',
+                            path_effects=[pe.withStroke(linewidth=3, foreground='#111111')])
             else:
                 if width < xlim_max * 0.10:
                     # Bar too short — place label to the right of the bar, centered
                     ax.text(width + xlim_max * 0.02, bar_center_y,
                             display_val, ha='left', va='center',
-                            fontsize=value_fontsize, fontweight='bold', color='white')
+                            fontsize=value_fontsize, fontweight='bold', color='white',
+                            path_effects=[pe.withStroke(linewidth=3, foreground='#111111')])
                 else:
                     # Right-align label at the end of the bar
                     ax.text(width * 0.95, bar_center_y,
                             display_val, ha='right', va='center',
-                            fontsize=value_fontsize, fontweight='bold', color='white')
+                            fontsize=value_fontsize, fontweight='bold', color='white',
+                            path_effects=[pe.withStroke(linewidth=3, foreground='#111111')])
 
         ax.tick_params(axis='y', labelsize=value_fontsize)
         ax.grid(axis='x', alpha=0.3, linestyle='--')
