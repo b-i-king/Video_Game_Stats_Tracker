@@ -1183,7 +1183,7 @@ Address before public launch.
 | ✅ Stat alias glossary (Kills → Eliminations, Deaths → Respawns) | `constants.ts` + `StatsForm.tsx` | Done |
 | ✅ Instagram token refresh — migrated to `graph.facebook.com` | `instagram_token_utils.py` | Done |
 | ✅ RLS policies designed for all public tables | `supabase_schema.sql` — uncomment at FastAPI cut-over (psycopg2 bypasses RLS) | Enable at cut-over |
-| Stripe webhook handler + subscription lifecycle | No doc exists | Before premium launch |
+| ✅ Stripe webhook handler + subscription lifecycle | Documented in Stripe section below | Before premium launch |
 | BoltPanel progress bar (`app.ai_usage` → UI) | Phase 4 checklist missing it | Before public launch |
 | Vercel env var list | No doc exists | Before cut-over |
 | Personal → Public game sync logic (`admin.py`) | Router stubbed, logic not documented | Phase 3 |
@@ -1201,6 +1201,175 @@ Address before public launch.
 | **Gamification — streaks, badges, seasonal challenges** | Full design in Gamification section below | Post-launch |
 | **User-facing API keys** | Power users want programmatic read-only access to own data | Post-launch |
 
+
+---
+
+## Stripe Integration (Before Premium Launch)
+
+### Overview
+
+Stripe handles all billing. FastAPI receives Stripe webhooks and updates
+`app.subscriptions` on the **public Supabase project**. The Flask JWT / FastAPI
+JWT reflects `role="premium"` on the user's next login after Stripe confirms
+payment.
+
+---
+
+### Stripe Dashboard Setup
+
+1. Create two **Products** in the Stripe dashboard:
+   - `Game Tracker Premium — Monthly` → price: `price_monthly_xxx`
+   - `Game Tracker Premium — Annual` → price: `price_annual_xxx`
+2. Save both price IDs as Render env vars:
+   ```
+   STRIPE_PRICE_MONTHLY=price_monthly_xxx
+   STRIPE_PRICE_ANNUAL=price_annual_xxx
+   ```
+3. Create a **Webhook endpoint** pointing at:
+   ```
+   https://your-app.onrender.com/webhooks/stripe
+   ```
+   Events to enable:
+   - `checkout.session.completed`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `invoice.payment_failed`
+
+4. Save the webhook signing secret:
+   ```
+   STRIPE_WEBHOOK_SECRET=whsec_xxx
+   STRIPE_SECRET_KEY=sk_live_xxx   (sk_test_xxx for dev)
+   ```
+
+---
+
+### FastAPI Route — `api/routers/webhooks.py`
+
+```python
+import stripe
+from fastapi import APIRouter, Request, HTTPException
+from api.core.db import public_pool
+
+router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+
+@router.post("/stripe")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature")
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig, settings.STRIPE_WEBHOOK_SECRET
+        )
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(400, "Invalid signature")
+
+    if event["type"] == "checkout.session.completed":
+        await _handle_checkout_completed(event["data"]["object"])
+    elif event["type"] == "customer.subscription.updated":
+        await _handle_subscription_updated(event["data"]["object"])
+    elif event["type"] == "customer.subscription.deleted":
+        await _handle_subscription_deleted(event["data"]["object"])
+    elif event["type"] == "invoice.payment_failed":
+        await _handle_payment_failed(event["data"]["object"])
+
+    return {"status": "ok"}
+```
+
+---
+
+### Subscription Lifecycle
+
+| Stripe Event | Action on `app.subscriptions` |
+|---|---|
+| `checkout.session.completed` | Insert/update row: `plan='premium'`, `stripe_customer_id`, `stripe_subscription_id`, `billing_interval`, `current_period_end` |
+| `customer.subscription.updated` | Update `billing_interval`, `current_period_end`, `plan` (handles upgrades/downgrades) |
+| `customer.subscription.deleted` | Set `plan='free'`, clear `stripe_subscription_id`, set `cancelled_at` |
+| `invoice.payment_failed` | Log failure — optionally email user via Resend; do NOT downgrade immediately (Stripe retries) |
+
+---
+
+### Checkout Flow (Next.js → FastAPI)
+
+1. User clicks **Upgrade to Premium** in web app
+2. `POST /api/billing/create-checkout-session` (FastAPI, requires JWT)
+   - Creates Stripe Checkout session with `customer_email` pre-filled
+   - Sets `metadata: { user_email: ... }` so webhook can identify the user
+   - Returns `{ url: "https://checkout.stripe.com/..." }`
+3. Frontend redirects to Stripe-hosted checkout page
+4. On success, Stripe fires `checkout.session.completed` webhook → FastAPI updates DB
+5. User is redirected back to `/billing/success` page
+6. On next sign-in (or JWT refresh), Flask/FastAPI reads `app.subscriptions.plan='premium'` → issues JWT with `role="premium"`
+
+---
+
+### `app.subscriptions` Schema (public Supabase)
+
+```sql
+CREATE TABLE app.subscriptions (
+    subscription_id     SERIAL PRIMARY KEY,
+    user_id             INTEGER REFERENCES dim.dim_users(user_id),
+    plan                TEXT CHECK (plan IN ('free', 'premium')) DEFAULT 'free',
+    billing_interval    TEXT CHECK (billing_interval IN ('month', 'year')),  -- NULL = free
+    stripe_customer_id  TEXT UNIQUE,
+    stripe_subscription_id TEXT,
+    current_period_end  TIMESTAMPTZ,
+    cancelled_at        TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+---
+
+### JWT — How `role="premium"` Gets Into the Token
+
+FastAPI `/api/login` checks `app.subscriptions` on the public project during
+login and folds the result into the JWT payload:
+
+```python
+# In /api/login
+sub = await public_pool.fetchrow(
+    "SELECT plan FROM app.subscriptions WHERE user_id = $1", user_id
+)
+plan = sub["plan"] if sub else "free"
+
+role = (
+    "owner"   if is_owner else
+    "trusted" if is_trusted else
+    "premium" if plan == "premium" else
+    "free"
+)
+```
+
+The Next.js session and Navbar tier badge update automatically on the next
+sign-in or JWT refresh (60-minute expiry).
+
+---
+
+### Render Env Vars Required
+
+```
+STRIPE_SECRET_KEY=sk_live_xxx
+STRIPE_WEBHOOK_SECRET=whsec_xxx
+STRIPE_PRICE_MONTHLY=price_monthly_xxx
+STRIPE_PRICE_ANNUAL=price_annual_xxx
+```
+
+---
+
+### Phase checklist — Stripe
+
+- [ ] Create Stripe products + prices (monthly + annual) in dashboard
+- [ ] Add Render env vars (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, prices)
+- [ ] Create `api/routers/webhooks.py` with webhook handler
+- [ ] Create `api/routers/billing.py` with `create-checkout-session` endpoint
+- [ ] Add `stripe_customer_id` + `stripe_subscription_id` + `billing_interval` + `current_period_end` columns to `app.subscriptions` (migration `006_add_stripe_billing.sql`)
+- [ ] Wire `plan` check into `/api/login` JWT generation
+- [ ] Build `/billing/success` and `/billing/cancel` pages in Next.js
+- [ ] Add **Upgrade to Premium** button in web app (gated to `role="free"` users)
+- [ ] Update `next-auth.d.ts` role comment to include `"premium"`
+- [ ] Test full checkout flow end-to-end in Stripe test mode
+- [ ] Switch to live keys before public launch
 
 ---
 
@@ -1365,4 +1534,36 @@ web/public/badges/
 - [ ] Add `BadgesPanel` to user profile / Stats page sidebar
 - [ ] Add streak counter to Stats page header
 - [ ] Owner: Admin panel UI to create/edit seasonal challenges (Phase 3)
+
+---
+
+## Phase 3 — Migration Realistic Timeline
+
+**flask_app.py scope:** 3,300 lines, 41 routes. Not a single-day job.
+
+### Chunk 1 — Scaffold + Core Personal Endpoints
+- Scaffold `api/` folder structure
+- Set up FastAPI app, lifespan, dual connection pools (`personal_pool` + `public_pool`)
+- Port auth dependencies (`require_trusted`, `require_owner`)
+- Port ~10 core personal endpoints: submit stat, get summary, streaks, edit stat, delete stat, OBS overlay
+
+### Chunk 2 — Instagram/Post Queue + Automation Verification
+- Port post queue, Instagram, and chart generation endpoints
+- **Must verify Wednesday Instagram automation runs clean against FastAPI before moving on**
+- This is the critical checkpoint — do not advance to Chunk 3 until automation confirms end-to-end
+- Port remaining personal endpoints after automation verified
+
+### Chunk 3 — Public Endpoints + Premium Tier + Cleanup
+- Port public endpoints (game requests, leaderboard, public user management)
+- Wire `role="premium"` into FastAPI auth dependency
+- Update `next-auth.d.ts` role comment to include `"premium"`
+- Full end-to-end test across web app
+- Archive `flask_app.py` → `archive/flask_app.py`
+- Remove Flask env vars from Render once verified clean
+
+### Notes
+- Each route needs Flask decorators translated to FastAPI `Depends()` — budget ~20 min/route
+- Dual pool setup must be verified working before porting any route
+- Do not archive Flask until all 41 routes are tested in FastAPI
+- Wednesday automation run is the go/no-go gate between Chunk 2 and Chunk 3
 - [ ] Bolt weekly recap endpoint + Resend email integration (post-launch)

@@ -17,6 +17,7 @@ Features:
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import matplotlib.dates as mdates
+import matplotlib.patheffects as pe
 import seaborn as sns
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -555,7 +556,8 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
         ax.text(x_pos, bar.get_y() + bar.get_height()/2,
                display_val,
                ha=ha, va='center',
-               fontsize=value_fontsize, fontweight='bold', color='white')
+               fontsize=value_fontsize, fontweight='bold', color='white',
+               path_effects=[pe.withStroke(linewidth=3, foreground='#111111')])
 
     # Match y-axis tick label font to bar value font
     ax.tick_params(axis='y', labelsize=value_fontsize)
