@@ -4,7 +4,7 @@ Implements after FastAPI core routes are stable.
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from api.core.deps import PersonalConn, CurrentUser
+from api.core.deps import DynamicConn, CurrentUser
 from api.models.ml import PredictionRequest, PredictionResponse
 
 router = APIRouter()
@@ -14,7 +14,7 @@ router = APIRouter()
 async def get_prediction(
     game_id: int,
     player_id: int = Query(...),
-    conn: PersonalConn = None,
+    conn: DynamicConn = None,
     user: CurrentUser = None,
 ):
     """
@@ -27,7 +27,7 @@ async def get_prediction(
 
 
 @router.post("/ml/train/{game_id}", status_code=202)
-async def trigger_training(game_id: int, conn: PersonalConn, user: CurrentUser):
+async def trigger_training(game_id: int, conn: DynamicConn, user: CurrentUser):
     """
     Enqueue a model training job for the given game.
     Requires >= 50 sessions (session threshold gate).
@@ -37,7 +37,7 @@ async def trigger_training(game_id: int, conn: PersonalConn, user: CurrentUser):
 
 
 @router.get("/ml/model_runs/{game_id}")
-async def get_model_runs(game_id: int, player_id: int = Query(...), conn: PersonalConn = None):
+async def get_model_runs(game_id: int, player_id: int = Query(...), conn: DynamicConn = None):
     """
     Return historical model runs from app.ml_model_runs.
     TODO: implement via ml_service.get_model_runs()

@@ -1,1 +1,1 @@
-web: gunicorn flask_app:app --timeout 120 --workers 1 --worker-class gthread --threads 2
+web: gunicorn api.main:app -w ${WEB_CONCURRENCY:-1} -k uvicorn.workers.UvicornWorker --timeout 120 --bind 0.0.0.0:10000

@@ -72,17 +72,54 @@ async def require_owner(user: Annotated[dict, Depends(get_current_user)]) -> dic
 # ---------------------------------------------------------------------------
 
 async def get_personal_conn():
-    """Yield a single asyncpg connection from the personal pool."""
+    """Yield a connection from the personal (owner) pool. Use for personal-only features."""
     async with personal_pool.acquire() as conn:
         yield conn
 
 
 async def get_public_conn():
-    """Yield a single asyncpg connection from the public pool."""
+    """Yield a connection from the public (multi-tenant) pool."""
     if public_pool is None:
         raise HTTPException(status_code=503, detail="Public pool not configured")
     async with public_pool.acquire() as conn:
         yield conn
+
+
+async def get_current_user_optional(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+) -> dict | None:
+    """Like get_current_user but returns None instead of raising 401 (used by DynamicConn)."""
+    if not credentials:
+        return None
+    try:
+        return _decode_token(credentials.credentials)
+    except HTTPException:
+        return None
+
+
+async def get_dynamic_conn(
+    user: Annotated[dict | None, Depends(get_current_user_optional)],
+):
+    """
+    Route to the appropriate pool based on caller role:
+      Owner  → personal_pool  (single-tenant, your data)
+      Others → public_pool    (multi-tenant, all users)
+    Falls back to public_pool when no valid JWT is present.
+    Use PersonalConn directly for personal-only features (OBS browser source,
+    post_queue, instagram) that have no JWT or must always hit the personal DB.
+    """
+    if user and user.get("is_owner"):
+        async with personal_pool.acquire() as conn:
+            yield conn
+    elif public_pool is not None:
+        async with public_pool.acquire() as conn:
+            yield conn
+    else:
+        # PUBLIC_DB_URL not yet configured — fall back to personal during transition.
+        # Once the public Supabase project is live, set PUBLIC_DB_URL on Render and
+        # this branch will stop being reached.
+        async with personal_pool.acquire() as conn:
+            yield conn
 
 
 # ---------------------------------------------------------------------------
@@ -94,3 +131,4 @@ TrustedUser   = Annotated[dict, Depends(require_trusted)]
 OwnerUser     = Annotated[dict, Depends(require_owner)]
 PersonalConn  = Annotated[asyncpg.Connection, Depends(get_personal_conn)]
 PublicConn    = Annotated[asyncpg.Connection, Depends(get_public_conn)]
+DynamicConn   = Annotated[asyncpg.Connection, Depends(get_dynamic_conn)]

@@ -17,7 +17,7 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.core.config import get_settings
-from api.core.deps import PersonalConn, OwnerUser, require_api_key
+from api.core.deps import PersonalConn, DynamicConn, OwnerUser, require_api_key
 from api.models.auth import (
     AddTrustedUserRequest,
     AddUserRequest,
@@ -167,7 +167,7 @@ async def login(body: LoginRequest, conn: PersonalConn):
 
 
 @router.post("/add_user", status_code=201, dependencies=[Depends(require_api_key)])
-async def add_user(body: AddUserRequest, conn: PersonalConn):
+async def add_user(body: AddUserRequest, conn: DynamicConn):
     """
     Register a new user as non-trusted if they don't already exist.
     Idempotent — returns 200 if the user already exists.
@@ -191,7 +191,7 @@ async def add_user(body: AddUserRequest, conn: PersonalConn):
 @router.post("/add_trusted_user", status_code=200)
 async def add_trusted_user(
     body: AddTrustedUserRequest,
-    conn: PersonalConn,
+    conn: DynamicConn,
     _owner: OwnerUser,
 ):
     """

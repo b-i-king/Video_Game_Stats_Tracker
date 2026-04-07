@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     public_db_url: str = Field(default="", alias="PUBLIC_DB_URL")
 
     # ── Auth ──────────────────────────────────────────────────────────────────────
-    secret_key: str            = Field(default="change-me", alias="SECRET_KEY")
+    secret_key: str            = Field(default="change-me", alias="JWT_SECRET_KEY")
     jwt_algorithm: str         = "HS256"
     access_token_expire_minutes: int = 60
 
@@ -39,6 +39,9 @@ class Settings(BaseSettings):
 
     # ── Gemini ────────────────────────────────────────────────────────────────────
     gemini_api_key: str        = Field(default="", alias="GEMINI_API_KEY")
+
+    # ── OBS overlay — browser source uses ?key= query param (no JWT possible) ────
+    obs_secret_key: str         = Field(default="", alias="OBS_SECRET_KEY")
 
     # ── Instagram / IFTTT ─────────────────────────────────────────────────────────
     instagram_access_token: str = Field(default="", alias="INSTAGRAM_ACCESS_TOKEN")

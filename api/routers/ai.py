@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from api.core.deps import PersonalConn, CurrentUser
+from api.core.deps import DynamicConn, CurrentUser
 
 router = APIRouter()
 
@@ -13,7 +13,7 @@ class AskRequest(BaseModel):
 
 
 @router.post("/ask")
-async def ask(body: AskRequest, conn: PersonalConn, user: CurrentUser):
+async def ask(body: AskRequest, conn: DynamicConn, user: CurrentUser):
     """
     AI chat endpoint.  Uses gemini-2.0-flash for trusted users, gemini-2.0-flash-lite for free tier.
     Includes last-3-session context via build_stats_context().
