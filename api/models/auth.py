@@ -2,22 +2,21 @@ from pydantic import BaseModel, EmailStr
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    email: EmailStr
 
 
 class LoginResponse(BaseModel):
     token: str
-    player_id: int
-    username: str
+    user_id: int
     is_trusted: bool
+    is_owner: bool
+    role: str  # "owner" | "trusted" | "premium" | "free"
 
 
 class AddUserRequest(BaseModel):
-    username: str
-    password: str
-    email: EmailStr | None = None
+    email: EmailStr
 
 
 class AddTrustedUserRequest(BaseModel):
-    target_username: str
+    email: EmailStr
+    is_trusted: bool = True

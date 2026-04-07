@@ -1373,6 +1373,92 @@ STRIPE_PRICE_ANNUAL=price_annual_xxx
 
 ---
 
+## Wellness Notifications (Phase 4 / Post-launch)
+
+### Purpose
+
+Encourage healthy gaming habits through generic, opt-in nudges — not medical
+advice. Inspired by Apple Watch Stand reminders and sleep scheduling (Fitbit,
+Whoop, Google Fit). Since this is a web app with no sensors, all nudges are
+**time-based** and **user-configured**.
+
+> Disclaimer shown in UI: *"These are general wellness reminders, not medical
+> advice. Consult a healthcare professional for personalized guidance."*
+
+---
+
+### Features
+
+| Feature | Trigger | Delivery |
+|---|---|---|
+| **Break reminder** | User has been active on the app for X minutes (configurable, default 60 min) | Browser notification + optional in-app banner |
+| **Bedtime nudge** | Clock reaches user's configured bedtime | Browser notification: *"Heading toward bedtime — consider wrapping up"* |
+| **Session length banner** | In-app passive banner after long session (no browser permissions needed) | Non-intrusive top-of-page ribbon |
+
+All features are **opt-in** and configurable per user. No defaults are applied
+without explicit user consent.
+
+---
+
+### Schema — `app.wellness_settings` (public Supabase)
+
+```sql
+CREATE TABLE app.wellness_settings (
+    user_id             INTEGER PRIMARY KEY REFERENCES dim.dim_users(user_id),
+    break_reminders     BOOLEAN DEFAULT FALSE,
+    break_interval_min  INTEGER DEFAULT 60,        -- minutes between break nudges
+    bedtime_enabled     BOOLEAN DEFAULT FALSE,
+    bedtime_local       TIME,                      -- e.g. '22:30:00' in user's local time
+    bedtime_tz          TEXT,                      -- IANA timezone string
+    updated_at          TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+---
+
+### Frontend Implementation
+
+- **Break timer** — `useEffect` in a top-level layout component tracks
+  cumulative time-on-site using `Date.now()`. Fires browser
+  `Notification.requestPermission()` once opted in, then uses
+  `setTimeout` to schedule nudges at the configured interval.
+- **Bedtime nudge** — on page load, compute milliseconds until bedtime in
+  the user's timezone and set a single `setTimeout`. Re-schedules itself
+  daily.
+- **In-app banner** — fallback for users who decline browser notification
+  permission. Simple dismissible ribbon at the top of the page.
+
+---
+
+### FastAPI Routes
+
+```
+GET  /api/wellness/settings        → fetch user's wellness settings
+PUT  /api/wellness/settings        → save/update preferences
+```
+
+No server-side scheduling needed — all timers run client-side in the browser.
+
+---
+
+### Phase checklist — Wellness Notifications
+
+- [ ] Create `app.wellness_settings` table (migration `008_add_wellness_settings.sql`)
+- [ ] Create `api/routers/wellness.py` with GET + PUT settings endpoints
+- [ ] Register wellness router in `api/main.py`
+- [ ] Build **Wellness Settings** section in web app (Settings or Profile page)
+  - Break reminder toggle + interval selector (30 / 45 / 60 / 90 min)
+  - Bedtime toggle + time picker + timezone confirmation
+- [ ] Implement `useWellnessNotifications` hook in Next.js
+  - Request browser notification permission on opt-in
+  - Break timer via `setTimeout` + visibility API (pause when tab is hidden)
+  - Bedtime timer scoped to user's local timezone
+- [ ] In-app session banner (fallback for denied notification permissions)
+- [ ] Add disclaimer copy: *"General wellness reminders — not medical advice"*
+- [ ] Respect `prefers-reduced-motion` and Do Not Disturb where detectable
+
+---
+
 ## Steam Integration (Post-launch)
 
 ### Purpose

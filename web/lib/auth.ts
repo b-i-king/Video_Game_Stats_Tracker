@@ -1,6 +1,6 @@
 // NextAuth configuration
-// Flow: Google Sign-In → NextAuth jwt callback calls Flask /api/login → stores Flask JWT in session
-// The Flask JWT is then used for all API calls that need authentication.
+// Flow: Google Sign-In → NextAuth jwt callback calls FastAPI /api/login → stores JWT in session
+// The FastAPI JWT is then used for all API calls that need authentication.
 
 import type { AuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
@@ -14,11 +14,11 @@ export const authOptions: AuthOptions = {
   ],
 
   // ── JWT callback: runs server-side when a token is created/refreshed ───────
-  // On first sign-in (account is defined), call Flask to get a JWT.
+  // On first sign-in (account is defined), call FastAPI to get a JWT.
   callbacks: {
     async jwt({ token, account, user }) {
-      // Decode Flask JWT expiry without a library (base64 payload, field: exp)
-      const flaskJwtExpired = (): boolean => {
+      // Decode JWT expiry without a library (base64 payload, field: exp)
+      const apiJwtExpired = (): boolean => {
         if (!token.flaskJwt) return true;
         try {
           const payload = JSON.parse(
@@ -31,17 +31,17 @@ export const authOptions: AuthOptions = {
         }
       };
 
-      // Exchange Google identity for a Flask JWT on first sign-in OR when expired
-      if ((account && user) || flaskJwtExpired()) {
+      // Exchange Google identity for a FastAPI JWT on first sign-in OR when expired
+      if ((account && user) || apiJwtExpired()) {
         const email = user?.email ?? token.email;
         try {
           const res = await fetch(
-            `${process.env.FLASK_API_URL}/api/login`,
+            `${process.env.FASTAPI_URL}/api/login`,
             {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                "X-API-KEY": process.env.FLASK_API_KEY!,
+                "X-API-KEY": process.env.FASTAPI_API_KEY!,
               },
               body: JSON.stringify({ email }),
             }
@@ -52,9 +52,9 @@ export const authOptions: AuthOptions = {
             token.flaskJwt = data.token ?? undefined;
             token.isTrusted = data.is_trusted ?? false;
             token.isOwner = data.is_owner ?? false;
-            token.role = data.is_trusted ? "trusted" : "guest";
+            // FastAPI returns role directly: "owner"|"trusted"|"premium"|"free"
+            token.role = data.role ?? "free";
           } else {
-            // Flask login failed — treat as a registered guest with no JWT
             token.role = "guest";
             token.isTrusted = false;
             token.isOwner = false;

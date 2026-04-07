@@ -11,7 +11,15 @@ class Settings(BaseSettings):
     # Auth
     secret_key: str = os.getenv("SECRET_KEY", "change-me")
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24  # 24 h
+    access_token_expire_minutes: int = 60  # 60 min
+
+    # API key — separate from FLASK_API_KEY so both services run independently
+    # during transition. Deprecate FLASK_API_KEY when Flask is archived.
+    api_key: str = os.getenv("FASTAPI_API_KEY", "")
+
+    # Trusted / owner email lists (comma-separated)
+    trusted_emails: str = os.getenv("TRUSTED_EMAILS", "")
+    owner_emails: str = os.getenv("OWNER_EMAILS", "")
 
     # CORS — comma-separated list in env
     allowed_origins: str = os.getenv("ALLOWED_ORIGINS", "*")
