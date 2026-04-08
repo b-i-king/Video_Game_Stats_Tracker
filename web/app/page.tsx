@@ -1,11 +1,13 @@
-// Home page — mirrors pages/1_Home.py
-// This is a Server Component (no "use client" needed).
+// Home page — Server Component shell.
+// Interactive sections (pricing toggle, Bolt AI card) are client components.
 
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import GetStartedButton from "@/components/GetStartedButton";
+import PricingSection from "@/components/PricingSection";
+import BoltAICard from "@/components/BoltAICard";
 
 export const metadata: Metadata = {
   title: { absolute: "🎮 Video Game Stats Tracker" },
@@ -43,12 +45,6 @@ const features = [
     title: "Machine Learning",
     desc: "Predictive models surface performance trends and forecast future sessions.",
     tier: "premium" as const,
-  },
-  {
-    icon: "⚡",
-    title: "Bolt AI Assistant",
-    desc: "Ask natural language questions about your stats — trends, insights, caption ideas. Free: 20/mo · Premium: 200/mo.",
-    tier: "free" as const,
   },
 ];
 
@@ -90,65 +86,8 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Tier comparison */}
-      {!session && (
-        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4">
-          <p className="font-semibold text-center">Choose your plan</p>
-          <div className="grid sm:grid-cols-2 gap-4 text-sm">
-            {/* Free */}
-            <div className="p-4 rounded-lg border border-[var(--border)] space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-base">Free</span>
-                <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] text-[var(--muted)]">
-                  Sign in with Google
-                </span>
-              </div>
-              <ul className="space-y-1.5 text-[var(--muted)]">
-                <li className="flex gap-2"><span className="text-green-500">✓</span> Track stats for up to 2 players</li>
-                <li className="flex gap-2"><span className="text-green-500">✓</span> Auto-generated chart graphics</li>
-                <li className="flex gap-2"><span className="text-green-500">✓</span> Full session history</li>
-                <li className="flex gap-2"><span className="text-green-500">✓</span> Leaderboard opt-in</li>
-                <li className="flex gap-2"><span className="text-green-500">✓</span> Developer integrations</li>
-                <li className="flex gap-2"><span className="text-green-500">✓</span> 20 Bolt AI queries / month</li>
-                <li className="flex gap-2"><span className="text-[var(--muted)]">✗</span> ML predictive models</li>
-              </ul>
-              <Link
-                href="/auth/signin"
-                className="block text-center w-full py-2 rounded border border-[var(--border)] hover:border-[var(--gold)] hover:text-[var(--gold)] transition-colors font-medium"
-              >
-                Get Started Free
-              </Link>
-            </div>
-
-            {/* Premium */}
-            <div className="p-4 rounded-lg border border-[var(--gold)] space-y-3 relative">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                <span className="text-xs font-semibold px-3 py-1 rounded-full bg-[var(--gold)] text-black">
-                  Most Popular
-                </span>
-              </div>
-              <div className="flex items-center justify-between pt-1">
-                <span className="font-semibold text-base text-[var(--gold)]">Premium</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--gold)] text-black font-semibold">
-                  Upgraded by owner
-                </span>
-              </div>
-              <ul className="space-y-1.5 text-[var(--muted)]">
-                <li className="flex gap-2"><span className="text-green-500">✓</span> Everything in Free</li>
-                <li className="flex gap-2"><span className="text-green-500">✓</span> Track stats for up to 5 players</li>
-                <li className="flex gap-2"><span className="text-green-500">✓</span> ML predictive models</li>
-                <li className="flex gap-2"><span className="text-green-500">✓</span> 200 Bolt AI queries / month</li>
-              </ul>
-              <Link
-                href="/auth/signin"
-                className="block text-center w-full py-2 rounded bg-[var(--gold)] text-black font-semibold hover:opacity-90 transition-opacity"
-              >
-                Sign In to Upgrade
-              </Link>
-            </div>
-          </div>
-        </section>
-      )}
+      {/* Tier comparison — client component (needs billing toggle) */}
+      {!session && <PricingSection />}
 
       {/* Features grid */}
       <section>
@@ -177,6 +116,9 @@ export default async function HomePage() {
               <p className="text-sm text-[var(--muted)]">{f.desc}</p>
             </div>
           ))}
+
+          {/* Bolt AI — client component (needs free/premium toggle) */}
+          <BoltAICard />
         </div>
       </section>
 

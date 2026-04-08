@@ -12,7 +12,7 @@ async def lifespan(app: FastAPI):
     await close_pools()
 
 
-app = FastAPI(title="Game Tracker API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Video Game Stats Tracker API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
