@@ -9,7 +9,7 @@ router = APIRouter()
 @router.get("/get_games")
 async def get_games(conn: DynamicConn, user: CurrentUser):
     rows = await conn.fetch(
-        "SELECT game_id, game_name, platform, franchise, installment, genre, is_active "
+        "SELECT game_id, game_name, game_installment, game_genre, game_subgenre "
         "FROM dim.dim_games ORDER BY game_name"
     )
     return [dict(r) for r in rows]
