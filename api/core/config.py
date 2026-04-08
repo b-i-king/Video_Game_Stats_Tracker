@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # ── OBS overlay — browser source uses ?key= query param (no JWT possible) ────
     obs_secret_key: str         = Field(default="", alias="OBS_SECRET_KEY")
 
+    # ── Cron — protects /api/process_queue called by Render cron job ─────────────
+    cron_secret: str            = Field(default="", alias="CRON_SECRET")
+
     # ── Instagram / IFTTT ─────────────────────────────────────────────────────────
     instagram_access_token: str = Field(default="", alias="INSTAGRAM_ACCESS_TOKEN")
     ifttt_key: str              = Field(default="", alias="IFTTT_KEY")

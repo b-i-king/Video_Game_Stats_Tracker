@@ -16,21 +16,18 @@ def get_gemini_client() -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
-def ask_agent(prompt: str, context: str = "") -> str:
+def ask_agent(prompt: str, context: str = "", model: str = "gemini-2.0-flash") -> str:
     """
     Send a prompt to Gemini with optional stat context.
 
     Args:
         prompt:  The user's question or request.
         context: Optional stat data as a formatted string to ground the response.
+        model:   Gemini model ID. Trusted/Premium → gemini-2.0-flash,
+                 Free → gemini-2.0-flash-lite.
 
     Returns:
-        The agent's text response.
-
-    Examples:
-        ask_agent("What was my best Warzone session this month?", context=stats_summary)
-        ask_agent("Write an Instagram caption for tonight's session.", context=stats_summary)
-        ask_agent("How has my KD trended this week?", context=stats_summary)
+        The agent's text response.    
     """
     client = get_gemini_client()
     system_prompt = (
@@ -40,7 +37,7 @@ def ask_agent(prompt: str, context: str = "") -> str:
     )
     full_prompt = f"{system_prompt}\n\n{context}\n\n{prompt}" if context else f"{system_prompt}\n\n{prompt}"
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model=model,
         contents=full_prompt,
     )
     return response.text

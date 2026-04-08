@@ -9,7 +9,7 @@ import jwt
 import asyncpg
 
 from api.core.config import get_settings
-from api.core.database import personal_pool, public_pool
+from api.core import database
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -73,15 +73,15 @@ async def require_owner(user: Annotated[dict, Depends(get_current_user)]) -> dic
 
 async def get_personal_conn():
     """Yield a connection from the personal (owner) pool. Use for personal-only features."""
-    async with personal_pool.acquire() as conn:
+    async with database.personal_pool.acquire() as conn:
         yield conn
 
 
 async def get_public_conn():
     """Yield a connection from the public (multi-tenant) pool."""
-    if public_pool is None:
+    if database.public_pool is None:
         raise HTTPException(status_code=503, detail="Public pool not configured")
-    async with public_pool.acquire() as conn:
+    async with database.public_pool.acquire() as conn:
         yield conn
 
 
@@ -109,16 +109,16 @@ async def get_dynamic_conn(
     post_queue, instagram) that have no JWT or must always hit the personal DB.
     """
     if user and user.get("is_owner"):
-        async with personal_pool.acquire() as conn:
+        async with database.personal_pool.acquire() as conn:
             yield conn
-    elif public_pool is not None:
-        async with public_pool.acquire() as conn:
+    elif database.public_pool is not None:
+        async with database.public_pool.acquire() as conn:
             yield conn
     else:
         # PUBLIC_DB_URL not yet configured — fall back to personal during transition.
         # Once the public Supabase project is live, set PUBLIC_DB_URL on Render and
         # this branch will stop being reached.
-        async with personal_pool.acquire() as conn:
+        async with database.personal_pool.acquire() as conn:
             yield conn
 
 
