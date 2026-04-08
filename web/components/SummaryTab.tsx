@@ -261,7 +261,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
   const [players, setPlayers]         = useState<Player[]>([]);
   const [games, setGames]             = useState<GameDetails[]>([]);
   const [dropdownLoading, setDropdownLoading] = useState(true);
-  const [playerName, setPlayerName]   = useState("");
+  const [playerId, setPlayerId]       = useState<number | null>(null);
   const [gameId, setGameId]           = useState<number | null>(null);
 
   // null = loading/not yet fetched, [] = fetched but empty
@@ -287,7 +287,9 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       .then(([p, g]) => {
         setPlayers(p);
         setGames(g);
-        if (p.length > 0) setPlayerName(p[0].player_name);
+        if (p.length > 0) {
+          setPlayerId(p[0].player_id);
+        }
       })
       .catch(() => setError("Failed to load players or games."))
       .finally(() => setDropdownLoading(false));
@@ -295,9 +297,11 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
 
   // Fetch all data when player + game are both selected
   useEffect(() => {
-    if (!jwt || !gameId || !playerName) return;
+    if (!jwt || !gameId || !playerId) return;
 
-    getSummary(jwt, gameId, playerName)
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    getSummary(jwt, gameId, playerId)
       .then((data) => {
         setTodayAvg(data.today_avg);
         setAllTimeBest(data.all_time_best);
@@ -308,20 +312,19 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
         setAllTimeBest([]);
       });
 
-    getInteractiveChart(jwt, gameId, playerName, undefined, Intl.DateTimeFormat().resolvedOptions().timeZone)
+    getInteractiveChart(jwt, gameId, playerId, undefined, tz)
       .then((html) => setChartHtml(html))
       .catch(() => setChartHtml(null));
 
-    getHeatmap(jwt, gameId, playerName)
+    getHeatmap(jwt, gameId, playerId, tz)
       .then((data) => setHeatmap(data))
       .catch(() => setHeatmap(null));
 
-    getStreaks(jwt, gameId, playerName, Intl.DateTimeFormat().resolvedOptions().timeZone)
+    getStreaks(jwt, gameId, playerId, tz)
       .then((data) => setStreaks(data))
       .catch(() => setStreaks(null));
 
-    // Fetch rich ticker facts from API; fall back to client-side buildTickerFacts on failure
-    getTickerFacts(jwt, gameId, playerName)
+    getTickerFacts(jwt, gameId, playerId, tz)
       .then((data) => setTickerFacts(data.facts.length > 0 ? data.facts : null))
       .catch(() => setTickerFacts(null));
 
@@ -334,7 +337,7 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
       setTickerFacts(null);
       setError(null);
     };
-  }, [jwt, gameId, playerName]);
+  }, [jwt, gameId, playerId]);
 
   return (
     <div className="space-y-6">
@@ -346,11 +349,14 @@ export default function SummaryTab({ jwt }: { jwt: string }) {
             <label className="label">Player</label>
             <select
               className="input"
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
+              value={playerId ?? ""}
+              onChange={(e) => {
+                const p = players.find((p) => p.player_id === Number(e.target.value));
+                if (p) setPlayerId(p.player_id);
+              }}
             >
               {players.map((p) => (
-                <option key={p.player_id} value={p.player_name}>
+                <option key={p.player_id} value={p.player_id}>
                   {p.player_name}
                 </option>
               ))}

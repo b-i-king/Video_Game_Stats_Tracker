@@ -27,7 +27,7 @@ async def update_player(player_id: int, body: UpdatePlayerRequest, conn: Dynamic
         UPDATE dim.dim_players
         SET player_name = $1
         WHERE player_id = $2
-        AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $3 AND is_trusted = TRUE)
+        AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $3)
     """, body.player_name, player_id, user["email"])
 
     if result == "UPDATE 0":

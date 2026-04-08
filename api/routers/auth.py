@@ -51,12 +51,14 @@ def _cache_set(email: str, user_id: int, is_trusted: bool, ttl: int = 300):
 # JWT helpers
 # ---------------------------------------------------------------------------
 
-def _make_token(email: str, user_id: int, is_trusted: bool) -> str:
+def _make_token(email: str, user_id: int, is_trusted: bool, is_owner: bool = False, role: str = "free") -> str:
     settings = get_settings()
     payload = {
         "email": email,
         "user_id": user_id,
-        "is_trusted": is_trusted,
+        "is_trusted": is_trusted or is_owner,  # owners have all trusted privileges
+        "is_owner": is_owner,
+        "role": role,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
@@ -109,12 +111,13 @@ async def login(body: LoginRequest, conn: PersonalConn):
             is_owner = email in _owner_set()
             # TODO Phase 3 Stripe: query app.subscriptions for plan here
             plan = "free"
+            resolved_role = _resolve_role(email, db_is_trusted, is_owner, plan)
             return LoginResponse(
-                token=_make_token(email, user_id, db_is_trusted),
+                token=_make_token(email, user_id, db_is_trusted, is_owner, resolved_role),
                 user_id=user_id,
-                is_trusted=db_is_trusted,
+                is_trusted=db_is_trusted or is_owner,
                 is_owner=is_owner,
-                role=_resolve_role(email, db_is_trusted, is_owner, plan),
+                role=resolved_role,
             )
 
     row = await conn.fetchrow(
@@ -156,13 +159,14 @@ async def login(body: LoginRequest, conn: PersonalConn):
 
     # TODO Phase 3 Stripe: query public_pool app.subscriptions for plan here
     plan = "free"
+    resolved_role = _resolve_role(email, db_is_trusted, is_owner, plan)
 
     return LoginResponse(
-        token=_make_token(email, user_id, db_is_trusted),
+        token=_make_token(email, user_id, db_is_trusted, is_owner, resolved_role),
         user_id=user_id,
-        is_trusted=db_is_trusted,
+        is_trusted=db_is_trusted or is_owner,
         is_owner=is_owner,
-        role=_resolve_role(email, db_is_trusted, is_owner, plan),
+        role=resolved_role,
     )
 
 

@@ -12,7 +12,7 @@ async def get_games(conn: DynamicConn, user: CurrentUser):
         "SELECT game_id, game_name, game_installment, game_genre, game_subgenre "
         "FROM dim.dim_games ORDER BY game_name"
     )
-    return [dict(r) for r in rows]
+    return {"games": [dict(r) for r in rows]}
 
 
 @router.get("/get_game_franchises")

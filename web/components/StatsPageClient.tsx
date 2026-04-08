@@ -99,9 +99,12 @@ export default function StatsPageClient() {
         </h1>
 
         {!isTrusted && (
-          <div className="rounded border border-yellow-600 bg-yellow-900/20 px-4 py-3 text-sm text-yellow-200">
-            You are signed in as a <strong>Registered Guest</strong>. The Stats
-            form is in read-only preview mode. Contact the admin for full access.
+          <div className="rounded border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--muted)]">
+            {session?.role === "premium" ? (
+              <>You are on <strong className="text-[var(--gold)]">Premium</strong>. Up to 5 players · 200 Bolt AI queries/mo.</>
+            ) : (
+              <>You are on <strong>Free</strong>. Up to 2 players · 20 Bolt AI queries/mo. <a href="/" className="text-[var(--gold)] hover:underline">Upgrade to Premium →</a></>
+            )}
           </div>
         )}
 

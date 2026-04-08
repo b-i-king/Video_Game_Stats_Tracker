@@ -223,7 +223,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
 
   // ── Load players + franchises on mount (parallel) ────────────────────────
   useEffect(() => {
-    if (!jwt || !isTrusted) return;
+    if (!jwt) return;
     setPlayersLoading(true);
     setFranchisesLoading(true);
     getPlayers(jwt)
@@ -234,12 +234,15 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
       .then(setFranchises)
       .catch(console.error)
       .finally(() => setFranchisesLoading(false));
-    getObsStatus(jwt)
-      .then((d) => {
-        setObsActiveState(d.obs_active);
-        setObsLoaded(true);
-      })
-      .catch(() => setObsLoaded(true));
+    // OBS status only relevant for trusted/owner
+    if (isTrusted) {
+      getObsStatus(jwt)
+        .then((d) => {
+          setObsActiveState(d.obs_active);
+          setObsLoaded(true);
+        })
+        .catch(() => setObsLoaded(true));
+    }
   }, [jwt, isTrusted]);
 
   // ── Load installments when franchise changes ──────────────────────────────
@@ -492,6 +495,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
         game_subgenre: isNewInstallmentMode ? gameSubgenre : null,
         stats: statsPayload,
         is_live: isLive,
+        queue_mode: queueMode,
         queue_platforms: queueMode ? activePlatforms : [],
         active_platforms: activePlatforms,
         credit_style: CREDIT_STYLE_OPTIONS[creditStyle] ?? "shoutout",
@@ -1272,7 +1276,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
                           if (!selectedGameId) return;
                           setDownloading(true);
                           try {
-                            await downloadChart(jwt, selectedGameId, playerName, platform);
+                            await downloadChart(jwt, selectedGameId, playerId!, platform);
                           } catch (e) {
                             console.error("Download failed:", e);
                           } finally {

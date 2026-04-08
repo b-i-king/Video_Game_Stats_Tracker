@@ -499,19 +499,18 @@ async def add_stats(body: AddStatsRequest, conn: DynamicConn, user: CurrentUser)
 
 @router.get("/get_summary/{game_id}")
 async def get_summary(
-    game_id:     int,
-    conn:        DynamicConn,
-    user:        CurrentUser,
-    player_name: str = Query(...),
-    game_mode:   str | None = Query(default=None),
-    tz:          str = Query(default="America/Los_Angeles"),
+    game_id:   int,
+    conn:      DynamicConn,
+    user:      CurrentUser,
+    player_id: int = Query(...),
+    game_mode: str | None = Query(default=None),
+    tz:        str = Query(default="America/Los_Angeles"),
 ):
     """
     Today's average and all-time best KPIs for the top 3 stat types.
     Scoped to the authenticated user's player.
     """
-    player_name = player_name.strip()
-    game_mode   = game_mode.strip() if game_mode else None
+    game_mode = game_mode.strip() if game_mode else None
 
     _LOWER_IS_BETTER = {"respawn", "damage taken", "loss", "missed"}
 
@@ -533,15 +532,12 @@ async def get_summary(
             z = round((today_val - float(np.mean(arr))) / std, 2) if std > 0 else 0.0
         return round(float(ci[0]), 1), round(float(ci[1]), 1), z, n
 
-    # Resolve player scoped to this user
-    user_id = await conn.fetchval(
-        "SELECT user_id FROM dim.dim_users WHERE user_email = $1", user["email"]
+    # Verify player belongs to authenticated user
+    owned = await conn.fetchval(
+        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
+        player_id, user["email"],
     )
-    player_id = await conn.fetchval(
-        "SELECT player_id FROM dim.dim_players WHERE player_name = $1 AND user_id = $2",
-        player_name, user_id,
-    )
-    if not player_id:
+    if not owned:
         raise HTTPException(status_code=404, detail="Player not found.")
 
     # Top 3 stat types by ascending average value
@@ -626,26 +622,21 @@ async def get_summary(
 
 @router.get("/get_streaks/{game_id}")
 async def get_streaks(
-    game_id:     int,
-    conn:        DynamicConn,
-    user:        CurrentUser,
-    player_name: str = Query(...),
-    tz:          str = Query(default="America/Los_Angeles"),
+    game_id:   int,
+    conn:      DynamicConn,
+    user:      CurrentUser,
+    player_id: int = Query(...),
+    tz:        str = Query(default="America/Los_Angeles"),
 ):
     """
     Current streak, longest streak, last session date, and total session days.
     Uses the user's local timezone so the streak doesn't reset at UTC midnight.
     """
-    player_name = player_name.strip()
-
-    user_id = await conn.fetchval(
-        "SELECT user_id FROM dim.dim_users WHERE user_email = $1", user["email"]
+    owned = await conn.fetchval(
+        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
+        player_id, user["email"],
     )
-    player_id = await conn.fetchval(
-        "SELECT player_id FROM dim.dim_players WHERE player_name = $1 AND user_id = $2",
-        player_name, user_id,
-    )
-    if not player_id:
+    if not owned:
         raise HTTPException(status_code=404, detail="Player not found.")
 
     rows = await conn.fetch("""
@@ -693,19 +684,17 @@ async def get_streaks(
 
 @router.get("/get_ticker_facts/{game_id}")
 async def get_ticker_facts(
-    game_id:     int,
-    conn:        DynamicConn,
-    user:        CurrentUser,
-    player_name: str = Query(...),
-    tz:          str = Query(default="America/Los_Angeles"),
+    game_id:   int,
+    conn:      DynamicConn,
+    user:      CurrentUser,
+    player_id: int = Query(...),
+    tz:        str = Query(default="America/Los_Angeles"),
 ):
     """
     Tiered educational stat facts for the Summary page ticker (JWT-authenticated).
     Tiers: 1–2 sessions → basic | 3–30 → + descriptive | 30+ → + advanced
     """
     from api.routers.obs import _basic_facts, _descriptive_facts, _advanced_facts
-
-    player_name = player_name.strip()
 
     game_row = await conn.fetchrow(
         "SELECT game_name, game_installment FROM dim.dim_games WHERE game_id = $1", game_id
@@ -715,14 +704,11 @@ async def get_ticker_facts(
     installment = game_row["game_installment"] or ""
     game_name   = f"{game_row['game_name']}: {installment}" if installment else game_row["game_name"]
 
-    user_id = await conn.fetchval(
-        "SELECT user_id FROM dim.dim_users WHERE user_email = $1", user["email"]
+    owned = await conn.fetchval(
+        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
+        player_id, user["email"],
     )
-    player_id = await conn.fetchval(
-        "SELECT player_id FROM dim.dim_players WHERE player_name = $1 AND user_id = $2",
-        player_name, user_id,
-    )
-    if not player_id:
+    if not owned:
         raise HTTPException(status_code=404, detail="Player not found.")
 
     sessions = await conn.fetchval("""

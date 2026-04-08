@@ -97,6 +97,7 @@ export interface AddStatsPayload {
   game_subgenre?: string | null;
   stats: StatRow[];
   is_live: boolean;
+  queue_mode: boolean;
   queue_platforms: string[];
   active_platforms: string[];
   credit_style: string;
@@ -186,7 +187,8 @@ export async function getGameRanks(
     headers: authHeaders(jwt),
   });
   if (!res.ok) return [];
-  return res.json();
+  const data = await res.json();
+  return data.ranks ?? [];
 }
 
 export async function getGameModes(
@@ -197,7 +199,8 @@ export async function getGameModes(
     headers: authHeaders(jwt),
   });
   if (!res.ok) return ["Main"];
-  return res.json();
+  const data = await res.json();
+  return data.game_modes ?? ["Main"];
 }
 
 export async function getGameStatTypes(
@@ -208,7 +211,8 @@ export async function getGameStatTypes(
     headers: authHeaders(jwt),
   });
   if (!res.ok) return [];
-  return res.json();
+  const data = await res.json();
+  return data.stat_types ?? [];
 }
 
 export async function getGameContext(
@@ -425,10 +429,10 @@ export async function retryFailed(
 export async function getSummary(
   jwt: string,
   gameId: number,
-  playerName: string,
+  playerId: number,
   gameMode?: string
 ): Promise<SummaryData> {
-  const params = new URLSearchParams({ player_name: playerName });
+  const params = new URLSearchParams({ player_id: String(playerId) });
   if (gameMode) params.set("game_mode", gameMode);
   const res = await fetchWithAuth(`${BASE}/api/get_summary/${gameId}?${params}`, {
     headers: authHeaders(jwt),
@@ -440,11 +444,11 @@ export async function getSummary(
 export async function getInteractiveChart(
   jwt: string,
   gameId: number,
-  playerName: string,
+  playerId: number,
   gameMode?: string,
   tz?: string
 ): Promise<string> {
-  const params = new URLSearchParams({ player_name: playerName });
+  const params = new URLSearchParams({ player_id: String(playerId) });
   if (gameMode) params.set("game_mode", gameMode);
   if (tz) params.set("tz", tz);
   const res = await fetchWithAuth(`${BASE}/api/get_interactive_chart/${gameId}?${params}`, {
@@ -457,13 +461,13 @@ export async function getInteractiveChart(
 export async function downloadChart(
   jwt: string,
   gameId: number,
-  playerName: string,
+  playerId: number,
   platform: "twitter" | "instagram"
 ): Promise<void> {
   const res = await fetchWithAuth(`${BASE}/api/download_chart`, {
     method: "POST",
     headers: authHeaders(jwt),
-    body: JSON.stringify({ game_id: gameId, player_name: playerName, platform }),
+    body: JSON.stringify({ game_id: gameId, player_id: playerId, platform }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -473,7 +477,7 @@ export async function downloadChart(
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${playerName}_${platform}_chart.png`.replace(/\s+/g, "_");
+  a.download = `player_${playerId}_${platform}_chart.png`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -481,9 +485,11 @@ export async function downloadChart(
 export async function getHeatmap(
   jwt: string,
   gameId: number,
-  playerName: string
+  playerId: number,
+  tz?: string
 ): Promise<HeatmapData> {
-  const params = new URLSearchParams({ player_name: playerName });
+  const params = new URLSearchParams({ player_id: String(playerId) });
+  if (tz) params.set("tz", tz);
   const res = await fetchWithAuth(`${BASE}/api/get_heatmap/${gameId}?${params}`, {
     headers: authHeaders(jwt),
   });
@@ -494,9 +500,11 @@ export async function getHeatmap(
 export async function getTickerFacts(
   jwt: string,
   gameId: number,
-  playerName: string
+  playerId: number,
+  tz?: string
 ): Promise<{ facts: string[]; sessions: number }> {
-  const params = new URLSearchParams({ player_name: playerName });
+  const params = new URLSearchParams({ player_id: String(playerId) });
+  if (tz) params.set("tz", tz);
   const res = await fetchWithAuth(`${BASE}/api/get_ticker_facts/${gameId}?${params}`, {
     headers: authHeaders(jwt),
   });
@@ -507,10 +515,10 @@ export async function getTickerFacts(
 export async function getStreaks(
   jwt: string,
   gameId: number,
-  playerName: string,
+  playerId: number,
   tz?: string
 ): Promise<StreakData> {
-  const params = new URLSearchParams({ player_name: playerName });
+  const params = new URLSearchParams({ player_id: String(playerId) });
   if (tz) params.set("tz", tz);
   const res = await fetchWithAuth(`${BASE}/api/get_streaks/${gameId}?${params}`, {
     headers: authHeaders(jwt),
