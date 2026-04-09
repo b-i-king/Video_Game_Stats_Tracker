@@ -8,8 +8,8 @@ Usage limits enforced against app.ai_usage (monthly, public DB):
   Guest           → blocked at CurrentUser auth layer
 
 Model selection:
-  Trusted / Owner → gemini-2.0-flash        (full capability)
-  Premium / Free  → gemini-2.0-flash-lite   (cost-efficient)
+  Trusted / Owner / Premium → gemini-2.0-flash        (full capability)
+  Free  → gemini-2.0-flash-lite   (cost-efficient)
 """
 
 import asyncio
@@ -29,9 +29,9 @@ _MONTHLY_LIMITS: dict[str, int | None] = {
 }
 
 _MODELS: dict[str, str] = {
-    "owner":   "gemini-2.0-flash-001",
-    "trusted": "gemini-2.0-flash-001",
-    "premium": "gemini-2.0-flash-001",
+    "owner":   "gemini-2.5-flash-preview-04-17",
+    "trusted": "gemini-2.5-flash-preview-04-17",
+    "premium": "gemini-2.5-flash-preview-04-17",
     "free":    "gemini-2.0-flash-lite",   # cost-efficient for free tier only
 }
 
