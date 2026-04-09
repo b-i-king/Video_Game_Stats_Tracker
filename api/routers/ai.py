@@ -123,17 +123,16 @@ async def ask(body: AskRequest, conn: DynamicConn, user: CurrentUser):
         print(f"[ai] Gemini error: {e}")
         return {"reply": "Something went wrong on my end. Try again in a moment."}
 
-    # --- Record usage (owner excluded — personal pool has no app.ai_usage) ---
-    if not is_owner:
-        try:
-            await conn.execute("""
-                INSERT INTO app.ai_usage (user_email, query_date, query_count)
-                VALUES ($1, CURRENT_DATE, 1)
-                ON CONFLICT (user_email, query_date)
-                DO UPDATE SET query_count = app.ai_usage.query_count + 1
-            """, user["email"])
-        except Exception as e:
-            print(f"[ai] Usage tracking error (non-fatal): {e}")
+    # --- Record usage (all users including owner — table now exists on personal pool too) ---
+    try:
+        await conn.execute("""
+            INSERT INTO app.ai_usage (user_email, query_date, query_count)
+            VALUES ($1, CURRENT_DATE, 1)
+            ON CONFLICT (user_email, query_date)
+            DO UPDATE SET query_count = app.ai_usage.query_count + 1
+        """, user["email"])
+    except Exception as e:
+        print(f"[ai] Usage tracking error (non-fatal): {e}")
 
     return {"reply": reply}
 

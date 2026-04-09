@@ -303,7 +303,7 @@ CREATE TABLE IF NOT EXISTS app.push_tokens (
 -- Cutoff check: SELECT query_count ... WHERE user_email = $1 AND query_date = CURRENT_DATE
 -- Free plan limit: 20/day. Premium plan: 200/month. Trusted: unlimited (skip the check).
 CREATE TABLE IF NOT EXISTS app.ai_usage (
-    user_email  TEXT    NOT NULL,
+    user_email  TEXT    NOT NULL REFERENCES dim.dim_users(user_email) ON DELETE CASCADE,
     query_date  DATE    NOT NULL DEFAULT CURRENT_DATE,
     query_count INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (user_email, query_date)
