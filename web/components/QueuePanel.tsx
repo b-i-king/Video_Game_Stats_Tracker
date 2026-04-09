@@ -48,11 +48,6 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
     loadCounts();
   }, [loadCounts]);
 
-  useEffect(() => {
-    const interval = setInterval(() => { loadCounts(); }, 30_000);
-    return () => clearInterval(interval);
-  }, [loadCounts]);
-
   async function handleRetry() {
     setRetrying(true);
     try {

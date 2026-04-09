@@ -29,9 +29,9 @@ _MONTHLY_LIMITS: dict[str, int | None] = {
 }
 
 _MODELS: dict[str, str] = {
-    "owner":   "gemini-2.0-flash",
-    "trusted": "gemini-2.0-flash",
-    "premium": "gemini-2.0-flash",
+    "owner":   "gemini-2.0-flash-001",
+    "trusted": "gemini-2.0-flash-001",
+    "premium": "gemini-2.0-flash-001",
     "free":    "gemini-2.0-flash-lite",   # cost-efficient for free tier only
 }
 

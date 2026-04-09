@@ -85,11 +85,6 @@ export default function BoltPanel({
           <div className="flex items-center gap-2">
             <span className="text-lg">⚡</span>
             <span className="font-semibold text-sm text-[var(--gold)]">Bolt</span>
-            {usage?.simulating && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-400 border border-yellow-400/40">
-                simulating {usage.simulating}
-              </span>
-            )}
           </div>
           {/* Owner simulate-role picker */}
           {isOwner && (
@@ -109,9 +104,14 @@ export default function BoltPanel({
             </select>
           )}
         </div>
-        <p className="text-xs text-[var(--muted)] mt-0.5">
-          by BOL · Powered by Gemini
-        </p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-xs text-[var(--muted)]">by BOL · Powered by Gemini</p>
+          {usage?.simulating && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-400 border border-yellow-400/40">
+              simulating {usage.simulating}
+            </span>
+          )}
+        </div>
 
         {/* Usage bar */}
         {usage && (
