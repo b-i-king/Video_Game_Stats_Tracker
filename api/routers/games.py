@@ -1,4 +1,3 @@
-import asyncio
 from fastapi import APIRouter, HTTPException
 from api.core.deps import DynamicConn, CurrentUser, TrustedUser
 from api.models.games import AddGameRequest, UpdateGameRequest, RequestGameRequest
@@ -106,39 +105,39 @@ async def get_game_context(game_id: int, conn: DynamicConn, user: CurrentUser):
     """Ranks + modes + stat types in a single round-trip. Replaces 3 separate calls."""
     email = user["email"]
 
-    ranks_rows, modes_rows, types_rows = await asyncio.gather(
-        conn.fetch("""
-            SELECT DISTINCT rank_value FROM (
-                SELECT pre_match_rank_value AS rank_value FROM fact.fact_game_stats gs
-                JOIN dim.dim_players p ON gs.player_id = p.player_id
-                WHERE gs.game_id = $1 AND gs.ranked = 1 AND gs.pre_match_rank_value IS NOT NULL
-                AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
-                UNION
-                SELECT post_match_rank_value AS rank_value FROM fact.fact_game_stats gs
-                JOIN dim.dim_players p ON gs.player_id = p.player_id
-                WHERE gs.game_id = $1 AND gs.ranked = 1 AND gs.post_match_rank_value IS NOT NULL
-                AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
-            ) AS combined_ranks
-            WHERE rank_value IS NOT NULL AND rank_value != ''
-            ORDER BY rank_value
-        """, game_id, email),
-        conn.fetch("""
-            SELECT DISTINCT game_mode FROM fact.fact_game_stats gs
+    # asyncpg connections are single-threaded — gather() on one conn causes
+    # "another operation is in progress". Run sequentially instead.
+    ranks_rows = await conn.fetch("""
+        SELECT DISTINCT rank_value FROM (
+            SELECT pre_match_rank_value AS rank_value FROM fact.fact_game_stats gs
             JOIN dim.dim_players p ON gs.player_id = p.player_id
-            WHERE gs.game_id = $1
+            WHERE gs.game_id = $1 AND gs.ranked = 1 AND gs.pre_match_rank_value IS NOT NULL
             AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
-            AND gs.game_mode IS NOT NULL AND gs.game_mode != ''
-            ORDER BY game_mode
-        """, game_id, email),
-        conn.fetch("""
-            SELECT DISTINCT gs.stat_type FROM fact.fact_game_stats gs
+            UNION
+            SELECT post_match_rank_value AS rank_value FROM fact.fact_game_stats gs
             JOIN dim.dim_players p ON gs.player_id = p.player_id
-            WHERE gs.game_id = $1
+            WHERE gs.game_id = $1 AND gs.ranked = 1 AND gs.post_match_rank_value IS NOT NULL
             AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
-            AND gs.stat_type IS NOT NULL AND gs.stat_type != ''
-            ORDER BY stat_type
-        """, game_id, email),
-    )
+        ) AS combined_ranks
+        WHERE rank_value IS NOT NULL AND rank_value != ''
+        ORDER BY rank_value
+    """, game_id, email)
+    modes_rows = await conn.fetch("""
+        SELECT DISTINCT game_mode FROM fact.fact_game_stats gs
+        JOIN dim.dim_players p ON gs.player_id = p.player_id
+        WHERE gs.game_id = $1
+        AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
+        AND gs.game_mode IS NOT NULL AND gs.game_mode != ''
+        ORDER BY game_mode
+    """, game_id, email)
+    types_rows = await conn.fetch("""
+        SELECT DISTINCT gs.stat_type FROM fact.fact_game_stats gs
+        JOIN dim.dim_players p ON gs.player_id = p.player_id
+        WHERE gs.game_id = $1
+        AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
+        AND gs.stat_type IS NOT NULL AND gs.stat_type != ''
+        ORDER BY stat_type
+    """, game_id, email)
 
     return {
         "ranks":      [r["rank_value"] for r in ranks_rows],

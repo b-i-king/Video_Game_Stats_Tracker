@@ -52,7 +52,7 @@ logger.setLevel(logging.INFO)
 
 # Environment variables
 DB_URL      = os.environ.get("DB_URL")
-DB_PORT     = int(os.environ.get("DB_PORT", 5432))
+DB_PORT     = int(os.environ.get("DB_PORT", 6543))
 DB_NAME     = os.environ.get("DB_NAME", "postgres")
 DB_USER     = os.environ.get("DB_USER")
 DB_PASSWORD = os.environ.get("DB_PASSWORD")
