@@ -486,10 +486,26 @@ async def add_stats(body: AddStatsRequest, conn: DynamicConn, user: CurrentUser)
     # Invalidate OBS dashboard/ticker cache so next poll reflects new stats
     _cache_invalidate_obs()
 
-    # TODO Chunk 2: fire social media pipeline (owner only)
-    # if is_owner:
-    #     asyncio.create_task(_social_media_pipeline(...))
-    post_action = "queued" if (queue_platforms and is_owner) else "skipped"
+    if is_owner:
+        import asyncio
+        from utils.social_pipeline import run_social_media_pipeline
+        asyncio.create_task(
+            asyncio.to_thread(
+                run_social_media_pipeline,
+                player_id=player_id,
+                player_name=body.player_name,
+                game_id=game_id,
+                game_name=body.game_name,
+                game_installment=body.game_installment,
+                stats=[s.model_dump() for s in body.stats],
+                is_live=body.is_live,
+                credit_style=body.credit_style,
+                queue_platforms=queue_platforms,
+            )
+        )
+        post_action = "queued" if queue_platforms else "posting"
+    else:
+        post_action = "skipped"
 
     return {
         "message": f"Stats successfully added ({inserted} records)!",
@@ -704,12 +720,13 @@ async def get_ticker_facts(
     installment = game_row["game_installment"] or ""
     game_name   = f"{game_row['game_name']}: {installment}" if installment else game_row["game_name"]
 
-    owned = await conn.fetchval(
-        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
+    player_row = await conn.fetchrow(
+        "SELECT player_name FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
         player_id, user["email"],
     )
-    if not owned:
+    if not player_row:
         raise HTTPException(status_code=404, detail="Player not found.")
+    player_name = player_row["player_name"]
 
     sessions = await conn.fetchval("""
         SELECT COUNT(DISTINCT played_at) FROM fact.fact_game_stats

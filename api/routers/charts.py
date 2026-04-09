@@ -78,13 +78,13 @@ async def get_interactive_chart(
         top_stats = [r["stat_type"] for r in top_rows]
 
         # get_stat_history_from_db uses a psycopg2 cursor — run in thread
-        import psycopg2, os
+        import psycopg2
+        from api.core.config import get_settings
+        settings = get_settings()
+        is_owner = user.get("is_owner", False)
+        dsn = settings.personal_db_url if is_owner else settings.public_db_url
         def _fetch_history():
-            pg = psycopg2.connect(
-                host=os.environ["DB_HOST"], port=int(os.environ.get("DB_PORT", 6543)),
-                dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],
-                password=os.environ["DB_PASSWORD"], sslmode="require",
-            )
+            pg = psycopg2.connect(dsn, sslmode="require")
             try:
                 with pg.cursor() as cur:
                     return get_stat_history_from_db(cur, player_id, game_id, top_stats, timezone_str=tz, days_back=365)
@@ -166,13 +166,13 @@ async def download_chart(body: DownloadChartRequest, conn: DynamicConn, user: Cu
         """, body.player_id, body.game_id)
         top_stats = [r["stat_type"] for r in top_rows]
 
-        import psycopg2, os
+        import psycopg2
+        from api.core.config import get_settings
+        settings = get_settings()
+        is_owner = user.get("is_owner", False)
+        dsn = settings.personal_db_url if is_owner else settings.public_db_url
         def _fetch_history():
-            pg = psycopg2.connect(
-                host=os.environ["DB_HOST"], port=int(os.environ.get("DB_PORT", 6543)),
-                dbname=os.environ["DB_NAME"], user=os.environ["DB_USER"],
-                password=os.environ["DB_PASSWORD"], sslmode="require",
-            )
+            pg = psycopg2.connect(dsn, sslmode="require")
             try:
                 with pg.cursor() as cur:
                     return get_stat_history_from_db(cur, body.player_id, body.game_id, top_stats, days_back=365)
