@@ -13,7 +13,7 @@ Model selection:
 """
 
 import asyncio
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from api.core.deps import DynamicConn, CurrentUser
@@ -23,7 +23,7 @@ router = APIRouter()
 
 _MONTHLY_LIMITS: dict[str, int | None] = {
     "owner":   None,   # unlimited
-    "trusted": None,   # unlimited
+    "trusted": 200,   # same as premium, but check is skipped for trusted/owner
     "premium": 200,
     "free":    20,
 }
@@ -57,13 +57,15 @@ async def ask(body: AskRequest, conn: DynamicConn, user: CurrentUser):
     if not prompt:
         raise HTTPException(status_code=400, detail="No prompt provided.")
 
-    role        = user.get("role", "free")
-    is_elevated = user.get("is_trusted") or user.get("is_owner")
-    limit       = _MONTHLY_LIMITS.get(role, 20)
-    model       = _MODELS.get(role, "gemini-2.0-flash-lite")
+    role     = user.get("role", "free")
+    is_owner = user.get("is_owner", False)
+    limit    = _MONTHLY_LIMITS.get(role, 20)
+    model    = _MODELS.get(role, "gemini-2.0-flash-lite")
 
-    # --- Usage check (skip for trusted / owner) ---
-    if not is_elevated and limit is not None:
+    # --- Usage check ---
+    # Owner: unlimited, skip entirely (personal pool — app.ai_usage doesn't exist there)
+    # Trusted + Free + Premium: check against monthly limit (all on public pool)
+    if not is_owner and limit is not None:
         monthly_used = await conn.fetchval("""
             SELECT COALESCE(SUM(query_count), 0)
             FROM app.ai_usage
@@ -121,8 +123,8 @@ async def ask(body: AskRequest, conn: DynamicConn, user: CurrentUser):
         print(f"[ai] Gemini error: {e}")
         return {"reply": "Something went wrong on my end. Try again in a moment."}
 
-    # --- Record usage (non-elevated only) ---
-    if not is_elevated:
+    # --- Record usage (owner excluded — personal pool has no app.ai_usage) ---
+    if not is_owner:
         try:
             await conn.execute("""
                 INSERT INTO app.ai_usage (user_email, query_date, query_count)
@@ -134,3 +136,73 @@ async def ask(body: AskRequest, conn: DynamicConn, user: CurrentUser):
             print(f"[ai] Usage tracking error (non-fatal): {e}")
 
     return {"reply": reply}
+
+
+@router.get("/ai_usage")
+async def get_ai_usage(
+    conn:          DynamicConn,
+    user:          CurrentUser,
+    simulate_role: str | None = Query(default=None),
+):
+    """
+    Return this month's Bolt AI usage for the BoltPanel progress bar.
+
+    Response:
+      used          — queries used this month
+      limit         — monthly cap (null = unlimited)
+      reset_date    — first day of next month (ISO date string)
+      is_unlimited  — true for owner/trusted (bar shows raw count, no cap)
+      simulating    — echoes simulate_role back if owner is testing a tier
+
+    Owner / trusted can pass ?simulate_role=free or ?simulate_role=premium
+    to preview how the bar looks for capped tiers.
+    """
+    from datetime import date
+
+    role     = user.get("role", "free")
+    is_owner = user.get("is_owner", False)
+    is_elevated = user.get("is_trusted") or is_owner
+
+    # Owner/trusted can simulate a capped role for UI testing
+    effective_role = role
+    if is_elevated and simulate_role in ("free", "premium", "trusted"):
+        effective_role = simulate_role
+
+    limit = _MONTHLY_LIMITS.get(effective_role, 20)
+    # Only owner is truly unlimited (no usage table on personal pool).
+    # Trusted has a 200 cap tracked on the public pool — not unlimited.
+    is_unlimited = is_owner and not simulate_role
+
+    # First day of next month
+    today = date.today()
+    if today.month == 12:
+        reset_date = date(today.year + 1, 1, 1)
+    else:
+        reset_date = date(today.year, today.month + 1, 1)
+
+    # Pool routing:
+    #   owner              → personal_pool (app.ai_usage does NOT exist) — skip
+    #   trusted/free/premium → public_pool — query normally
+    if is_owner:
+        used = 0
+    else:
+        try:
+            used = await conn.fetchval("""
+                SELECT COALESCE(SUM(query_count), 0)
+                FROM app.ai_usage
+                WHERE user_email = $1
+                  AND query_date >= DATE_TRUNC('month', CURRENT_DATE)
+            """, user["email"])
+        except Exception:
+            used = 0
+
+    response: dict = {
+        "used":         int(used),
+        "limit":        limit,
+        "reset_date":   reset_date.isoformat(),
+        "is_unlimited": is_unlimited,
+    }
+    if is_elevated and simulate_role:
+        response["simulating"] = simulate_role
+
+    return response

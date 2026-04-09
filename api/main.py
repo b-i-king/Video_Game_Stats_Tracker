@@ -2,21 +2,23 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
+from api.core.config import get_settings as _get_settings
 from api.core.database import init_pools, close_pools
 from api.routers import auth, players, games, stats, charts, queue, ai, obs, instagram, ml
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     await init_pools()
     yield
     await close_pools()
 
 
+_origins = [o.strip() for o in _get_settings().allowed_origins.split(",") if o.strip()]
 app = FastAPI(title="Video Game Stats Tracker API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in production via config
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

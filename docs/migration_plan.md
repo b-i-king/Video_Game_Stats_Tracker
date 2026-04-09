@@ -305,7 +305,7 @@ PUBLIC_DB_PASSWORD    = <public password>
 
 JWT_SECRET_KEY        = <same key as Flask for session continuity>
 API_KEY               = <same or new key>
-TRUSTED_EMAILS        = biking.phd@gmail.com
+TRUSTED_EMAILS        = <personal email>
 GCS_BUCKET_NAME       = gaming-stats-images-thebolgroup
 GCS_CREDENTIALS_JSON  = <same as Flask>
 ```

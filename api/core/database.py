@@ -19,17 +19,19 @@ async def init_pools() -> None:
 
     personal_pool = await asyncpg.create_pool(
         dsn=settings.personal_db_url,
-        min_size=2,
+        min_size=1,
         max_size=10,
-        statement_cache_size=0,  # required for Supabase PgBouncer
+        statement_cache_size=0,           # required for Supabase PgBouncer
+        max_inactive_connection_lifetime=300,  # recycle idle conns before Supabase kills them
     )
 
     if settings.public_db_url:
         public_pool = await asyncpg.create_pool(
             dsn=settings.public_db_url,
-            min_size=2,
+            min_size=1,
             max_size=10,
             statement_cache_size=0,
+            max_inactive_connection_lifetime=300,
         )
 
 

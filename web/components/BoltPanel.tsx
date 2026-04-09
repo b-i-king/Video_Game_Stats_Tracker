@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { askBolt } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { askBolt, getAiUsage, AiUsage } from "@/lib/api";
 
 interface Message {
   role: "user" | "bolt";
@@ -15,7 +15,13 @@ const SUGGESTIONS = [
   "Summarize this week",
 ];
 
-export default function BoltPanel({ jwt }: { jwt: string }) {
+export default function BoltPanel({
+  jwt,
+  isOwner = false,
+}: {
+  jwt: string;
+  isOwner?: boolean;
+}) {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "bolt",
@@ -24,7 +30,17 @@ export default function BoltPanel({ jwt }: { jwt: string }) {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [usage, setUsage] = useState<AiUsage | null>(null);
+  const [simulateRole, setSimulateRole] = useState<
+    "free" | "premium" | "trusted" | undefined
+  >(undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    getAiUsage(jwt, simulateRole)
+      .then(setUsage)
+      .catch(() => {});
+  }, [jwt, simulateRole]);
 
   async function send(text: string) {
     const trimmed = text.trim().slice(0, 500);
@@ -37,6 +53,8 @@ export default function BoltPanel({ jwt }: { jwt: string }) {
     try {
       const reply = await askBolt(jwt, trimmed);
       setMessages((prev) => [...prev, { role: "bolt", text: reply }]);
+      // Refresh usage count after each message
+      getAiUsage(jwt, simulateRole).then(setUsage).catch(() => {});
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -51,17 +69,73 @@ export default function BoltPanel({ jwt }: { jwt: string }) {
     }
   }
 
+  // Derive bar colour: gold < 70%, yellow 70–90%, red > 90%
+  function barColor(used: number, limit: number): string {
+    const pct = used / limit;
+    if (pct >= 0.9) return "bg-red-500";
+    if (pct >= 0.7) return "bg-yellow-400";
+    return "bg-[var(--gold)]";
+  }
+
   return (
     <div className="h-full rounded-lg border border-[var(--border)] bg-[var(--surface)] flex flex-col">
       {/* Header */}
       <div className="px-4 pt-4 pb-2 border-b border-[var(--border)]">
-        <div className="flex items-center gap-2">
-          <span className="text-lg">⚡</span>
-          <span className="font-semibold text-sm text-[var(--gold)]">Bolt</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚡</span>
+            <span className="font-semibold text-sm text-[var(--gold)]">Bolt</span>
+            {usage?.simulating && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-400 border border-yellow-400/40">
+                simulating {usage.simulating}
+              </span>
+            )}
+          </div>
+          {/* Owner simulate-role picker */}
+          {isOwner && (
+            <select
+              value={simulateRole ?? ""}
+              onChange={(e) =>
+                setSimulateRole(
+                  (e.target.value as "free" | "premium" | "trusted") || undefined
+                )
+              }
+              className="text-[10px] rounded border border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] px-1 py-0.5 focus:outline-none focus:border-[var(--gold)]"
+            >
+              <option value="">Owner view</option>
+              <option value="trusted">Simulate: Trusted</option>
+              <option value="premium">Simulate: Premium</option>
+              <option value="free">Simulate: Free</option>
+            </select>
+          )}
         </div>
         <p className="text-xs text-[var(--muted)] mt-0.5">
           by BOL · Powered by Gemini
         </p>
+
+        {/* Usage bar */}
+        {usage && (
+          <div className="mt-2">
+            {usage.is_unlimited ? (
+              <p className="text-[10px] text-[var(--muted)]">
+                {usage.used} quer{usage.used === 1 ? "y" : "ies"} this month · unlimited
+              </p>
+            ) : (
+              <>
+                <div className="flex justify-between text-[10px] text-[var(--muted)] mb-1">
+                  <span>{usage.used} / {usage.limit} queries</span>
+                  <span>resets {usage.reset_date}</span>
+                </div>
+                <div className="h-1 rounded-full bg-[var(--border)] overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${barColor(usage.used, usage.limit!)}`}
+                    style={{ width: `${Math.min((usage.used / usage.limit!) * 100, 100)}%` }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Messages */}

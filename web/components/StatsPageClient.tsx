@@ -111,7 +111,7 @@ export default function StatsPageClient() {
         <div className="flex gap-6 items-stretch">
           {/* Bolt AI sidebar — desktop only, all signed-in users */}
           <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[530px]">
-            <BoltPanel jwt={jwt} />
+            <BoltPanel jwt={jwt} isOwner={isOwner} />
           </aside>
 
           <div className="flex-1 min-w-0">
@@ -183,7 +183,7 @@ export default function StatsPageClient() {
               className="absolute bottom-[52px] left-0 right-0 max-h-[70vh] overflow-y-auto bg-[var(--surface)] border-t border-[var(--border)] p-4"
               onClick={(e) => e.stopPropagation()}
             >
-              {mobilePanel === "bolt" && <BoltPanel jwt={jwt} />}
+              {mobilePanel === "bolt" && <BoltPanel jwt={jwt} isOwner={isOwner} />}
               {mobilePanel === "queue" && (
                 isOwner
                   ? <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} enabledPlatforms={enabledPlatforms} setEnabledPlatforms={setEnabledPlatforms} />

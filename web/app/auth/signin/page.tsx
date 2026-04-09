@@ -39,10 +39,10 @@ function SignInContent() {
         </div>
 
         {/* Main layout: Free | Sign-in card | Premium */}
-        <div className="grid md:grid-cols-3 gap-4 items-start">
+        <div className="grid md:grid-cols-3 gap-4 items-stretch">
 
           {/* Free tier */}
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-4 h-full">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-lg">Free</span>
@@ -65,7 +65,7 @@ function SignInContent() {
           </div>
 
           {/* Sign-in card */}
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 space-y-6 shadow-xl">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 space-y-6 shadow-xl h-full">
             <div className="space-y-1 text-center">
               <h2 className="text-lg font-semibold">Sign in to continue</h2>
               <p className="text-sm text-[var(--muted)]">
@@ -114,7 +114,7 @@ function SignInContent() {
           </div>
 
           {/* Premium tier */}
-          <div className="rounded-xl border border-[var(--gold)] bg-[var(--surface)] p-5 space-y-4 relative">
+          <div className="rounded-xl border border-[var(--gold)] bg-[var(--surface)] p-5 space-y-4 relative h-full">
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
               <span className="text-xs font-semibold px-3 py-1 rounded-full bg-[var(--gold)] text-black whitespace-nowrap">
                 ⚡ Premium

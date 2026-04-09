@@ -540,3 +540,23 @@ export async function askBolt(
   const data = await res.json();
   return data.reply as string;
 }
+
+export interface AiUsage {
+  used: number;
+  limit: number | null;   // null = owner (no cap)
+  reset_date: string;     // ISO date — first day of next month
+  is_unlimited: boolean;  // true for owner only
+  simulating?: string;    // echoed back when owner/trusted previews a capped role
+}
+
+export async function getAiUsage(
+  jwt: string,
+  simulateRole?: "free" | "premium" | "trusted"
+): Promise<AiUsage> {
+  const params = simulateRole ? `?simulate_role=${simulateRole}` : "";
+  const res = await fetchWithAuth(`${BASE}/api/ai_usage${params}`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to load AI usage");
+  return res.json();
+}
