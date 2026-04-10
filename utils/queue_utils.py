@@ -12,7 +12,7 @@ def _get_conn():
     """Open a fresh connection to personal Supabase (same creds as Flask)."""
     return psycopg2.connect(
         host=os.environ["DB_URL"],
-        port=int(os.environ.get("DB_PORT", 5432)),
+        port=int(os.environ.get("DB_PORT", 6543)),
         database=os.environ.get("DB_NAME", "postgres"),
         user=os.environ["DB_USER"],
         password=os.environ["DB_PASSWORD"],

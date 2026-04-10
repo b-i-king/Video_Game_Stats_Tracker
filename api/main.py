@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from api.core.config import get_settings as _get_settings
 from api.core.database import init_pools, close_pools
-from api.routers import auth, players, games, stats, charts, queue, ai, obs, instagram, ml
+from api.routers import auth, players, games, stats, charts, queue, ai, obs, instagram, ml, admin, game_requests, leaderboard, dashboard
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -32,8 +32,12 @@ app.include_router(charts.router,    prefix="/api", tags=["charts"])
 app.include_router(queue.router,     prefix="/api", tags=["queue"])
 app.include_router(ai.router,        prefix="/api", tags=["ai"])
 app.include_router(obs.router,       prefix="/api", tags=["obs"])
-app.include_router(instagram.router, prefix="/api", tags=["instagram"])
-app.include_router(ml.router,        prefix="/api", tags=["ml"])
+app.include_router(instagram.router,    prefix="/api", tags=["instagram"])
+app.include_router(ml.router,           prefix="/api", tags=["ml"])
+app.include_router(admin.router,        prefix="/api", tags=["admin"])
+app.include_router(game_requests.router, prefix="/api", tags=["game_requests"])
+app.include_router(leaderboard.router,  prefix="/api", tags=["leaderboard"])
+app.include_router(dashboard.router,    prefix="/api", tags=["dashboard"])
 
 
 @app.get("/health", tags=["health"])

@@ -560,3 +560,151 @@ export async function getAiUsage(
   if (!res.ok) throw new Error("Failed to load AI usage");
   return res.json();
 }
+
+// ── Leaderboard ───────────────────────────────────────────────────────────────
+
+export interface LeaderboardRankEntry {
+  rank:        number;
+  player_name: string;
+  avg_value:   number;
+  sessions:    number;
+  is_you:      boolean;
+}
+
+export interface LeaderboardRankings {
+  game_id:     number;
+  stat_type:   string;
+  top10:       LeaderboardRankEntry[];
+  your_rank:   { rank: number; avg_value: number; sessions: number } | null;
+  sample_size: number;
+}
+
+export interface StandingCard {
+  game_id:      number;
+  game_title:   string;
+  stat_type:    string;
+  avg_value:    number;
+  rank:         number;
+  percentile:   number;
+  sample_size:  number;
+  small_sample: boolean;
+}
+
+export async function getLeaderboardSampleSize(
+  jwt: string,
+  gameId: number
+): Promise<{ game_id: number; sample_size: number; phase: string }> {
+  const res = await fetchWithAuth(`${BASE}/api/leaderboard/sample_size/${gameId}`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to load sample size");
+  return res.json();
+}
+
+export async function getLeaderboardTopStats(
+  jwt: string,
+  gameId: number
+): Promise<{ game_id: number; stat_types: string[] }> {
+  const res = await fetchWithAuth(`${BASE}/api/leaderboard/top_stats/${gameId}`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to load top stats");
+  return res.json();
+}
+
+export async function getLeaderboardRankings(
+  jwt: string,
+  gameId: number,
+  statType: string
+): Promise<LeaderboardRankings> {
+  const res = await fetchWithAuth(
+    `${BASE}/api/leaderboard/rankings/${gameId}?stat_type=${encodeURIComponent(statType)}`,
+    { headers: authHeaders(jwt) }
+  );
+  if (!res.ok) throw new Error("Failed to load rankings");
+  return res.json();
+}
+
+export async function getLeaderboardStandings(
+  jwt: string
+): Promise<{ standings: StandingCard[] }> {
+  const res = await fetchWithAuth(`${BASE}/api/leaderboard/standings`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to load standings");
+  return res.json();
+}
+
+export async function toggleLeaderboardOptIn(
+  jwt: string,
+  gameId: number
+): Promise<{ game_id: number; opted_in: boolean }> {
+  const res = await fetchWithAuth(`${BASE}/api/leaderboard/opt_in/${gameId}`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to toggle opt-in");
+  return res.json();
+}
+
+export async function getOptInStatus(
+  jwt: string
+): Promise<{ opted_in: number[] }> {
+  const res = await fetchWithAuth(`${BASE}/api/leaderboard/opt_in_status`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to load opt-in status");
+  return res.json();
+}
+
+export async function submitGameRequest(
+  jwt: string,
+  body: {
+    game_name: string;
+    game_installment?: string;
+    game_genre?: string;
+    game_subgenre?: string;
+  }
+): Promise<{ request_id: number; status: string; message: string }> {
+  const res = await fetchWithAuth(`${BASE}/api/game_requests`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail ?? "Failed to submit game request");
+  }
+  return res.json();
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export interface DashboardTopGame {
+  game_id:          number;
+  game_name:        string;
+  game_installment: string | null;
+  sessions:         number;
+  top_stat:         string | null;
+  top_stat_avg:     number | null;
+}
+
+export interface DashboardData {
+  total_sessions: number;
+  total_games:    number;
+  current_streak: number;
+  longest_streak: number;
+  last_played:    string | null;
+  top_games:      DashboardTopGame[];
+  heatmap:        HeatmapData;
+}
+
+export async function getDashboard(jwt: string): Promise<DashboardData> {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const res = await fetchWithAuth(
+    `${BASE}/api/dashboard?tz=${encodeURIComponent(tz)}`,
+    { headers: authHeaders(jwt) }
+  );
+  if (!res.ok) throw new Error("Failed to load dashboard");
+  return res.json();
+}

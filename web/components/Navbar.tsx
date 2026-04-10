@@ -44,7 +44,17 @@ export default function Navbar() {
               Stats
             </Link>
           )}
-          {/* Phase 3: History 📊 | Dashboard 📺 | Insights 🤖 | Leaderboard 🏆
+          {session && (
+            <Link href="/dashboard" className="hover:text-[var(--gold)] transition-colors">
+              Dashboard
+            </Link>
+          )}
+          {session && (
+            <Link href="/leaderboard" className="hover:text-[var(--gold)] transition-colors">
+              Leaderboard
+            </Link>
+          )}
+          {/* Phase 3: History 📊 | Dashboard 📺 | Insights 🤖
               — rendered here based on role/tier once those pages exist */}
         </div>
 

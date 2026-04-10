@@ -53,8 +53,12 @@ export default function BoltPanel({
     try {
       const reply = await askBolt(jwt, trimmed);
       setMessages((prev) => [...prev, { role: "bolt", text: reply }]);
-      // Refresh usage count after each message
-      getAiUsage(jwt, simulateRole).then(setUsage).catch(() => {});
+      // Optimistic: instant UI update
+      setUsage((prev) => prev ? { ...prev, used: prev.used + 1 } : prev);
+      // Sync: re-fetch real DB value after backend INSERT commits
+      setTimeout(() => {
+        getAiUsage(jwt, simulateRole).then(setUsage).catch(() => {});
+      }, 1000);
     } catch {
       setMessages((prev) => [
         ...prev,
