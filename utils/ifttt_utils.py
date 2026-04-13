@@ -67,7 +67,7 @@ def trigger_ifttt_post(image_url, caption, platform='twitter'):
 
 def generate_post_caption(player_name, game_name, game_installment, stat_data, games_played,
                          platform='twitter', is_live=False, credit_style='shoutout', game_mode=None,
-                         interactive_url=None):
+                         interactive_url=None, sessions_30d=None):
     """
     Generate engaging caption for social media post.
     Now uses game_handles_utils for platform-specific handles and hashtags.
@@ -171,9 +171,10 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
             caption += f"📊 {player_name}'s {full_game_name} Progress Report! 📊\n"
             if game_handle:
                 caption += f"{credit_line}\n"
-            # Twitter omits "Games Played" to save characters
             if platform != 'twitter':
-                caption += f"\n#️⃣ Games Played: {games_played}\n"
+                caption += f"\n#️⃣ All-Time Sessions: {games_played}\n"
+                if sessions_30d is not None:
+                    caption += f"⏱️ Last 30 Days: {sessions_30d}\n"
             caption += f"🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
 
             # Add stream link based on platform
@@ -192,11 +193,14 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
             caption = f"📊 {player_name}'s {full_game_name} Progress Report! 📊\n"
             if game_handle:
                 caption += f"{credit_line}\n"
-            # Twitter omits "Games Played" to save characters
             if platform != 'twitter':
-                caption += f"\n#️⃣ Games Played: {games_played}\n"
+                caption += f"\n#️⃣ All-Time Sessions: {games_played}\n"
+                if sessions_30d is not None:
+                    caption += f"⏱️ Last 30 Days: {sessions_30d}\n"
             else:
-                caption += f"#️⃣ Sessions: {games_played}\n"
+                # Twitter: compact single line to save characters
+                _30d_suffix = f" (30d: {sessions_30d})" if sessions_30d is not None else ""
+                caption += f"#️⃣ Sessions: {games_played}{_30d_suffix}\n"
             caption += f"🔥 {stat1_label.upper()}: {stat1_value}{_prev_suffix}\n"
 
             # Platform-specific base hashtags

@@ -113,7 +113,15 @@ def run_social_media_pipeline(
             interactive_data = stat_data
 
         elif games_played > 1:
-            stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats, days_back=365)
+            cur.execute(
+                "SELECT COUNT(DISTINCT played_at) FROM fact.fact_game_stats "
+                "WHERE player_id = %s AND game_id = %s "
+                "AND played_at >= NOW() - INTERVAL '30 days'",
+                (player_id, game_id),
+            )
+            sessions_30d: int = cur.fetchone()[0]
+
+            stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats, days_back=30)
             buf_tw = generate_line_chart(stat_history, player_name, game_name, game_installment, size="twitter",   game_mode=batch_game_mode)
             buf_ig = generate_line_chart(stat_history, player_name, game_name, game_installment, size="instagram", game_mode=batch_game_mode)
             chart_type = "line"
@@ -162,6 +170,7 @@ def run_social_media_pipeline(
                 games_played, platform="twitter", is_live=is_live,
                 credit_style=credit_style, game_mode=batch_game_mode,
                 interactive_url=interactive_url,
+                sessions_30d=sessions_30d if chart_type == "line" else None,
             )
             if "twitter" in queue_platforms:
                 qid = enqueue_post(player_id, "twitter", twitter_url, caption)
@@ -190,6 +199,7 @@ def run_social_media_pipeline(
                     player_name, game_name, game_installment, stat_data_for_caption,
                     games_played, platform="instagram", is_live=is_live,
                     credit_style=credit_style, game_mode=batch_game_mode,
+                    sessions_30d=sessions_30d if chart_type == "line" else None,
                 )
                 qid = enqueue_post(player_id, "instagram", instagram_url, ig_caption)
                 print(f"📥 [bg] Instagram queued (queue_id={qid})")
