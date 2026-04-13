@@ -12,6 +12,23 @@
 
 import { useEffect, useRef, useState } from "react";
 
+// Web Speech API type shim — SpeechRecognition is not in all lib.dom.d.ts versions
+interface SpeechRecognitionEventShim extends Event {
+  readonly results: { [index: number]: { [index: number]: { transcript: string } } };
+}
+interface SpeechRecognitionShim {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  continuous: boolean;
+  onresult: ((e: SpeechRecognitionEventShim) => void) | null;
+  onend:    (() => void) | null;
+  onerror:  (() => void) | null;
+  start(): void;
+  stop():  void;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionShim;
+
 interface Props {
   onResult: (text: string) => void;
   /** Placeholder shown in the listening indicator */
@@ -22,13 +39,13 @@ interface Props {
 export default function SpeechInput({ onResult, label = "Listening…", disabled = false }: Props) {
   const [listening, setListening]     = useState(false);
   const [supported, setSupported]     = useState(false);
-  const recognitionRef                = useRef<SpeechRecognition | null>(null);
+  const recognitionRef                = useRef<SpeechRecognitionShim | null>(null);
 
   useEffect(() => {
     const SR =
-      (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition })
+      (window as Window & { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor })
         .SpeechRecognition ??
-      (window as Window & { webkitSpeechRecognition?: typeof SpeechRecognition })
+      (window as Window & { webkitSpeechRecognition?: SpeechRecognitionCtor })
         .webkitSpeechRecognition;
 
     if (!SR) return;
@@ -40,7 +57,7 @@ export default function SpeechInput({ onResult, label = "Listening…", disabled
     rec.maxAlternatives   = 1;
     rec.continuous        = false;
 
-    rec.onresult = (e: SpeechRecognitionEvent) => {
+    rec.onresult = (e: SpeechRecognitionEventShim) => {
       const transcript = e.results[0][0].transcript.trim();
       onResult(transcript);
     };
