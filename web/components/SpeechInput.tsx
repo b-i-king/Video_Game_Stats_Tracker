@@ -37,19 +37,20 @@ interface Props {
 }
 
 export default function SpeechInput({ onResult, label = "Listening…", disabled = false }: Props) {
-  const [listening, setListening]     = useState(false);
-  const [supported, setSupported]     = useState(false);
-  const recognitionRef                = useRef<SpeechRecognitionShim | null>(null);
+  const [listening, setListening] = useState(false);
+  // Lazy init: detect support once on mount without calling setState inside an effect
+  const [supported] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const w = window as Window & { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
+    return !!(w.SpeechRecognition || w.webkitSpeechRecognition);
+  });
+  const recognitionRef = useRef<SpeechRecognitionShim | null>(null);
 
   useEffect(() => {
-    const SR =
-      (window as Window & { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor })
-        .SpeechRecognition ??
-      (window as Window & { webkitSpeechRecognition?: SpeechRecognitionCtor })
-        .webkitSpeechRecognition;
-
+    if (!supported) return;
+    const w = window as Window & { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
+    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
     if (!SR) return;
-    setSupported(true);
 
     const rec = new SR();
     rec.lang              = "en-US";
@@ -66,7 +67,7 @@ export default function SpeechInput({ onResult, label = "Listening…", disabled
     rec.onerror = () => setListening(false);
 
     recognitionRef.current = rec;
-  }, [onResult]);
+  }, [onResult, supported]);
 
   function toggle() {
     if (!recognitionRef.current) return;

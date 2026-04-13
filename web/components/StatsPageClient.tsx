@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import StatsForm from "./StatsForm";
 import EditTab from "./EditTab";
 import DeleteTab from "./DeleteTab";
@@ -103,7 +104,7 @@ export default function StatsPageClient() {
             {session?.role === "premium" ? (
               <>You are on <strong className="text-[var(--gold)]">Premium</strong>. Up to 5 players · 200 Bolt AI queries/mo.</>
             ) : (
-              <>You are on <strong>Free</strong>. Up to 2 players · 20 Bolt AI queries/mo. <a href="/" className="text-[var(--gold)] hover:underline">Upgrade to Premium →</a></>
+              <>You are on <strong>Free</strong>. Up to 2 players · 20 Bolt AI queries/mo. <Link href="/" className="text-[var(--gold)] hover:underline">Upgrade to Premium →</Link></>
             )}
           </div>
         )}

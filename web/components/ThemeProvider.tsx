@@ -19,17 +19,17 @@ export function useTheme() {
 }
 
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("dark");
-
-  // On mount: read saved preference, then fall back to system preference
-  useEffect(() => {
+  // Lazy init: read preference on first render (client only) — avoids setState in effect
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") return "dark";
     const saved = localStorage.getItem("theme") as Theme | null;
-    const preferred: Theme =
-      saved ??
-      (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-    setTheme(preferred);
-    document.documentElement.setAttribute("data-theme", preferred);
-  }, []);
+    return saved ?? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  });
+
+  // Sync the data-theme attribute whenever theme changes
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
 
   function toggle() {
     const next: Theme = theme === "dark" ? "light" : "dark";
