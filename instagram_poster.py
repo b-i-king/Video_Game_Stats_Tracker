@@ -2,7 +2,7 @@
 Instagram Automated Poster
 Posts gaming stats to Instagram on Monday, Wednesday, Friday at 9 PM PST
 Optimized for AWS Lambda execution
-
+F
 Features:
 - Multi-game support (not just one game)
 - Trendy, concise captions with game-specific hashtags
@@ -134,7 +134,7 @@ def _resolve_player_id(player_name: str) -> int:
         raise RuntimeError(f"No player found with name '{player_name}'. Check SOCIAL_PLAYER_NAME.")
     return rows[0][0]
 
-PLAYER_ID: int = _resolve_player_id(SOCIAL_PLAYER_NAME)
+PLAYER_ID: int | None = _resolve_player_id(SOCIAL_PLAYER_NAME) if (SOCIAL_PLAYER_NAME and DB_URL) else None
 
 
 # ============================================================================
@@ -771,32 +771,55 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
     player_game_line = f"{player_name} - {full_game_name}"
 
     # --- FONT SIZES ---
-    # Portrait width = instagram square width (10.8"), so branding x-offsets are identical
     branding_fontsize = 19
     amp_offset = 0.025    # after "YT" (2 chars)
     twitch_offset = 0.062 # after "YT & " (2+3 chars)
     handle_offset = 0.134 # after "YT & Twitch" (2+3+6 chars)
     branding_y_pos = 0.03
 
-    # 3-stat: compact 28pt (fills nicely with 3 bars)
-    # 1-stat / 2-stat: main title fills the figure width dynamically
-    if num_stats <= 2:
-        fig_width_pts = 10.8 * 72   # 777.6 pt — portrait same width as square
-        char_ratio = 0.60            # Fira Code monospace char width / fontsize ratio
-        fill = 0.88                  # target 88% of figure width
-        title_fontsize = max(36, min(int(fig_width_pts * fill / (len(title) * char_ratio)), 72))
-        secondary_fontsize = max(26, int(title_fontsize * 0.70))
+    fig_width_pts  = 10.8 * 72   # 777.6 pt
+    fig_height_pts = 14.4 * 72   # 1036.8 pt
+    char_ratio = 0.60
+    fill = 0.88
+
+    # Title: dynamic width-fill, max 72 — same structure as create_weekly header, all bar counts
+    title_fontsize = max(36, min(int(fig_width_pts * fill / (len(title) * char_ratio)), 72))
+
+    # Secondary lines always 44 — matches create_weekly secondary style
+    secondary_fontsize = 44
+
+    # Bar value labels — 2-stat/3-stat bars only; 1-stat KPI uses its own sizing table below
+    if num_stats == 2:
+        value_fontsize = 90
+    elif num_stats == 3:
+        value_fontsize = 80
     else:
-        title_fontsize = 28
-        secondary_fontsize = 28
+        value_fontsize = 18  # unused — KPI section overrides completely
 
-    # Bar value labels
-    value_fontsize = 18 if num_stats == 3 else (22 if num_stats == 2 else 18)
+    # Line spacing proportional to font height in figure-fraction coordinates
+    line_spacing           = (title_fontsize    / fig_height_pts) * 1.30
+    secondary_line_spacing = (secondary_fontsize / fig_height_pts) * 1.30
 
-    # Portrait line spacing: same absolute size as the square chart
-    # Square uses 0.04 at 10.8"; portrait scales: 0.04 * (10.8/14.4) = 0.03
-    line_spacing = 0.03 * (title_fontsize / 26)
-    secondary_line_spacing = 0.03 * (secondary_fontsize / 26)
+    # --- PRE-COMPUTE TOP MARGIN & BAR LABEL SIZING ---
+    # Mirror the title-block logic to count header lines (max 4 with holiday theme).
+    _theme_preview = (theme.get('theme_name')
+                      if (use_holiday_theme or theme.get('show_in_title')) else None)
+    _n_header = 2 + int(subtitle is not None) + int(bool(_theme_preview))
+    _n_header = min(_n_header, 4)  # hard cap: max 4 title rows
+
+    top_margin = 0.97 - line_spacing - secondary_line_spacing * (_n_header - 1)
+
+    if num_stats > 1:
+        _axes_h_pts = fig_height_pts * (top_margin - 0.05) * 0.84   # ~84 % after tight_layout pad
+        _bar_h_pts  = (_axes_h_pts / num_stats) * 0.8               # 0.8 = default barh height ratio
+
+        # Base fontsize for y-axis stat name labels — constrained to fit in the left margin
+        # (~20 % of figure width).  Stretch transform adds the remaining height afterward.
+        _max_chars       = max((len(abbreviate_stat(s[0])[:6]) for s in stats[:3]), default=6)
+        _margin_pts      = fig_width_pts * 0.20                      # ~155 pt
+        _base_lfs        = max(24, min(int(_margin_pts / (_max_chars * char_ratio)), 80))
+        # Vertical-only stretch factor so cap height fills the bar height exactly (cap at 6×)
+        _label_stretch_y = min(_bar_h_pts / max(_base_lfs * 0.72, 1.0), 6.0)
 
     # --- CHART CONTENT ---
     if num_stats == 1:
@@ -875,13 +898,28 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
                 kpi_label_fontsize = 70
                 kpi_label_offset = 0.64   # floor at tier anchor
 
+        # Scoreboard border: rounded rectangle in primary theme color spanning
+        # both the stat label and the value — drawn first so text sits on top.
+        from matplotlib.patches import FancyBboxPatch as _FBP
+        _box_top    = min(kpi_label_offset + 0.14, 0.92)
+        _box_bottom = kpi_value_offset - 0.18
+        ax.add_patch(_FBP(
+            (0.08, _box_bottom),
+            0.84, _box_top - _box_bottom,
+            boxstyle='round,pad=0.02',
+            facecolor='#2d2d2d',
+            edgecolor=colors[0],
+            linewidth=5,
+            transform=ax.transAxes,
+            zorder=0,
+        ))
+
         ax.text(0.5, kpi_label_offset, stat_name, ha='center', va='center',
                 fontsize=kpi_label_fontsize, fontweight='bold',
-                color='white', transform=ax.transAxes)
+                color='white', transform=ax.transAxes, zorder=1)
         ax.text(0.5, kpi_value_offset, display_val, ha='center', va='center',
                 fontsize=kpi_value_fontsize, fontweight='bold',
-                color=colors[0], transform=ax.transAxes,
-                bbox=dict(boxstyle='square,pad=0.4', facecolor='#2d2d2d', edgecolor='none'))
+                color=colors[0], transform=ax.transAxes, zorder=1)
 
     else:
         # SORT stats by value (descending) — largest at top
@@ -954,7 +992,18 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
                             fontsize=value_fontsize, fontweight='bold', color='white',
                             path_effects=[pe.withStroke(linewidth=3, foreground='#111111')])
 
-        ax.tick_params(axis='y', labelsize=value_fontsize)
+        # Fira Sans Extra Condensed + ultra-condensed stretch: two layers of
+        # horizontal compression let us push font size up to ~2× while keeping
+        # the glyph width close to the original — net result looks like vertical stretch.
+        from matplotlib.font_manager import FontProperties
+        tick_fontsize = int(value_fontsize/1.5)
+        condensed_fp = FontProperties(
+            family='Fira Sans Extra Condensed',
+            size=tick_fontsize,
+        )
+        ax.tick_params(axis='y', labelsize=tick_fontsize)
+        for _lbl in ax.get_yticklabels():
+            _lbl.set_fontproperties(condensed_fp)
         ax.grid(axis='x', alpha=0.3, linestyle='--')
         ax.set_axisbelow(True)
         ax.spines['top'].set_visible(False)

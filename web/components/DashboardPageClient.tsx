@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { getDashboard, type DashboardData, type DashboardTopGame } from "@/lib/api";
 
 // ── Heatmap ───────────────────────────────────────────────────────────────────
@@ -19,11 +20,13 @@ function Heatmap({ data }: { data: DashboardData["heatmap"] }) {
   for (const cell of data.cells) {
     const slotIdx = TIME_SLOTS.findIndex((s) => s.hours.includes(cell.hour));
     if (slotIdx === -1) continue;
-    lookup[`${cell.dow}-${slotIdx}`] = (lookup[`${cell.dow}-${slotIdx}`] ?? 0) + cell.session_count;
+    lookup[`${cell.dow}-${slotIdx}`] =
+      (lookup[`${cell.dow}-${slotIdx}`] ?? 0) + cell.session_count;
   }
 
   function intensity(count: number) {
-    if (count === 0 || data.max_sessions === 0) return "bg-[var(--border)] opacity-40";
+    if (count === 0 || data.max_sessions === 0)
+      return "bg-[var(--border)] opacity-40";
     const pct = count / data.max_sessions;
     if (pct < 0.25) return "bg-[var(--gold)] opacity-20";
     if (pct < 0.5)  return "bg-[var(--gold)] opacity-40";
@@ -38,7 +41,10 @@ function Heatmap({ data }: { data: DashboardData["heatmap"] }) {
           <tr>
             <th className="w-10 pr-2" />
             {TIME_SLOTS.map((s) => (
-              <th key={s.label} className="text-[var(--muted)] font-normal pb-1 text-center px-1">
+              <th
+                key={s.label}
+                className="text-[var(--muted)] font-normal pb-1 text-center px-1"
+              >
                 {s.label}
               </th>
             ))}
@@ -54,7 +60,11 @@ function Heatmap({ data }: { data: DashboardData["heatmap"] }) {
                   <td key={slotIdx} className="px-1 py-0.5">
                     <div
                       className={`rounded h-6 ${intensity(count)}`}
-                      title={count > 0 ? `${count} session${count !== 1 ? "s" : ""}` : "No sessions"}
+                      title={
+                        count > 0
+                          ? `${count} session${count !== 1 ? "s" : ""}`
+                          : "No sessions"
+                      }
                     />
                   </td>
                 );
@@ -63,50 +73,193 @@ function Heatmap({ data }: { data: DashboardData["heatmap"] }) {
           ))}
         </tbody>
       </table>
-      <p className="text-xs text-[var(--muted)] mt-2">Darker = more sessions · your local timezone</p>
+      <p className="text-xs text-[var(--muted)] mt-2">
+        Darker = more sessions · your local timezone
+      </p>
     </div>
   );
 }
 
 // ── Top Game Card ─────────────────────────────────────────────────────────────
 
-function GameCard({ game, rank }: { game: DashboardTopGame; rank: number }) {
+function GameCard({
+  game,
+  rank,
+  expanded = false,
+}: {
+  game: DashboardTopGame;
+  rank: number;
+  expanded?: boolean;
+}) {
   const title = game.game_installment
     ? `${game.game_name}: ${game.game_installment}`
     : game.game_name;
-  const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉";
+  const medal     = rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉";
+  const isSingle  = game.sessions === 1;
+  const statLabel = isSingle
+    ? `${game.top_stat ?? "Stat"} (1 session)`
+    : `Avg ${game.top_stat ?? "Stat"}`;
 
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3">
+    <div
+      className={`rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 space-y-3 ${
+        expanded ? "flex flex-col justify-between" : ""
+      }`}
+    >
       <div className="flex items-start gap-2">
         <span className="text-xl">{medal}</span>
-        <p className="font-semibold text-sm leading-tight">{title}</p>
+        <p className={`font-semibold leading-tight ${expanded ? "text-base" : "text-sm"}`}>
+          {title}
+        </p>
       </div>
-      <div className="grid grid-cols-2 gap-2 text-center">
+
+      <div className={`grid gap-2 text-center ${expanded ? "grid-cols-3" : "grid-cols-2"}`}>
         <div className="rounded border border-[var(--border)] py-2">
           <p className="text-lg font-bold text-[var(--gold)]">{game.sessions}</p>
-          <p className="text-[10px] text-[var(--muted)]">Sessions</p>
+          <p className="text-[10px] text-[var(--muted)]">
+            {game.sessions === 1 ? "Session" : "Sessions"}
+          </p>
         </div>
         <div className="rounded border border-[var(--border)] py-2">
           <p className="text-lg font-bold">
             {game.top_stat_avg != null ? game.top_stat_avg : "—"}
           </p>
-          <p className="text-[10px] text-[var(--muted)]">{game.top_stat ?? "Avg"}</p>
+          <p className="text-[10px] text-[var(--muted)]">{statLabel}</p>
         </div>
+        {expanded && (
+          <Link
+            href="/stats"
+            className="rounded border border-dashed border-[var(--border)] py-2 flex flex-col items-center justify-center gap-0.5 hover:border-[var(--gold)] hover:text-[var(--gold)] transition-colors"
+          >
+            <span className="text-lg">📊</span>
+            <span className="text-[10px] text-[var(--muted)]">Log session</span>
+          </Link>
+        )}
       </div>
     </div>
   );
 }
 
+// ── Ghost Card (empty slot) ───────────────────────────────────────────────────
+
+function GhostCard({ slot = 1 }: { slot?: 1 | 2 | 3 }) {
+  const text =
+    slot === 2 ? "Play a second game to fill this spot"
+    : slot === 3 ? "Play a third game to fill this spot"
+    : "Play a new game to fill this spot";
+
+  return (
+    <Link href="/stats">
+      <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)]/40 p-4 flex flex-col items-center justify-center gap-2 h-full min-h-[120px] hover:border-[var(--gold)] hover:bg-[var(--surface)] transition-colors cursor-pointer">
+        <span className="text-2xl">🎮</span>
+        <p className="text-xs text-[var(--muted)] text-center leading-snug">{text}</p>
+      </div>
+    </Link>
+  );
+}
+
 // ── Stat Pill ─────────────────────────────────────────────────────────────────
 
-function StatPill({ label, value, highlight = false }: { label: string; value: string | number; highlight?: boolean }) {
+function StatPill({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value: string | number;
+  highlight?: boolean;
+}) {
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 flex flex-col items-center justify-center text-center gap-1">
       <div className="text-xs text-[var(--muted)] uppercase tracking-wide">{label}</div>
-      <div className={`text-xl font-bold ${highlight ? "text-[var(--gold)]" : "text-[var(--text)]"}`}>
+      <div
+        className={`text-xl font-bold ${
+          highlight ? "text-[var(--gold)]" : "text-[var(--text)]"
+        }`}
+      >
         {value}
       </div>
+    </div>
+  );
+}
+
+// ── Top Games section (handles all 4 cases) ───────────────────────────────────
+
+function TopGamesSection({ games }: { games: DashboardTopGame[] }) {
+  const count = games.length;
+
+  if (count === 0) return null;
+
+  if (count === 1) {
+    return (
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold text-[var(--text)]">Top Games</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="sm:col-span-1">
+            <GameCard game={games[0]} rank={1} expanded />
+          </div>
+          <div className="hidden sm:block">
+            <GhostCard slot={2} />
+          </div>
+          <div className="hidden sm:block">
+            <GhostCard slot={3} />
+          </div>
+        </div>
+        {/* Mobile ghost row */}
+        <div className="grid grid-cols-2 gap-3 sm:hidden">
+          <GhostCard slot={2} />
+          <GhostCard slot={3} />
+        </div>
+      </section>
+    );
+  }
+
+  if (count === 2) {
+    return (
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold text-[var(--text)]">Top Games</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <GameCard game={games[0]} rank={1} />
+          <GameCard game={games[1]} rank={2} />
+          <div className="col-span-2 sm:col-span-1">
+            <GhostCard slot={3} />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // count === 3
+  return (
+    <section className="space-y-2">
+      <h2 className="text-sm font-semibold text-[var(--text)]">Top Games</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {games.map((g, i) => (
+          <GameCard key={g.game_id} game={g} rank={i + 1} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ── Case 0: No data ───────────────────────────────────────────────────────────
+
+function EmptyState() {
+  return (
+    <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] p-12 flex flex-col items-center justify-center gap-4 text-center">
+      <span className="text-5xl">🎮</span>
+      <div className="space-y-1">
+        <p className="font-semibold text-[var(--text)]">No sessions logged yet</p>
+        <p className="text-sm text-[var(--muted)]">
+          Submit your first stat to populate the dashboard.
+        </p>
+      </div>
+      <Link
+        href="/stats"
+        className="mt-2 px-5 py-2 rounded bg-[var(--gold)] text-black text-sm font-semibold hover:opacity-90 transition-opacity"
+      >
+        Log your first session →
+      </Link>
     </div>
   );
 }
@@ -131,6 +284,8 @@ export default function DashboardPageClient() {
 
   if (!session) return null;
 
+  const hasData = data && data.total_sessions > 0;
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
       <h1 className="text-2xl font-bold text-[var(--gold)] text-center">📺 Dashboard</h1>
@@ -142,7 +297,9 @@ export default function DashboardPageClient() {
         <p className="text-sm text-red-400 text-center">{error}</p>
       )}
 
-      {data && (
+      {data && !hasData && <EmptyState />}
+
+      {hasData && (
         <>
           {/* ── Aggregate stats ── */}
           <section className="space-y-2">
@@ -150,7 +307,11 @@ export default function DashboardPageClient() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <StatPill label="Total Sessions" value={data.total_sessions} />
               <StatPill label="Games Played"   value={data.total_games} />
-              <StatPill label="Current Streak" value={`${data.current_streak}d`} highlight={data.current_streak > 0} />
+              <StatPill
+                label="Current Streak"
+                value={`${data.current_streak}d`}
+                highlight={data.current_streak > 0}
+              />
               <StatPill label="Longest Streak" value={`${data.longest_streak}d`} />
             </div>
             {data.last_played && (
@@ -159,24 +320,17 @@ export default function DashboardPageClient() {
                 {(() => {
                   const [y, m, d] = data.last_played!.split("-").map(Number);
                   return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-                    month: "short", day: "numeric", year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
                   });
                 })()}
               </p>
             )}
           </section>
 
-          {/* ── Top 3 games ── */}
-          {data.top_games.length > 0 && (
-            <section className="space-y-2">
-              <h2 className="text-sm font-semibold text-[var(--text)]">Top Games</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {data.top_games.map((g, i) => (
-                  <GameCard key={g.game_id} game={g} rank={i + 1} />
-                ))}
-              </div>
-            </section>
-          )}
+          {/* ── Top games (cases 1–3) ── */}
+          <TopGamesSection games={data.top_games} />
 
           {/* ── Heatmap ── */}
           {data.heatmap.cells.length > 0 && (
@@ -186,12 +340,6 @@ export default function DashboardPageClient() {
                 <Heatmap data={data.heatmap} />
               </div>
             </section>
-          )}
-
-          {data.total_sessions === 0 && (
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-8 text-center text-sm text-[var(--muted)]">
-              No sessions logged yet. Submit your first stat to populate the dashboard.
-            </div>
           )}
         </>
       )}

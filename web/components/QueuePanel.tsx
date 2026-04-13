@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { getQueueStatus, retryFailed } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import LastSessionPanel from "./LastSessionPanel";
 
 const PLATFORMS = [
   {
@@ -26,10 +27,12 @@ interface Props {
   isManualOverride: boolean;
   enabledPlatforms: string[];
   setEnabledPlatforms: (platforms: string[]) => void;
+  isOwner?: boolean;
 }
 
-export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverride, enabledPlatforms, setEnabledPlatforms }: Props) {
+export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverride, enabledPlatforms, setEnabledPlatforms, isOwner = false }: Props) {
   const { showToast } = useToast();
+  const [previewUser, setPreviewUser] = useState(false);
   const [counts, setCounts] = useState({
     pending: 0,
     processing: 0,
@@ -66,13 +69,44 @@ export default function QueuePanel({ jwt, queueMode, setQueueMode, isManualOverr
     ? Math.round((counts.sent / (counts.sent + counts.failed)) * 100)
     : null;
 
+  if (previewUser) {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="flex items-center justify-between mb-2 px-1">
+          <span className="text-xs text-[var(--muted)]">Previewing: User view</span>
+          <button
+            onClick={() => setPreviewUser(false)}
+            title="Back to Queue Panel"
+            className="text-lg hover:text-[var(--gold)] transition-colors"
+          >
+            📬
+          </button>
+        </div>
+        <div className="flex-1">
+          <LastSessionPanel jwt={jwt} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full rounded-lg border border-[var(--border)] bg-[var(--surface)] flex flex-col">
 
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b border-[var(--border)] shrink-0">
 
-        <h3 className="font-semibold text-sm">📬 Post Queue</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">📬 Post Queue</h3>
+          {isOwner && (
+            <button
+              onClick={() => setPreviewUser(true)}
+              title="Preview user view (Last Session Panel)"
+              className="text-base text-[var(--muted)] hover:text-[var(--gold)] transition-colors"
+            >
+              🕹️
+            </button>
+          )}
+        </div>
 
         {/* Queue mode toggle */}
         <label className="flex items-center gap-2 cursor-pointer text-sm mt-3">

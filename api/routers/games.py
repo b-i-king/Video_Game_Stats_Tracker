@@ -22,10 +22,9 @@ async def get_game_franchises(conn: DynamicConn, user: CurrentUser):
         FROM dim.dim_games g
         JOIN fact.fact_game_stats gs ON g.game_id = gs.game_id
         JOIN dim.dim_players p ON gs.player_id = p.player_id
-        WHERE p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $1)
-        AND g.game_name IS NOT NULL
+        WHERE p.user_id = $1 AND g.game_name IS NOT NULL
         ORDER BY g.game_name
-    """, user["email"])
+    """, user["user_id"])
     return {"game_franchises": [r["game_name"] for r in rows]}
 
 
@@ -37,10 +36,9 @@ async def get_game_installments(franchise_name: str, conn: DynamicConn, user: Cu
         FROM dim.dim_games g
         JOIN fact.fact_game_stats gs ON g.game_id = gs.game_id
         JOIN dim.dim_players p ON gs.player_id = p.player_id
-        WHERE p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $1)
-        AND g.game_name = $2
+        WHERE p.user_id = $1 AND g.game_name = $2
         ORDER BY g.game_installment
-    """, user["email"], franchise_name)
+    """, user["user_id"], franchise_name)
     return {
         "game_installments": [
             {"game_id": r["game_id"], "installment_name": r["game_installment"] or "(Main Game)"}
@@ -56,17 +54,17 @@ async def get_game_ranks(game_id: int, conn: DynamicConn, user: CurrentUser):
         SELECT DISTINCT rank_value FROM (
             SELECT pre_match_rank_value AS rank_value FROM fact.fact_game_stats gs
             JOIN dim.dim_players p ON gs.player_id = p.player_id
-            WHERE gs.game_id = $1 AND gs.ranked = 1 AND gs.pre_match_rank_value IS NOT NULL
-            AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
+            WHERE gs.game_id = $1 AND gs.ranked = 1
+              AND gs.pre_match_rank_value IS NOT NULL AND p.user_id = $2
             UNION
             SELECT post_match_rank_value AS rank_value FROM fact.fact_game_stats gs
             JOIN dim.dim_players p ON gs.player_id = p.player_id
-            WHERE gs.game_id = $1 AND gs.ranked = 1 AND gs.post_match_rank_value IS NOT NULL
-            AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
+            WHERE gs.game_id = $1 AND gs.ranked = 1
+              AND gs.post_match_rank_value IS NOT NULL AND p.user_id = $2
         ) AS combined_ranks
         WHERE rank_value IS NOT NULL AND rank_value != ''
         ORDER BY rank_value
-    """, game_id, user["email"])
+    """, game_id, user["user_id"])
     return {"ranks": [r["rank_value"] for r in rows]}
 
 
@@ -77,11 +75,10 @@ async def get_game_modes(game_id: int, conn: DynamicConn, user: CurrentUser):
         SELECT DISTINCT game_mode
         FROM fact.fact_game_stats gs
         JOIN dim.dim_players p ON gs.player_id = p.player_id
-        WHERE gs.game_id = $1
-        AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
-        AND gs.game_mode IS NOT NULL AND gs.game_mode != ''
+        WHERE gs.game_id = $1 AND p.user_id = $2
+          AND gs.game_mode IS NOT NULL AND gs.game_mode != ''
         ORDER BY game_mode
-    """, game_id, user["email"])
+    """, game_id, user["user_id"])
     return {"game_modes": [r["game_mode"] for r in rows]}
 
 
@@ -92,52 +89,47 @@ async def get_game_stat_types(game_id: int, conn: DynamicConn, user: CurrentUser
         SELECT DISTINCT gs.stat_type
         FROM fact.fact_game_stats gs
         JOIN dim.dim_players p ON gs.player_id = p.player_id
-        WHERE gs.game_id = $1
-        AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
-        AND gs.stat_type IS NOT NULL AND gs.stat_type != ''
+        WHERE gs.game_id = $1 AND p.user_id = $2
+          AND gs.stat_type IS NOT NULL AND gs.stat_type != ''
         ORDER BY stat_type
-    """, game_id, user["email"])
+    """, game_id, user["user_id"])
     return {"stat_types": [r["stat_type"] for r in rows]}
 
 
 @router.get("/get_game_context/{game_id}")
 async def get_game_context(game_id: int, conn: DynamicConn, user: CurrentUser):
-    """Ranks + modes + stat types in a single round-trip. Replaces 3 separate calls."""
-    email = user["email"]
+    """Ranks + modes + stat types in a single round-trip."""
+    uid = user["user_id"]
 
-    # asyncpg connections are single-threaded — gather() on one conn causes
-    # "another operation is in progress". Run sequentially instead.
     ranks_rows = await conn.fetch("""
         SELECT DISTINCT rank_value FROM (
             SELECT pre_match_rank_value AS rank_value FROM fact.fact_game_stats gs
             JOIN dim.dim_players p ON gs.player_id = p.player_id
-            WHERE gs.game_id = $1 AND gs.ranked = 1 AND gs.pre_match_rank_value IS NOT NULL
-            AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
+            WHERE gs.game_id = $1 AND gs.ranked = 1
+              AND gs.pre_match_rank_value IS NOT NULL AND p.user_id = $2
             UNION
             SELECT post_match_rank_value AS rank_value FROM fact.fact_game_stats gs
             JOIN dim.dim_players p ON gs.player_id = p.player_id
-            WHERE gs.game_id = $1 AND gs.ranked = 1 AND gs.post_match_rank_value IS NOT NULL
-            AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
+            WHERE gs.game_id = $1 AND gs.ranked = 1
+              AND gs.post_match_rank_value IS NOT NULL AND p.user_id = $2
         ) AS combined_ranks
         WHERE rank_value IS NOT NULL AND rank_value != ''
         ORDER BY rank_value
-    """, game_id, email)
+    """, game_id, uid)
     modes_rows = await conn.fetch("""
         SELECT DISTINCT game_mode FROM fact.fact_game_stats gs
         JOIN dim.dim_players p ON gs.player_id = p.player_id
-        WHERE gs.game_id = $1
-        AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
-        AND gs.game_mode IS NOT NULL AND gs.game_mode != ''
+        WHERE gs.game_id = $1 AND p.user_id = $2
+          AND gs.game_mode IS NOT NULL AND gs.game_mode != ''
         ORDER BY game_mode
-    """, game_id, email)
+    """, game_id, uid)
     types_rows = await conn.fetch("""
         SELECT DISTINCT gs.stat_type FROM fact.fact_game_stats gs
         JOIN dim.dim_players p ON gs.player_id = p.player_id
-        WHERE gs.game_id = $1
-        AND p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)
-        AND gs.stat_type IS NOT NULL AND gs.stat_type != ''
+        WHERE gs.game_id = $1 AND p.user_id = $2
+          AND gs.stat_type IS NOT NULL AND gs.stat_type != ''
         ORDER BY stat_type
-    """, game_id, email)
+    """, game_id, uid)
 
     return {
         "ranks":      [r["rank_value"] for r in ranks_rows],
@@ -148,12 +140,7 @@ async def get_game_context(game_id: int, conn: DynamicConn, user: CurrentUser):
 
 @router.post("/add_game", status_code=201)
 async def add_game(body: AddGameRequest, conn: DynamicConn, user: TrustedUser):
-    """
-    Add a new game to the catalog. Trusted/Owner only.
-    Fields are sourced from IGDB lookup or manual input.
-    Returns the new game_id, or the existing one if the game already exists.
-    """
-    # Check for duplicate (game_name + game_installment must be unique)
+    """Add a new game to the catalog. Trusted/Owner only."""
     if body.game_installment:
         existing = await conn.fetchval(
             "SELECT game_id FROM dim.dim_games WHERE game_name = $1 AND game_installment = $2",
@@ -180,26 +167,22 @@ async def add_game(body: AddGameRequest, conn: DynamicConn, user: TrustedUser):
 
 @router.post("/request_game", status_code=201)
 async def request_game(body: RequestGameRequest, conn: DynamicConn, user: CurrentUser):
-    """
-    Free/Premium users request a game be added to the catalog.
-    Writes to app.game_requests for Trusted/Owner review.
-    Returns existing request_id if already pending.
-    """
+    """Free/Premium users request a game to be added to the catalog."""
     existing = await conn.fetchval("""
         SELECT request_id FROM app.game_requests
-        WHERE user_email = $1 AND game_name = $2
-        AND (game_installment = $3 OR (game_installment IS NULL AND $3 IS NULL))
-        AND status = 'pending'
-    """, user["email"], body.game_name, body.game_installment)
+        WHERE user_id = $1 AND game_name = $2
+          AND (game_installment = $3 OR (game_installment IS NULL AND $3 IS NULL))
+          AND status = 'pending'
+    """, user["user_id"], body.game_name, body.game_installment)
 
     if existing:
         return {"request_id": existing, "message": "A pending request for this game already exists."}
 
     request_id = await conn.fetchval("""
-        INSERT INTO app.game_requests (user_email, game_name, game_installment, status, created_at)
+        INSERT INTO app.game_requests (user_id, game_name, game_installment, status, created_at)
         VALUES ($1, $2, $3, 'pending', NOW())
         RETURNING request_id
-    """, user["email"], body.game_name, body.game_installment)
+    """, user["user_id"], body.game_name, body.game_installment)
 
     print(f"[games] Game request '{body.game_name}' submitted by {user['email']}")
     return {"request_id": request_id, "message": "Game request submitted successfully."}

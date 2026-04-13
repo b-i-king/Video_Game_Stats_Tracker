@@ -269,25 +269,30 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
     """
     colors = theme['colors']
 
+    # Pre-compute title line for dynamic font sizing
+    _line1 = f"{player_name}'s First Game Stats"
+    _char_ratio = 0.60
+    _fill = 0.88
+
     if size == 'instagram':
         fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)
-        title_fontsize = 36
+        fig_width_pts  = 10.8 * 72
+        fig_height_pts = 10.8 * 72
+        title_fontsize = max(36, min(int(fig_width_pts * _fill / (len(_line1) * _char_ratio)), 64))
         kpi_value_fontsize = 140
-        # KPI offset is based on 140pt font size for 10.8-inch figure, scaled from 12pt baseline
-        kpi_value_offset = 0.38    # vertical offset for KPI value
+        kpi_value_offset = 0.38
         branding_fontsize = 19
-        # Branding offsets for 19pt on 10.8-inch figure (0.0114/char)
-        amp_offset = 0.025    # after "YT" (2 chars)
-        twitch_offset = 0.062 # after "YT & " (2+3 chars)
-        handle_offset = 0.134 # after "YT & Twitch" (2+3+6 chars)
+        amp_offset = 0.025
+        twitch_offset = 0.062
+        handle_offset = 0.134
     else:  # twitter - 1600x900
         fig, ax = plt.subplots(figsize=(16, 9), dpi=100)
-        title_fontsize = 34
+        fig_width_pts  = 16 * 72
+        fig_height_pts = 9  * 72
+        title_fontsize = max(36, min(int(fig_width_pts * _fill / (len(_line1) * _char_ratio)), 64))
         kpi_value_fontsize = 160
-        # KPI offset is based on 140pt font size for 10.8-inch figure, scaled from 12pt baseline
-        kpi_value_offset = 0.38    # vertical offset for KPI value
+        kpi_value_offset = 0.38
         branding_fontsize = 18
-        # Branding offsets for 18pt on 16-inch figure (0.00729/char)
         amp_offset = 0.016
         twitch_offset = 0.040
         handle_offset = 0.087
@@ -334,24 +339,40 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
     display_val = format_large_number(stat['value'])
     kpi_color = colors[0]
 
+    # Scoreboard border: rounded rectangle in primary theme color spanning
+    # both the stat label and the value — drawn first so text sits on top.
+    from matplotlib.patches import FancyBboxPatch
+    _box_top    = min(kpi_label_offset + 0.14, 0.92)
+    _box_bottom = kpi_value_offset - 0.18
+    ax.add_patch(FancyBboxPatch(
+        (0.08, _box_bottom),
+        0.84, _box_top - _box_bottom,
+        boxstyle='round,pad=0.02',
+        facecolor='#2d2d2d',
+        edgecolor=kpi_color,
+        linewidth=5,
+        transform=ax.transAxes,
+        zorder=0,
+    ))
+
     # Stat label — shifted up and closer to the value bbox top edge
     ax.text(0.5, kpi_label_offset, stat['label'],
             ha='center', va='center',
             fontsize=kpi_label_fontsize, fontweight='bold',
-            color='white', transform=ax.transAxes)
+            color='white', transform=ax.transAxes,
+            zorder=1)
 
-    # Huge value in theme color with a grey panel background (same as axes facecolor)
+    # Huge value in theme color
     ax.text(0.5, kpi_value_offset, display_val,
             ha='center', va='center',
             fontsize=kpi_value_fontsize, fontweight='bold',
             color=kpi_color, transform=ax.transAxes,
-            bbox=dict(boxstyle='square,pad=0.4', facecolor='#2d2d2d', edgecolor='none'))
+            zorder=1)
 
     # Title (same structure as generate_bar_chart)
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
     y_position = 0.96
-    # Scale line spacing with font size relative to the 3-stat (18pt) baseline
-    line_spacing = 0.04 * (title_fontsize / 18)
+    line_spacing = (title_fontsize / fig_height_pts) * 1.30
 
     fig.text(0.5, y_position, f"{player_name}'s First Game Stats", ha='center', va='top',
              fontsize=title_fontsize, fontweight='bold', color='white',
@@ -473,11 +494,20 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     # Determine if we should use log scale
     use_log = should_use_log_scale(values)
 
+    # Pre-compute title line for dynamic font sizing (used in both size branches)
+    _line1_preview = f"{player_name}'s First Game Stats"
+    _char_ratio = 0.60
+    _fill = 0.88
+
     # Fixed canvas sizes; bar area is controlled via tight_layout rect below
     if size == 'instagram':
         fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)
-        title_fontsize = 26 if num_stats == 3 else 30
-        value_fontsize = 14 if num_stats == 3 else 16
+        fig_width_pts  = 10.8 * 72   # 777.6 pt
+        fig_height_pts = 10.8 * 72   # 777.6 pt
+        # Dynamic title: fills width up to a readable cap
+        title_fontsize = max(28, min(int(fig_width_pts * _fill / (len(_line1_preview) * _char_ratio)), 48))
+        # Value labels sized to fill ~28% of bar height (bar area ≈ 184pt for 3-stat)
+        value_fontsize = 70 if num_stats == 3 else 80
         branding_fontsize = 19
         # Branding offsets for 19pt on 10.8-inch figure (0.0114/char)
         amp_offset = 0.025
@@ -486,8 +516,12 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
         branding_y_pos = 0.06 if num_stats == 2 else 0.03
     else:  # twitter - 1600x900
         fig, ax = plt.subplots(figsize=(16, 9), dpi=100)
-        title_fontsize = 26 if num_stats == 3 else 30
-        value_fontsize = 14 if num_stats == 3 else 16
+        fig_width_pts  = 16 * 72     # 1152 pt
+        fig_height_pts = 9  * 72     # 648 pt
+        # Dynamic title: wider canvas allows larger text, height-capped lower
+        title_fontsize = max(28, min(int(fig_width_pts * _fill / (len(_line1_preview) * _char_ratio)), 52))
+        # Value labels sized to fill ~26% of bar height (bar area ≈ 153pt for 3-stat)
+        value_fontsize = 52 if num_stats == 3 else 64
         branding_fontsize = 18
         # Branding offsets for 18pt on 16-inch figure (0.00729/char)
         amp_offset = 0.016
@@ -542,9 +576,20 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
         display_val = format_large_number(actual_val)
 
         if use_log:
-            # Always place label just inside the right end of the bar
-            x_pos = width * 0.85
-            ha = 'right'
+            # Check bar visual fraction — short bars can't fit the label inside
+            xlim_min_val, _ = ax.get_xlim()
+            import math as _math
+            log_min = _math.log10(max(xlim_min_val, 0.01))
+            log_max = _math.log10(xlim_max)
+            log_bar_end = _math.log10(max(width, 0.01))
+            bar_vis_frac = (log_bar_end - log_min) / (log_max - log_min)
+            if bar_vis_frac < 0.12:
+                # Bar too short — place label just outside to the right
+                x_pos = width * 1.15
+                ha = 'left'
+            else:
+                x_pos = width * 0.95
+                ha = 'right'
         else:
             if width > xlim_max * 0.15:
                 x_pos = min(width * 0.95, xlim_max * 0.95)
@@ -559,16 +604,29 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
                fontsize=value_fontsize, fontweight='bold', color='white',
                path_effects=[pe.withStroke(linewidth=3, foreground='#111111')])
 
-    # Match y-axis tick label font to bar value font
-    ax.tick_params(axis='y', labelsize=value_fontsize)
-    
+    # Y-axis stat name labels: Fira Sans Extra Condensed — naturally narrow glyphs
+    # sized smaller than value labels so they fit the left margin cleanly
+    from matplotlib.font_manager import FontProperties
+    tick_fontsize = int(value_fontsize / 1.5)
+    condensed_fp = FontProperties(
+        family='Fira Sans Extra Condensed',
+        size=tick_fontsize,
+    )
+    ax.tick_params(axis='y', labelsize=tick_fontsize)
+    for _lbl in ax.get_yticklabels():
+        _lbl.set_fontproperties(condensed_fp)
+
+    # X-axis value ticks: proportional to value_fontsize (secondary reference numbers),
+    # capped at 20pt so they don't compete with bar labels on phone screens.
+    ax.tick_params(axis='x', labelsize=max(12, min(int(value_fontsize * 0.45), 20)))
+
     # MANUAL TITLE with two-tone coloring
     full_game_name = f"{game_name}: {game_installment}" if game_installment else game_name
 
     # Build title manually with fig.text for proper positioning
     y_position = 0.96  # Start near top
-    # Scale line spacing with font size relative to the 3-stat (18pt) baseline
-    line_spacing = 0.04 * (title_fontsize / 18)
+    # Line spacing proportional to font height in figure-fraction coordinates
+    line_spacing = (title_fontsize / fig_height_pts) * 1.30
 
     # Line 1: "{Player}'s First Game Stats" - WHITE
     line1 = f"{player_name}'s First Game Stats"
@@ -684,20 +742,32 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         BytesIO buffer containing the chart image
     """
     dates = stat_history.get('dates', [])
-    
+
     if not dates:
         raise ValueError("No dates provided in stat_history")
-    
+
     # Get themed colors
     theme = get_themed_colors(tz)
     colors = theme['colors']
-    
+
+    # Count active stats for font sizing
+    num_stats = sum(
+        1 for i in range(1, 4)
+        if f'stat{i}' in stat_history and stat_history[f'stat{i}']
+    )
+
+    # Pre-compute title line for dynamic font sizing
+    _line1_preview = f"{player_name}'s Performance Over Time"
+    _char_ratio = 0.60
+    _fill = 0.88
 
     # Fixed canvas sizes matching generate_bar_chart
     if size == 'instagram':
         fig, ax = plt.subplots(figsize=(10.8, 10.8), dpi=100)
-        title_fontsize = 20
-        direct_label_fontsize = 13
+        fig_width_pts  = 10.8 * 72
+        fig_height_pts = 10.8 * 72
+        title_fontsize = max(28, min(int(fig_width_pts * _fill / (len(_line1_preview) * _char_ratio)), 48))
+        direct_label_fontsize = 42 if num_stats <= 2 else 30
         branding_fontsize = 18
         # Branding offsets for 18pt on 10.8-inch figure (0.0108/char)
         amp_offset = 0.024
@@ -706,15 +776,17 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         branding_y_pos = 0.03
     else:  # twitter - 1600x900
         fig, ax = plt.subplots(figsize=(16, 9), dpi=100)
-        title_fontsize = 20
-        direct_label_fontsize = 14
+        fig_width_pts  = 16 * 72
+        fig_height_pts = 9 * 72
+        title_fontsize = max(28, min(int(fig_width_pts * _fill / (len(_line1_preview) * _char_ratio)), 52))
+        direct_label_fontsize = 42 if num_stats <= 2 else 30
         branding_fontsize = 17
         # Branding offsets for 17pt on 16-inch figure (0.00689/char)
         amp_offset = 0.015
         twitch_offset = 0.038
         handle_offset = 0.082
         branding_y_pos = 0.03
-    
+
     markers = ['o', 's', 'D']  # Circle, square, diamond
     
     # Store line end positions for direct labeling
@@ -748,15 +820,21 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
                 else:
                     plot_values = values
                 
-                line, = ax.plot(dates, plot_values, 
-                       color=colors[i-1], 
-                       marker=markers[i-1], 
-                       linewidth=3, 
-                       markersize=8,
+                # Glow effect: wide low-alpha strokes behind the main line
+                # (no fill_between — fills stack badly when stats span orders of magnitude)
+                ax.plot(dates, plot_values, color=colors[i-1], linewidth=18, alpha=0.08, zorder=1)
+                ax.plot(dates, plot_values, color=colors[i-1], linewidth=10, alpha=0.14, zorder=2)
+
+                line, = ax.plot(dates, plot_values,
+                       color=colors[i-1],
+                       marker=markers[i-1],
+                       linewidth=4,
+                       markersize=10,
                        label=abbrev_label,
                        markeredgecolor='white',
-                       markeredgewidth=1.5)
-                
+                       markeredgewidth=1.5,
+                       zorder=5)
+
                 # Store final position for direct label
                 if len(dates) > 0 and len(values) > 0:
                     line_end_positions.append({
@@ -811,8 +889,8 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     
     # Build title manually with fig.text for proper positioning
     y_position = 0.96  # Start near top
-    # Scale line spacing with font size relative to the 3-stat (18pt) baseline
-    line_spacing = 0.04 * (title_fontsize / 18)
+    # Line spacing proportional to font height in figure-fraction coordinates
+    line_spacing = (title_fontsize / fig_height_pts) * 1.30
 
     # Line 1: "{Player}'s  Performance Over Time" - WHITE
     line1 = f"{player_name}'s Performance Over Time"
@@ -844,8 +922,13 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     date_format = format_date_label(dates)
     ax.xaxis.set_major_formatter(mdates.DateFormatter(date_format))
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    # Reduced rotation for better readability and less overlap
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=35, ha='right', fontsize=10)
+    # Dynamic date label size: space per label divided by rotated-label footprint.
+    # At 35° rotation horizontal footprint ≈ fontsize × 3.5 (width × cos + height × sin).
+    # Capped at 20pt (phone-readable) and floored at 12pt (still legible when dense).
+    _axis_w_pts = fig_width_pts * 0.80  # ~80% of figure width used by axes
+    _space_per_date = _axis_w_pts / max(len(dates), 1)
+    date_fontsize = max(12, min(int(_space_per_date / 3.5), 20))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=35, ha='right', fontsize=date_fontsize)
     
     # Add direct labels at end of lines (instead of legend)
     if line_end_positions:
@@ -875,7 +958,7 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
         # compare label positions against a fixed pixel/point gap threshold.
         data_to_pts = ax_height_pts / y_range
 
-        MIN_GAP_PTS = 26  # minimum vertical gap between label centres (points)
+        MIN_GAP_PTS = int(direct_label_fontsize * 1.6)  # scales with label size
 
         n = len(line_end_positions)
         y_offsets = [0.0] * n
@@ -897,6 +980,7 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
                 break
 
         # Add text labels at line ends (show ACTUAL values with abbreviation)
+        _max_label_chars = 6  # minimum — drives right-margin calculation below
         for idx, pos in enumerate(line_end_positions):
             label_x = pos['x']
             label_y = pos['y']
@@ -906,6 +990,7 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
             value_display = format_large_number(actual_val)
 
             label_text = f"{pos['label']}: {value_display}"
+            _max_label_chars = max(_max_label_chars, len(label_text))
 
             ax.annotate(label_text,
                        xy=(label_x, label_y),
@@ -921,19 +1006,17 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
                                 linewidth=2,
                                 alpha=0.9))
     
-    # Grid
-    ax.grid(alpha=0.3, linestyle='--')
-    ax.set_axisbelow(True)
-    
-    # Remove top and right spines
+    # Elevate-style: no y-axis, subtle x grid only, full-bleed width
+    ax.yaxis.set_visible(False)
+    ax.spines['left'].set_visible(False)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('white')
     ax.spines['bottom'].set_color('white')
-    
-    # Extend x-axis slightly to make room for labels
-    x_min, x_max = ax.get_xlim()
-    ax.set_xlim(x_min, x_max + (x_max - x_min) * 0.15)
+    ax.grid(axis='x', alpha=0.15, linestyle='--')
+    ax.set_axisbelow(True)
+
+    # Snap x-axis to data range — no padding so line fills full width
+    ax.set_xlim(dates[0], dates[-1])
 
     # Add timestamp
     try:
@@ -974,12 +1057,22 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     n_title_lines = 3 if theme['show_in_title'] else 2
     top_margin = 0.96 - n_title_lines * line_spacing
 
-    plt.tight_layout(rect=[0, 0.05, 1, top_margin])
+    # Dynamic right boundary: measure longest label text and reserve exactly
+    # enough figure-fraction for it (char width + bbox pad + 10pt offset).
+    _max_label_chars = _max_label_chars if line_end_positions else 6
+    _label_width_pts = _max_label_chars * direct_label_fontsize * 0.60 + direct_label_fontsize + 10
+    _right = max(0.60, 1.0 - _label_width_pts / fig_width_pts)
 
-    # Save to bytes
+    # Three independent bands — no tight_layout so nothing can shift the regions:
+    #   Top band   : title text (fig.text, y > top_margin)
+    #   Middle band: axes — full bleed left, right = dynamic label margin
+    #   Bottom band: branding text (fig.text, y < 0.18)
+    plt.subplots_adjust(left=0, right=_right, bottom=0.18, top=top_margin)
+
+    # Save to bytes — fixed canvas size, no bbox expansion so title stays centered
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight',
-                facecolor=fig.get_facecolor(), pad_inches=0.3)
+    plt.savefig(buf, format='png', dpi=100,
+                facecolor=fig.get_facecolor(), pad_inches=0)
     buf.seek(0)
     plt.close(fig)
 

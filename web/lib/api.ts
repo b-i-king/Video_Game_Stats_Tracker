@@ -708,3 +708,84 @@ export async function getDashboard(jwt: string): Promise<DashboardData> {
   if (!res.ok) throw new Error("Failed to load dashboard");
   return res.json();
 }
+
+// ── Data Export ───────────────────────────────────────────────────────────────
+
+export interface ExportRowCount {
+  row_count:     number;
+  price:         number;
+  tier_label:    string;
+  purchased:     boolean;
+  needs_upgrade: boolean;
+  upgrade_price: number | null;
+}
+
+export async function getExportRowCount(jwt: string): Promise<ExportRowCount> {
+  const res = await fetchWithAuth(`${BASE}/api/export/row_count`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to load row count");
+  return res.json();
+}
+
+export async function downloadExport(
+  jwt: string,
+  format: "csv" | "json"
+): Promise<Blob> {
+  const res = await fetchWithAuth(
+    `${BASE}/api/export/download?format=${format}`,
+    { headers: authHeaders(jwt) }
+  );
+  if (res.status === 402) throw new Error("402");
+  if (!res.ok) throw new Error("Download failed");
+  return res.blob();
+}
+
+export async function createPowerPackCheckout(jwt: string): Promise<{ url: string }> {
+  const res = await fetchWithAuth(`${BASE}/api/export/checkout`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to create checkout session");
+  return res.json();
+}
+
+// ── Subscriptions ─────────────────────────────────────────────────────────────
+
+export interface SubscriptionStatus {
+  plan:             "free" | "premium";
+  billing_interval?: "month" | "year";
+  expires_at?:       string | null;
+  cancelled?:        boolean;
+}
+
+export async function getSubscriptionStatus(jwt: string): Promise<SubscriptionStatus> {
+  const res = await fetchWithAuth(`${BASE}/api/subscription/status`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to load subscription status");
+  return res.json();
+}
+
+export async function createSubscriptionCheckout(
+  jwt: string,
+  interval: "month" | "year"
+): Promise<{ url: string }> {
+  const res = await fetchWithAuth(`${BASE}/api/subscription/checkout`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ interval }),
+  });
+  if (res.status === 409) throw new Error("already_subscribed");
+  if (!res.ok) throw new Error("Failed to create subscription checkout");
+  return res.json();
+}
+
+export async function createBillingPortal(jwt: string): Promise<{ url: string }> {
+  const res = await fetchWithAuth(`${BASE}/api/subscription/portal`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to open billing portal");
+  return res.json();
+}

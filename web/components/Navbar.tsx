@@ -73,7 +73,8 @@ export default function Navbar() {
                 const cfg =
                   isOwner   ? { label: "Owner",   cls: "text-[var(--gold)] border-yellow-600 bg-yellow-900/30" } :
                   isTrusted ? { label: "Trusted",  cls: "text-blue-300 border-blue-700 bg-blue-900/30" } :
-                  /* Phase 3: premium check here */
+                  (session.role as string) === "premium"
+                            ? { label: "Premium",  cls: "text-purple-300 border-purple-700 bg-purple-900/30" } :
                               { label: "Free",     cls: "text-emerald-300 border-emerald-700 bg-emerald-900/30" };
                 return (
                   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}>
@@ -113,32 +114,32 @@ export default function Navbar() {
             {menuOpen && (
               <div className="absolute right-0 top-10 w-52 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg py-1 z-50">
 
+                {/* Account — first item when signed in */}
+                {session && (
+                  <>
+                    <MenuLink href="/account" onClick={() => setMenuOpen(false)}>
+                      Account
+                    </MenuLink>
+                    <div className="my-1 border-t border-[var(--border)]" />
+                  </>
+                )}
+
                 {/* Signed-in app links */}
                 {session && (
                   <>
                     <MenuLink href="/integrations" onClick={() => setMenuOpen(false)}>
                       Integrations
                     </MenuLink>
+                    <MenuLink href="/data-export" onClick={() => setMenuOpen(false)}>
+                      Data Export
+                    </MenuLink>
                     <div className="my-1 border-t border-[var(--border)]" />
                   </>
                 )}
 
-                {/* Phase 3 role-gated tabs:
-                    History 📊     — all logged-in users (stat session history, filters, search)
-                    Dashboard 📺   — trusted + owner + premium (OBS overlay, live session view)
-                    Insights 🤖    — trusted + owner + premium (ML predictions, trend analysis)
-                    Leaderboard 🏆 — all logged-in users (opt-in, public Supabase project)
-                    Admin 🛡️       — owner only (flagged users, ban/unban, violation log)
-                */}
-
-                {/* About — app description + tier comparison (Free / Premium / Trusted / Owner) */}
                 <MenuLink href="/about" onClick={() => setMenuOpen(false)}>
                   About
                 </MenuLink>
-
-                <div className="my-1 border-t border-[var(--border)]" />
-
-                {/* Privacy — Phase 3 adds live leaderboard opt-out toggle on this page */}
                 <MenuLink href="/privacy" onClick={() => setMenuOpen(false)}>
                   Privacy
                 </MenuLink>
@@ -146,25 +147,13 @@ export default function Navbar() {
                   Terms
                 </MenuLink>
 
-                {session && (
-                  <>
-                    <div className="my-1 border-t border-[var(--border)]" />
-                    {/* Data — Phase 3: CSV/JSON export of user's own stats (GDPR portability) */}
-                    <MenuLink href="/data-export" onClick={() => setMenuOpen(false)}>
-                      Data
-                    </MenuLink>
-                  </>
-                )}
-
-                {/* Account info — always visible, stacked: email → tier → sign out/in */}
+                {/* Account info footer — email + tier + sign out */}
                 <div className="my-1 border-t border-[var(--border)]" />
                 <div className="px-3 py-2 flex flex-col gap-1.5">
-                  {/* Email */}
                   <span className="text-xs text-[var(--muted)] truncate px-1">
                     {session ? session.user?.email : "Not signed in"}
                   </span>
 
-                  {/* Tier badge */}
                   {(() => {
                     const cfg = !session
                       ? { label: "Guest",   cls: "text-zinc-400 border-zinc-600 bg-zinc-800/30" }
@@ -182,7 +171,6 @@ export default function Navbar() {
                     );
                   })()}
 
-                  {/* Sign out / Sign in — full width */}
                   {session ? (
                     <button
                       onClick={() => { setMenuOpen(false); signOut({ callbackUrl: "/" }); }}
@@ -199,20 +187,6 @@ export default function Navbar() {
                     </button>
                   )}
                 </div>
-
-                {session && (
-                  <>
-                    {/* Delete Account — Phase 3: verified cascade across all tables */}
-                    <div className="my-1 border-t border-[var(--border)]" />
-                    <MenuLink
-                      href="/account/delete"
-                      onClick={() => setMenuOpen(false)}
-                      danger
-                    >
-                      Delete Account
-                    </MenuLink>
-                  </>
-                )}
               </div>
             )}
           </div>

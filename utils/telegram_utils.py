@@ -5,8 +5,8 @@ Telegram push notifications for the Video Game Request bot.
 Fails silently if unconfigured — never blocks the request path.
 
 Env vars:
-    TELEGRAM_BOT_TOKEN  — from @BotFather
-    TELEGRAM_CHAT_ID    — your personal chat ID (send /start to the bot, then
+    TELEGRAM_ADMIN_BOT_TOKEN  — from @BotFather
+    TELEGRAM_ADMIN_CHAT_ID    — your personal chat ID (send /start to the bot, then
                           call https://api.telegram.org/bot<TOKEN>/getUpdates)
 """
 
@@ -23,13 +23,13 @@ class TelegramNotifier:
     """Sends push notifications to your Telegram chat. Fails silently if unconfigured."""
 
     def __init__(self) -> None:
-        self.token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        self.chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        self.token   = os.getenv("TELEGRAM_ADMIN_BOT_TOKEN", "")
+        self.chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID", "")
         self.enabled = bool(self.token and self.chat_id)
         if self.enabled:
             log.info("Telegram notifications: enabled")
         else:
-            log.info("Telegram notifications: disabled (set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID)")
+            log.info("Telegram notifications: disabled (set TELEGRAM_ADMIN_BOT_TOKEN + TELEGRAM_CHAT_ID)")
 
     def send(self, message: str) -> None:
         """Fire-and-forget plain text message. Never raises."""

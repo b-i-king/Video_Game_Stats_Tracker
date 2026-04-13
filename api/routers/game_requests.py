@@ -47,12 +47,25 @@ class RejectBody(BaseModel):
 # Helper — shared approve logic (used by PATCH and Telegram webhook)
 # ---------------------------------------------------------------------------
 
-async def _do_approve(request_id: int, approved_by: str) -> dict:
+async def _resolve_owner_id(conn) -> int | None:
+    """Look up the owner's user_id from the OWNER_EMAIL env var."""
+    owner_email = os.getenv("OWNER_EMAIL", "").lower().strip()
+    if not owner_email:
+        return None
+    return await conn.fetchval(
+        "SELECT user_id FROM dim.dim_users WHERE user_email = $1", owner_email
+    )
+
+
+async def _do_approve(request_id: int, approved_by_id: int | None, approved_by_email: str = "") -> dict:
     """Approve a request and sync the game to the public catalog."""
     if public_pool is None:
         raise HTTPException(status_code=503, detail="Public pool not available.")
 
     async with public_pool.acquire() as conn:
+        if approved_by_id is None:
+            approved_by_id = await _resolve_owner_id(conn)
+
         row = await conn.fetchrow("""
             SELECT * FROM app.game_requests WHERE request_id = $1
         """, request_id)
@@ -69,7 +82,7 @@ async def _do_approve(request_id: int, approved_by: str) -> dict:
             UPDATE app.game_requests
             SET status = 'approved', reviewed_by = $1, reviewed_at = NOW()
             WHERE request_id = $2
-        """, approved_by, request_id)
+        """, approved_by_id, request_id)
 
     # Sync to public catalog — reuse admin logic directly
     from api.routers.admin import SyncGameRequest, sync_game_to_public as _sync
@@ -93,16 +106,20 @@ async def _do_approve(request_id: int, approved_by: str) -> dict:
         print(f"[game_requests] Approve sync warning: {e.detail}")
         result = {"status": "sync_pending", "message": e.detail}
 
-    print(f"[game_requests] Request #{request_id} approved by {approved_by}")
+    label = approved_by_email or f"user_id={approved_by_id}"
+    print(f"[game_requests] Request #{request_id} approved by {label}")
     return result
 
 
-async def _do_reject(request_id: int, rejected_by: str, reason: str | None) -> None:
+async def _do_reject(request_id: int, rejected_by_id: int | None, reason: str | None, rejected_by_email: str = "") -> None:
     """Mark a request as rejected."""
     if public_pool is None:
         raise HTTPException(status_code=503, detail="Public pool not available.")
 
     async with public_pool.acquire() as conn:
+        if rejected_by_id is None:
+            rejected_by_id = await _resolve_owner_id(conn)
+
         row = await conn.fetchrow(
             "SELECT status FROM app.game_requests WHERE request_id = $1", request_id
         )
@@ -116,9 +133,10 @@ async def _do_reject(request_id: int, rejected_by: str, reason: str | None) -> N
             SET status = 'rejected', reviewed_by = $1, reviewed_at = NOW(),
                 rejection_reason = $2
             WHERE request_id = $3
-        """, rejected_by, reason, request_id)
+        """, rejected_by_id, reason, request_id)
 
-    print(f"[game_requests] Request #{request_id} rejected by {rejected_by} — reason: {reason}")
+    label = rejected_by_email or f"user_id={rejected_by_id}"
+    print(f"[game_requests] Request #{request_id} rejected by {label} — reason: {reason}")
 
 
 # ---------------------------------------------------------------------------
@@ -174,10 +192,10 @@ async def submit_game_request(
 
     request_id = await conn.fetchval("""
         INSERT INTO app.game_requests
-            (user_email, game_name, game_installment, game_genre, game_subgenre)
+            (user_id, game_name, game_installment, game_genre, game_subgenre)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING request_id
-    """, user["email"], body.game_name.strip(), body.game_installment,
+    """, user["user_id"], body.game_name.strip(), body.game_installment,
          body.game_genre, body.game_subgenre)
 
     # Notify owner via Telegram
@@ -208,22 +226,23 @@ async def list_game_requests(conn: DynamicConn, user: CurrentUser):
 
     if is_owner:
         rows = await conn.fetch("""
-            SELECT request_id, user_email, game_name, game_installment,
-                   game_genre, game_subgenre, status, reviewed_by,
-                   rejection_reason, created_at, reviewed_at
-            FROM app.game_requests
+            SELECT gr.request_id, u.user_email, gr.game_name, gr.game_installment,
+                   gr.game_genre, gr.game_subgenre, gr.status, gr.reviewed_by,
+                   gr.rejection_reason, gr.created_at, gr.reviewed_at
+            FROM app.game_requests gr
+            JOIN dim.dim_users u ON u.user_id = gr.user_id
             ORDER BY
-                CASE status WHEN 'pending' THEN 0 ELSE 1 END,
-                created_at DESC
+                CASE gr.status WHEN 'pending' THEN 0 ELSE 1 END,
+                gr.created_at DESC
         """)
     else:
         rows = await conn.fetch("""
             SELECT request_id, game_name, game_installment, game_genre,
                    game_subgenre, status, rejection_reason, created_at, reviewed_at
             FROM app.game_requests
-            WHERE user_email = $1
+            WHERE user_id = $1
             ORDER BY created_at DESC
-        """, user["email"])
+        """, user["user_id"])
 
     return {"requests": [dict(r) for r in rows]}
 
@@ -231,7 +250,7 @@ async def list_game_requests(conn: DynamicConn, user: CurrentUser):
 @router.patch("/game_requests/{request_id}/approve", status_code=200)
 async def approve_game_request(request_id: int, user: OwnerUser):
     """Approve a pending request and sync the game to the public catalog."""
-    result = await _do_approve(request_id, user["email"])
+    result = await _do_approve(request_id, user["user_id"], user["email"])
     return {"status": "approved", "sync": result}
 
 
@@ -242,7 +261,7 @@ async def reject_game_request(
     user:       OwnerUser,
 ):
     """Reject a pending request with an optional reason."""
-    await _do_reject(request_id, user["email"], body.reason)
+    await _do_reject(request_id, user["user_id"], body.reason, user["email"])
     return {"status": "rejected"}
 
 
@@ -252,7 +271,7 @@ async def reject_game_request(
 
 def _verify_telegram_token(request_token: str | None) -> bool:
     """Verify the request comes from our bot using the token hash."""
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    bot_token = os.getenv("TELEGRAM_ADMIN_BOT_TOKEN", "")
     if not bot_token or not request_token:
         return False
     # Telegram sends the bot token in X-Telegram-Bot-Api-Secret-Token header
@@ -303,7 +322,8 @@ async def telegram_webhook(
 
     if action == "approve":
         try:
-            await _do_approve(request_id, owner_email)
+            # Pass None for user_id — _do_approve will look it up from OWNER_EMAIL
+            await _do_approve(request_id, None, owner_email)
             notifier.answer_callback(callback_id, "✅ Approved!")
             notifier.edit_message_reply_markup(
                 chat_id, message_id,
@@ -314,7 +334,8 @@ async def telegram_webhook(
 
     elif action == "reject":
         try:
-            await _do_reject(request_id, owner_email, reason="Rejected via Telegram")
+            # Pass None for user_id — _do_reject will look it up from OWNER_EMAIL
+            await _do_reject(request_id, None, "Rejected via Telegram", owner_email)
             notifier.answer_callback(callback_id, "❌ Rejected.")
             notifier.edit_message_reply_markup(
                 chat_id, message_id,

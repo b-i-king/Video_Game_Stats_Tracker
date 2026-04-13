@@ -48,8 +48,7 @@ async def last_session(conn: DynamicConn, user: CurrentUser):
             SELECT gs.played_at, gs.game_id, gs.player_id
             FROM fact.fact_game_stats gs
             JOIN dim.dim_players p ON gs.player_id = p.player_id
-            JOIN dim.dim_users u ON p.user_id = u.user_id
-            WHERE u.user_email = $1
+            WHERE p.user_id = $1
             ORDER BY gs.played_at DESC
             LIMIT 1
         )
@@ -72,7 +71,7 @@ async def last_session(conn: DynamicConn, user: CurrentUser):
          AND gs.game_id   = lb.game_id
          AND gs.player_id = lb.player_id
         ORDER BY gs.stat_type
-    """, user["email"])
+    """, user["user_id"])
 
     if not rows:
         return {"session": None}
@@ -117,7 +116,7 @@ async def get_recent_stats(conn: DynamicConn, user: CurrentUser):
                 COUNT(*)                          AS hist_count
             FROM fact.fact_game_stats gs
             JOIN dim.dim_players p ON gs.player_id = p.player_id
-            WHERE p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $1)
+            WHERE p.user_id = $1
             GROUP BY gs.game_id, gs.stat_type
         )
         SELECT
@@ -142,10 +141,10 @@ async def get_recent_stats(conn: DynamicConn, user: CurrentUser):
         JOIN dim.dim_players p ON gs.player_id = p.player_id
         JOIN dim.dim_games g ON gs.game_id = g.game_id
         LEFT JOIN hist h ON gs.game_id = h.game_id AND gs.stat_type = h.stat_type
-        WHERE p.user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $1)
+        WHERE p.user_id = $1
         ORDER BY gs.played_at DESC
         LIMIT 50
-    """, user["email"])
+    """, user["user_id"])
 
     def _outlier_fields(value, mean, std, count):
         if count is None or count < 5 or std is None or std == 0:
@@ -194,8 +193,8 @@ async def update_stats(stat_id: int, body: UpdateStatRequest, conn: DynamicConn,
         FROM fact.fact_game_stats gs
         JOIN dim.dim_players p ON gs.player_id = p.player_id
         JOIN dim.dim_users u ON p.user_id = u.user_id
-        WHERE gs.stat_id = $1 AND u.user_email = $2 AND u.is_trusted = TRUE
-    """, stat_id, user["email"])
+        WHERE gs.stat_id = $1 AND u.user_id = $2 AND u.is_trusted = TRUE
+    """, stat_id, user["user_id"])
 
     if not owned:
         raise HTTPException(status_code=404, detail="Stat not found or not authorized.")
@@ -242,8 +241,8 @@ async def delete_stats(stat_id: int, conn: DynamicConn, user: TrustedUser):
         FROM fact.fact_game_stats gs
         JOIN dim.dim_players p ON gs.player_id = p.player_id
         JOIN dim.dim_users u ON p.user_id = u.user_id
-        WHERE gs.stat_id = $1 AND u.user_email = $2
-    """, stat_id, user["email"])
+        WHERE gs.stat_id = $1 AND u.user_id = $2
+    """, stat_id, user["user_id"])
 
     if not stat_info:
         raise HTTPException(status_code=404, detail="Stat not found or permission denied.")
@@ -401,11 +400,7 @@ async def add_stats(body: AddStatsRequest, conn: DynamicConn, user: CurrentUser)
                 )
 
     # --- DB: user lookup ---
-    user_id = await conn.fetchval(
-        "SELECT user_id FROM dim.dim_users WHERE user_email = $1", user["email"]
-    )
-    if user_id is None:
-        raise HTTPException(status_code=404, detail="Authenticated user not found in DB.")
+    user_id = user["user_id"]
 
     # --- DB: player lookup / auto-create (all roles, capped by tier) ---
     player_id = await conn.fetchval(
@@ -550,8 +545,8 @@ async def get_summary(
 
     # Verify player belongs to authenticated user
     owned = await conn.fetchval(
-        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
-        player_id, user["email"],
+        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = $2",
+        player_id, user["user_id"],
     )
     if not owned:
         raise HTTPException(status_code=404, detail="Player not found.")
@@ -649,8 +644,8 @@ async def get_streaks(
     Uses the user's local timezone so the streak doesn't reset at UTC midnight.
     """
     owned = await conn.fetchval(
-        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
-        player_id, user["email"],
+        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = $2",
+        player_id, user["user_id"],
     )
     if not owned:
         raise HTTPException(status_code=404, detail="Player not found.")
@@ -721,8 +716,8 @@ async def get_ticker_facts(
     game_name   = f"{game_row['game_name']}: {installment}" if installment else game_row["game_name"]
 
     player_row = await conn.fetchrow(
-        "SELECT player_name FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
-        player_id, user["email"],
+        "SELECT player_name FROM dim.dim_players WHERE player_id = $1 AND user_id = $2",
+        player_id, user["user_id"],
     )
     if not player_row:
         raise HTTPException(status_code=404, detail="Player not found.")

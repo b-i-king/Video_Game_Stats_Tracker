@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { signIn } from "next-auth/react";
 
 const FREE_PERKS = [
   "Track stats for up to 2 players",
@@ -25,7 +26,6 @@ const ANNUAL_PRICE  = 96; // $8/mo billed annually — saves $24/yr
 export default function PricingSection() {
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
 
-  const price      = billing === "monthly" ? MONTHLY_PRICE : ANNUAL_PRICE;
   const priceLabel = billing === "monthly"
     ? `$${MONTHLY_PRICE} / month`
     : `$${ANNUAL_PRICE} / year`;
@@ -115,12 +115,16 @@ export default function PricingSection() {
               </li>
             ))}
           </ul>
-          <Link
-            href="/auth/signin"
-            className="mt-4 block text-center w-full py-2 rounded bg-[var(--gold)] text-black font-semibold hover:opacity-90 transition-opacity"
+          <button
+            onClick={() =>
+              signIn("google", {
+                callbackUrl: `/account?interval=${billing === "monthly" ? "month" : "year"}`,
+              })
+            }
+            className="mt-4 w-full py-2 rounded bg-[var(--gold)] text-black font-semibold hover:opacity-90 transition-opacity"
           >
             Sign In to Upgrade
-          </Link>
+          </button>
         </div>
       </div>
     </section>

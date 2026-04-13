@@ -3,7 +3,7 @@ Dashboard route — All tiers (free → owner).
 
 GET /dashboard  — aggregate stats across all games for the calling user.
 
-Returns in a single round-trip (3 queries, one connection):
+Returns in a single round-trip:
   - total_sessions    : distinct (game × day) pairs
   - total_games       : distinct games ever played
   - current_streak    : consecutive days with any session (tz-aware)
@@ -28,31 +28,31 @@ async def get_dashboard(
     user: CurrentUser,
     tz:   str = Query(default="America/Los_Angeles"),
 ):
-    # ── 1. Aggregate totals + session dates for streak ────────────────────────
+    uid = user["user_id"]
+
+    # ── 1. Aggregate totals ───────────────────────────────────────────────────
     agg_row = await conn.fetchrow("""
         SELECT
             COUNT(DISTINCT (f.game_id, (f.played_at AT TIME ZONE $2)::date)) AS total_sessions,
             COUNT(DISTINCT f.game_id)                                          AS total_games
         FROM fact.fact_game_stats f
         JOIN dim.dim_players p ON f.player_id = p.player_id
-        JOIN dim.dim_users   u ON p.user_id   = u.user_id
-        WHERE u.user_email = $1
-    """, user["email"], tz)
+        WHERE p.user_id = $1
+    """, uid, tz)
 
     total_sessions = int(agg_row["total_sessions"] or 0)
     total_games    = int(agg_row["total_games"]    or 0)
 
-    # All distinct session days (any game) for streak calculation
+    # All distinct session days for streak calculation
     date_rows = await conn.fetch("""
         SELECT DISTINCT (f.played_at AT TIME ZONE $2)::date AS d
         FROM fact.fact_game_stats f
         JOIN dim.dim_players p ON f.player_id = p.player_id
-        JOIN dim.dim_users   u ON p.user_id   = u.user_id
-        WHERE u.user_email = $1
+        WHERE p.user_id = $1
         ORDER BY d DESC
-    """, user["email"], tz)
+    """, uid, tz)
 
-    dates = [r["d"] for r in date_rows]  # newest first
+    dates = [r["d"] for r in date_rows]
 
     current_streak = 0
     longest_streak = 0
@@ -63,7 +63,6 @@ async def get_dashboard(
         today = datetime.now(ZoneInfo(tz)).date()
         last_played = dates[0].isoformat()
 
-        # Current streak — count back from today or yesterday
         if dates[0] >= today - timedelta(days=1):
             expected = dates[0]
             for d in dates:
@@ -73,7 +72,6 @@ async def get_dashboard(
                 else:
                     break
 
-        # Longest streak
         asc     = sorted(dates)
         run     = 1
         longest = 1
@@ -85,15 +83,9 @@ async def get_dashboard(
                 run = 1
         longest_streak = max(current_streak, longest)
 
-    # ── 2. Top 3 games (by session count) with top stat + avg ─────────────────
+    # ── 2. Top 3 games ────────────────────────────────────────────────────────
     game_rows = await conn.fetch("""
-        WITH player_ids AS (
-            SELECT p.player_id
-            FROM dim.dim_players p
-            JOIN dim.dim_users u ON p.user_id = u.user_id
-            WHERE u.user_email = $1
-        ),
-        game_sessions AS (
+        WITH game_sessions AS (
             SELECT
                 f.game_id,
                 g.game_name,
@@ -101,7 +93,8 @@ async def get_dashboard(
                 COUNT(DISTINCT (f.played_at AT TIME ZONE $2)::date) AS sessions
             FROM fact.fact_game_stats f
             JOIN dim.dim_games g ON f.game_id = g.game_id
-            WHERE f.player_id IN (SELECT player_id FROM player_ids)
+            JOIN dim.dim_players p ON f.player_id = p.player_id
+            WHERE p.user_id = $1
             GROUP BY f.game_id, g.game_name, g.game_installment
             ORDER BY sessions DESC
             LIMIT 3
@@ -110,10 +103,11 @@ async def get_dashboard(
             SELECT
                 f.game_id,
                 f.stat_type,
-                COUNT(*)              AS cnt,
+                COUNT(*)                             AS cnt,
                 ROUND(AVG(f.stat_value)::numeric, 2) AS avg_value
             FROM fact.fact_game_stats f
-            WHERE f.player_id IN (SELECT player_id FROM player_ids)
+            JOIN dim.dim_players p ON f.player_id = p.player_id
+            WHERE p.user_id = $1
               AND f.stat_type  IS NOT NULL
               AND f.stat_value IS NOT NULL
               AND f.game_id IN (SELECT game_id FROM game_sessions)
@@ -134,7 +128,7 @@ async def get_dashboard(
         FROM game_sessions gs
         LEFT JOIN top_stat_per_game ts ON gs.game_id = ts.game_id
         ORDER BY gs.sessions DESC
-    """, user["email"], tz)
+    """, uid, tz)
 
     top_games = [
         {
@@ -148,7 +142,7 @@ async def get_dashboard(
         for r in game_rows
     ]
 
-    # ── 3. Heatmap (all games combined) ───────────────────────────────────────
+    # ── 3. Heatmap ────────────────────────────────────────────────────────────
     heatmap_rows = await conn.fetch("""
         SELECT
             EXTRACT(DOW  FROM (f.played_at AT TIME ZONE $2))::int AS dow,
@@ -156,10 +150,9 @@ async def get_dashboard(
             COUNT(DISTINCT f.played_at) AS session_count
         FROM fact.fact_game_stats f
         JOIN dim.dim_players p ON f.player_id = p.player_id
-        JOIN dim.dim_users   u ON p.user_id   = u.user_id
-        WHERE u.user_email = $1
+        WHERE p.user_id = $1
         GROUP BY dow, hour
-    """, user["email"], tz)
+    """, uid, tz)
 
     cells = [
         {"dow": r["dow"], "hour": r["hour"], "session_count": int(r["session_count"])}

@@ -145,7 +145,7 @@ export default function StatsPageClient() {
           {/* Right sidebar — desktop only, all signed-in users */}
           <aside className="hidden lg:block w-64 shrink-0 self-start sticky top-6 h-[530px]">
             {isOwner
-              ? <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} enabledPlatforms={enabledPlatforms} setEnabledPlatforms={setEnabledPlatforms} />
+              ? <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} enabledPlatforms={enabledPlatforms} setEnabledPlatforms={setEnabledPlatforms} isOwner={isOwner} />
               : <LastSessionPanel jwt={jwt} refreshKey={lastSessionKey} />
             }
           </aside>
@@ -186,7 +186,7 @@ export default function StatsPageClient() {
               {mobilePanel === "bolt" && <BoltPanel jwt={jwt} isOwner={isOwner} />}
               {mobilePanel === "queue" && (
                 isOwner
-                  ? <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} enabledPlatforms={enabledPlatforms} setEnabledPlatforms={setEnabledPlatforms} />
+                  ? <QueuePanel jwt={jwt} queueMode={queueMode} setQueueMode={setQueueMode} isManualOverride={isManualOverride} enabledPlatforms={enabledPlatforms} setEnabledPlatforms={setEnabledPlatforms} isOwner={isOwner} />
                   : <LastSessionPanel jwt={jwt} refreshKey={lastSessionKey} />
               )}
             </div>

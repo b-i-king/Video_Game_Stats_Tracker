@@ -109,8 +109,15 @@ async def login(body: LoginRequest, conn: PersonalConn):
         user_id, db_is_trusted = cached
         if should_be_trusted == db_is_trusted:
             is_owner = email in _owner_set()
-            # TODO Phase 3 Stripe: query app.subscriptions for plan here
+            from api.core.database import public_pool
             plan = "free"
+            if public_pool:
+                async with public_pool.acquire() as pub:
+                    sub = await pub.fetchval(
+                        "SELECT plan FROM app.subscriptions WHERE user_id = $1", user_id
+                    )
+                    if sub:
+                        plan = sub
             resolved_role = _resolve_role(email, db_is_trusted, is_owner, plan)
             return LoginResponse(
                 token=_make_token(email, user_id, db_is_trusted, is_owner, resolved_role),
@@ -157,8 +164,15 @@ async def login(body: LoginRequest, conn: PersonalConn):
     is_owner = email in _owner_set()
     _cache_set(email, user_id, db_is_trusted)
 
-    # TODO Phase 3 Stripe: query public_pool app.subscriptions for plan here
+    from api.core.database import public_pool
     plan = "free"
+    if public_pool:
+        async with public_pool.acquire() as pub:
+            sub = await pub.fetchval(
+                "SELECT plan FROM app.subscriptions WHERE user_id = $1", user_id
+            )
+            if sub:
+                plan = sub
     resolved_role = _resolve_role(email, db_is_trusted, is_owner, plan)
 
     return LoginResponse(

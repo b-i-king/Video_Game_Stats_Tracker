@@ -31,8 +31,8 @@ async def get_interactive_chart(
 
     # Verify ownership
     owned = await conn.fetchval(
-        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
-        player_id, user["email"],
+        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = $2",
+        player_id, user["user_id"],
     )
     if not owned:
         raise HTTPException(status_code=404, detail="Player not found.")
@@ -113,8 +113,8 @@ async def download_chart(body: DownloadChartRequest, conn: DynamicConn, user: Cu
 
     # Verify ownership
     owned = await conn.fetchval(
-        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
-        body.player_id, user["email"],
+        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = $2",
+        body.player_id, user["user_id"],
     )
     if not owned:
         raise HTTPException(status_code=404, detail="Player not found.")
@@ -175,7 +175,7 @@ async def download_chart(body: DownloadChartRequest, conn: DynamicConn, user: Cu
             pg = psycopg2.connect(dsn, sslmode="require")
             try:
                 with pg.cursor() as cur:
-                    return get_stat_history_from_db(cur, body.player_id, body.game_id, top_stats, days_back=365)
+                    return get_stat_history_from_db(cur, body.player_id, body.game_id, top_stats, days_back=30)
             finally:
                 pg.close()
 
@@ -204,8 +204,8 @@ async def get_heatmap(
 ):
     """Session frequency by day-of-week and hour-of-day, tz-adjusted."""
     owned = await conn.fetchval(
-        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = (SELECT user_id FROM dim.dim_users WHERE user_email = $2)",
-        player_id, user["email"],
+        "SELECT 1 FROM dim.dim_players WHERE player_id = $1 AND user_id = $2",
+        player_id, user["user_id"],
     )
     if not owned:
         raise HTTPException(status_code=404, detail="Player not found.")
