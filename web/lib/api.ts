@@ -789,3 +789,26 @@ export async function createBillingPortal(jwt: string): Promise<{ url: string }>
   if (!res.ok) throw new Error("Failed to open billing portal");
   return res.json();
 }
+
+// ── Newsletter ────────────────────────────────────────────────────────────────
+
+export async function getNewsletterOptin(jwt: string): Promise<{ optin: boolean }> {
+  const res = await fetchWithAuth(`${BASE}/api/newsletter/optin`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to load newsletter preference");
+  return res.json();
+}
+
+export async function setNewsletterOptin(
+  jwt: string,
+  optin: boolean
+): Promise<{ optin: boolean }> {
+  const res = await fetchWithAuth(`${BASE}/api/newsletter/optin`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ optin }),
+  });
+  if (!res.ok) throw new Error("Failed to update newsletter preference");
+  return res.json();
+}

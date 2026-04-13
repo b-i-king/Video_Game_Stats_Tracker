@@ -2,8 +2,12 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { Fira_Code } from "next/font/google";
 import { getServerSession } from "next-auth";
+import { getLocale, getMessages } from "next-intl/server";
+import { NextIntlClientProvider } from "next-intl";
 import { authOptions } from "@/lib/auth";
+import { isRTL } from "@/i18n/request";
 import Providers from "@/components/Providers";
+import ThemeProvider from "@/components/ThemeProvider";
 import Navbar from "@/components/Navbar";
 import SocialLinks from "@/components/SocialLinks";
 import RenderWarmup from "@/components/RenderWarmup";
@@ -136,14 +140,18 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [session, maintenanceMsg] = await Promise.all([
+  const [session, maintenanceMsg, locale, messages] = await Promise.all([
     getServerSession(authOptions),
     getMaintenanceMsg(),
+    getLocale(),
+    getMessages(),
   ]);
 
   return (
-    <html lang="en" className={firaCode.variable}>
+    <html lang={locale} dir={isRTL(locale) ? "rtl" : "ltr"} className={firaCode.variable}>
       <head>
+        {/* Anti-flash: read theme from localStorage before React hydrates */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();` }} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -151,6 +159,8 @@ export default async function RootLayout({
       </head>
       <body className="min-h-screen flex flex-col font-mono">
         <Providers session={session}>
+          <NextIntlClientProvider locale={locale} messages={messages}>
+          <ThemeProvider>
           <RenderWarmup />
           <MaintenanceBanner msg={maintenanceMsg} />
           <Navbar />
@@ -176,6 +186,8 @@ export default async function RootLayout({
               </a>
             </p>
           </footer>
+          </ThemeProvider>
+          </NextIntlClientProvider>
         </Providers>
       </body>
     </html>

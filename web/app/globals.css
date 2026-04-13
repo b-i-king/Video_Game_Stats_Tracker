@@ -2,40 +2,65 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Dark background to match the Streamlit app's dark theme */
+/* ── Dark theme (default) ────────────────────────────────────────────────── */
 :root {
-  --bg: #0e1117;
+  --bg:      #0e1117;
   --surface: #1a1d26;
-  --border: #2e3244;
-  --gold: #c8ac44;
-  --text: #e8e8e8;
-  --muted: #888;
+  --border:  #2e3244;
+  --gold:    #c8ac44;
+  --text:    #e8e8e8;
+  --muted:   #888888;
+}
+
+/* ── Light theme ─────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg:      #f0f2f5;
+  --surface: #ffffff;
+  --border:  #d1d5db;
+  --gold:    #a07c1e;
+  --text:    #111827;
+  --muted:   #6b7280;
 }
 
 body {
   background-color: var(--bg);
   color: var(--text);
   font-family: var(--font-fira-code), "Fira Code", monospace;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* ── Reusable utility classes (used in StatsForm, EditTab, etc.) ───────────── */
+/* ── Reusable utility classes ────────────────────────────────────────────── */
 @layer components {
   .input {
-    @apply w-full rounded border border-[#2e3244] bg-[#1a1d26] px-3 py-1.5 text-sm text-[#e8e8e8]
-           focus:outline-none focus:border-[#c8ac44] transition-colors;
+    @apply w-full rounded border px-3 py-1.5 text-sm
+           focus:outline-none transition-colors;
+    border-color: var(--border);
+    background-color: var(--surface);
+    color: var(--text);
+  }
+  .input:focus {
+    border-color: var(--gold);
   }
 
   .label {
-    @apply block text-xs text-[#888] mb-1;
+    @apply block text-xs mb-1;
+    color: var(--muted);
   }
 
   .btn-primary {
-    @apply px-4 py-2 rounded bg-[#c8ac44] text-black text-sm font-semibold
+    @apply px-4 py-2 rounded text-sm font-semibold
            hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed;
+    background-color: var(--gold);
+    color: #000;
   }
 
   .btn-sm {
-    @apply px-3 py-1 rounded border border-[#2e3244] text-sm text-[#e8e8e8]
-           hover:border-[#c8ac44] hover:text-[#c8ac44] transition-colors disabled:opacity-40;
+    @apply px-3 py-1 rounded text-sm transition-colors disabled:opacity-40;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-sm:hover {
+    border-color: var(--gold);
+    color: var(--gold);
   }
 }

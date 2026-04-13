@@ -3,10 +3,13 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   getSubscriptionStatus,
   createSubscriptionCheckout,
   createBillingPortal,
+  getNewsletterOptin,
+  setNewsletterOptin,
   type SubscriptionStatus,
 } from "@/lib/api";
 
@@ -23,11 +26,13 @@ export default function AccountPageClient() {
   // Pre-select interval from query param (set by PricingSection "Sign In to Upgrade")
   const defaultInterval = searchParams.get("interval") === "year" ? "year" : "month";
 
-  const [status, setStatus]     = useState<SubscriptionStatus | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
-  const [interval, setInterval] = useState<Interval>(defaultInterval);
-  const [working, setWorking]   = useState(false);
+  const [status, setStatus]         = useState<SubscriptionStatus | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
+  const [interval, setInterval]     = useState<Interval>(defaultInterval);
+  const [working, setWorking]       = useState(false);
+  const [newsletter, setNewsletter] = useState<boolean>(false);
+  const [nlWorking, setNlWorking]   = useState(false);
 
   const justSubscribed = searchParams.get("subscribed") === "1";
 
@@ -37,7 +42,23 @@ export default function AccountPageClient() {
       .then(setStatus)
       .catch(() => setError("Failed to load subscription status."))
       .finally(() => setLoading(false));
+    getNewsletterOptin(jwt)
+      .then((d) => setNewsletter(d.optin))
+      .catch(() => {/* non-fatal */});
   }, [jwt]);
+
+  async function handleNewsletterToggle() {
+    if (!jwt) return;
+    setNlWorking(true);
+    try {
+      const { optin } = await setNewsletterOptin(jwt, !newsletter);
+      setNewsletter(optin);
+    } catch {
+      setError("Failed to update email preference.");
+    } finally {
+      setNlWorking(false);
+    }
+  }
 
   async function handleUpgrade() {
     if (!jwt) return;
@@ -73,13 +94,16 @@ export default function AccountPageClient() {
   const isOwner   = (session as { isOwner?: boolean })?.isOwner ?? false;
   const isTrusted = (session as { isTrusted?: boolean })?.isTrusted ?? false;
 
+  const t     = useTranslations("account");
+  const tAuth = useTranslations("auth");
+
   const tierCfg = isOwner
-    ? { label: "Owner",   cls: "text-[var(--gold)] border-yellow-600 bg-yellow-900/30" }
+    ? { label: tAuth("roles.owner"),   cls: "text-[var(--gold)] border-yellow-600 bg-yellow-900/30" }
     : isTrusted
-    ? { label: "Trusted", cls: "text-blue-300 border-blue-700 bg-blue-900/30" }
+    ? { label: tAuth("roles.trusted"), cls: "text-blue-300 border-blue-700 bg-blue-900/30" }
     : role === "premium"
-    ? { label: "Premium", cls: "text-purple-300 border-purple-700 bg-purple-900/30" }
-    : { label: "Free",    cls: "text-emerald-300 border-emerald-700 bg-emerald-900/30" };
+    ? { label: tAuth("roles.premium"), cls: "text-purple-300 border-purple-700 bg-purple-900/30" }
+    : { label: tAuth("roles.free"),    cls: "text-emerald-300 border-emerald-700 bg-emerald-900/30" };
 
   if (loading) {
     return (
@@ -98,7 +122,7 @@ export default function AccountPageClient() {
 
   return (
     <div className="max-w-xl mx-auto space-y-6 py-4 px-4">
-      <h1 className="text-2xl font-bold text-[var(--gold)]">Account</h1>
+      <h1 className="text-2xl font-bold text-[var(--gold)]">{t("pageTitle")}</h1>
 
       {/* Profile card */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3">
@@ -231,6 +255,31 @@ export default function AccountPageClient() {
       {error && (
         <p className="text-sm text-red-400 text-center">{error}</p>
       )}
+
+      {/* Newsletter opt-in */}
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold">{t("newsletter")}</p>
+            <p className="text-xs text-[var(--muted)] mt-0.5">
+              {t("newsletterDesc")}
+            </p>
+          </div>
+          <button
+            onClick={handleNewsletterToggle}
+            disabled={nlWorking}
+            aria-pressed={newsletter}
+            className={`relative shrink-0 w-11 h-6 rounded-full transition-colors
+              ${newsletter ? "bg-[var(--gold)]" : "bg-[var(--border)]"}
+              disabled:opacity-50`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white
+                shadow transition-transform ${newsletter ? "translate-x-5" : "translate-x-0"}`}
+            />
+          </button>
+        </div>
+      </div>
 
       {/* Data + Danger zone links */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] divide-y divide-[var(--border)]">

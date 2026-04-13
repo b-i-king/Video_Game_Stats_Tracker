@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "ہوم",
+    "stats": "اعداد و شمار",
+    "dashboard": "ڈیش بورڈ",
+    "leaderboard": "لیڈر بورڈ",
+    "account": "اکاؤنٹ",
+    "integrations": "انضمام",
+    "dataExport": "ڈیٹا برآمد",
+    "about": "ہمارے بارے میں",
+    "privacy": "رازداری",
+    "terms": "شرائط",
+    "signIn": "Google سے سائن ان کریں",
+    "signOut": "سائن آؤٹ",
+    "menu": "مینو"
+  },
+  "auth": {
+    "notSignedIn": "سائن ان نہیں ہوئے",
+    "roles": {
+      "owner": "مالک",
+      "trusted": "قابل اعتماد",
+      "premium": "پریمیم",
+      "free": "مفت",
+      "guest": "مہمان"
+    }
+  },
+  "stats": {
+    "pageTitle": "اعداد و شمار درج کریں",
+    "game": "گیم",
+    "selectGame": "گیم منتخب کریں…",
+    "statType": "اعداد و شمار کی قسم",
+    "value": "قدر",
+    "playedAt": "کھیلنے کا وقت",
+    "notes": "نوٹس",
+    "addRow": "قطار شامل کریں",
+    "submit": "جمع کریں",
+    "submitting": "جمع ہو رہا ہے…",
+    "success": "اعداد و شمار محفوظ ہو گئے!",
+    "voiceInput": "آواز سے ان پٹ",
+    "stopListening": "سننا بند کریں"
+  },
+  "dashboard": {
+    "pageTitle": "ڈیش بورڈ",
+    "sessions": "سیشن",
+    "last30Days": "پچھلے 30 دن",
+    "allTime": "تمام وقت"
+  },
+  "leaderboard": {
+    "pageTitle": "لیڈر بورڈ",
+    "rank": "درجہ",
+    "player": "کھلاڑی",
+    "game": "گیم",
+    "sessions": "سیشن"
+  },
+  "account": {
+    "pageTitle": "اکاؤنٹ",
+    "subscription": "سبسکرپشن",
+    "newsletter": "ماہانہ خلاصہ ای میل",
+    "newsletterDesc": "اپنے گیمنگ اعداد و شمار کا ماہانہ خلاصہ حاصل کریں۔",
+    "dangerZone": "خطرناک علاقہ",
+    "deleteAccount": "اکاؤنٹ حذف کریں"
+  },
+  "common": {
+    "loading": "لوڈ ہو رہا ہے…",
+    "error": "کچھ غلط ہو گیا۔",
+    "retry": "دوبارہ کوشش کریں",
+    "save": "محفوظ کریں",
+    "cancel": "منسوخ کریں",
+    "close": "بند کریں"
+  }
+}

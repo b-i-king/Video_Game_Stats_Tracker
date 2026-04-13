@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "Startseite",
+    "stats": "Statistiken",
+    "dashboard": "Dashboard",
+    "leaderboard": "Rangliste",
+    "account": "Konto",
+    "integrations": "Integrationen",
+    "dataExport": "Datenexport",
+    "about": "Über uns",
+    "privacy": "Datenschutz",
+    "terms": "Nutzungsbedingungen",
+    "signIn": "Mit Google anmelden",
+    "signOut": "Abmelden",
+    "menu": "Menü"
+  },
+  "auth": {
+    "notSignedIn": "Nicht angemeldet",
+    "roles": {
+      "owner": "Eigentümer",
+      "trusted": "Vertrauenswürdig",
+      "premium": "Premium",
+      "free": "Kostenlos",
+      "guest": "Gast"
+    }
+  },
+  "stats": {
+    "pageTitle": "Stats erfassen",
+    "game": "Spiel",
+    "selectGame": "Spiel auswählen…",
+    "statType": "Stat-Typ",
+    "value": "Wert",
+    "playedAt": "Gespielt am",
+    "notes": "Notizen",
+    "addRow": "Zeile hinzufügen",
+    "submit": "Absenden",
+    "submitting": "Wird gesendet…",
+    "success": "Stats gespeichert!",
+    "voiceInput": "Spracheingabe",
+    "stopListening": "Zuhören beenden"
+  },
+  "dashboard": {
+    "pageTitle": "Dashboard",
+    "sessions": "Sitzungen",
+    "last30Days": "Letzte 30 Tage",
+    "allTime": "Gesamt"
+  },
+  "leaderboard": {
+    "pageTitle": "Rangliste",
+    "rank": "Rang",
+    "player": "Spieler",
+    "game": "Spiel",
+    "sessions": "Sitzungen"
+  },
+  "account": {
+    "pageTitle": "Konto",
+    "subscription": "Abonnement",
+    "newsletter": "Monatliche Zusammenfassung per E-Mail",
+    "newsletterDesc": "Erhalte eine monatliche Zusammenfassung deiner Spielstatistiken.",
+    "dangerZone": "Gefahrenzone",
+    "deleteAccount": "Konto löschen"
+  },
+  "common": {
+    "loading": "Lädt…",
+    "error": "Etwas ist schiefgelaufen.",
+    "retry": "Erneut versuchen",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "close": "Schließen"
+  }
+}

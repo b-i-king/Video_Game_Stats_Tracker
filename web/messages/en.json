@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "Home",
+    "stats": "Stats",
+    "dashboard": "Dashboard",
+    "leaderboard": "Leaderboard",
+    "account": "Account",
+    "integrations": "Integrations",
+    "dataExport": "Data Export",
+    "about": "About",
+    "privacy": "Privacy",
+    "terms": "Terms",
+    "signIn": "Sign in with Google",
+    "signOut": "Sign out",
+    "menu": "Menu"
+  },
+  "auth": {
+    "notSignedIn": "Not signed in",
+    "roles": {
+      "owner": "Owner",
+      "trusted": "Trusted",
+      "premium": "Premium",
+      "free": "Free",
+      "guest": "Guest"
+    }
+  },
+  "stats": {
+    "pageTitle": "Log Stats",
+    "game": "Game",
+    "selectGame": "Select a game…",
+    "statType": "Stat Type",
+    "value": "Value",
+    "playedAt": "Played At",
+    "notes": "Notes",
+    "addRow": "Add row",
+    "submit": "Submit",
+    "submitting": "Submitting…",
+    "success": "Stats logged!",
+    "voiceInput": "Voice input",
+    "stopListening": "Stop listening"
+  },
+  "dashboard": {
+    "pageTitle": "Dashboard",
+    "sessions": "Sessions",
+    "last30Days": "Last 30 Days",
+    "allTime": "All-Time"
+  },
+  "leaderboard": {
+    "pageTitle": "Leaderboard",
+    "rank": "Rank",
+    "player": "Player",
+    "game": "Game",
+    "sessions": "Sessions"
+  },
+  "account": {
+    "pageTitle": "Account",
+    "subscription": "Subscription",
+    "newsletter": "Monthly Recap Email",
+    "newsletterDesc": "Receive a monthly summary of your gaming stats.",
+    "dangerZone": "Danger Zone",
+    "deleteAccount": "Delete Account"
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "Something went wrong.",
+    "retry": "Retry",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close"
+  }
+}

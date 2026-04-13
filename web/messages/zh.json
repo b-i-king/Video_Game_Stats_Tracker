@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "首页",
+    "stats": "统计",
+    "dashboard": "仪表板",
+    "leaderboard": "排行榜",
+    "account": "账户",
+    "integrations": "集成",
+    "dataExport": "导出数据",
+    "about": "关于",
+    "privacy": "隐私政策",
+    "terms": "服务条款",
+    "signIn": "使用 Google 登录",
+    "signOut": "退出登录",
+    "menu": "菜单"
+  },
+  "auth": {
+    "notSignedIn": "未登录",
+    "roles": {
+      "owner": "所有者",
+      "trusted": "受信任",
+      "premium": "高级",
+      "free": "免费",
+      "guest": "访客"
+    }
+  },
+  "stats": {
+    "pageTitle": "记录统计",
+    "game": "游戏",
+    "selectGame": "选择游戏…",
+    "statType": "统计类型",
+    "value": "数值",
+    "playedAt": "游玩时间",
+    "notes": "备注",
+    "addRow": "添加行",
+    "submit": "提交",
+    "submitting": "提交中…",
+    "success": "统计已保存！",
+    "voiceInput": "语音输入",
+    "stopListening": "停止监听"
+  },
+  "dashboard": {
+    "pageTitle": "仪表板",
+    "sessions": "场次",
+    "last30Days": "近30天",
+    "allTime": "全部时间"
+  },
+  "leaderboard": {
+    "pageTitle": "排行榜",
+    "rank": "排名",
+    "player": "玩家",
+    "game": "游戏",
+    "sessions": "场次"
+  },
+  "account": {
+    "pageTitle": "账户",
+    "subscription": "订阅",
+    "newsletter": "月度回顾邮件",
+    "newsletterDesc": "接收每月游戏统计摘要。",
+    "dangerZone": "危险区域",
+    "deleteAccount": "删除账户"
+  },
+  "common": {
+    "loading": "加载中…",
+    "error": "出现了错误。",
+    "retry": "重试",
+    "save": "保存",
+    "cancel": "取消",
+    "close": "关闭"
+  }
+}

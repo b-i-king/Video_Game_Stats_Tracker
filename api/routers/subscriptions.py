@@ -226,12 +226,19 @@ async def stripe_sub_webhook(request: Request):
                 WHERE stripe_subscription_id = $5
             """, plan, interval, expires, cancelled_at, subscription_id)
 
+        # ── Payment failed (renewal) — Stripe will retry; log but don't downgrade yet ─
+        elif event_type == "invoice.payment_failed":
+            customer_id = obj.get("customer")
+            if customer_id:
+                print(f"[stripe] Payment failed for customer {customer_id} — Stripe will retry.")
+
         # ── Subscription deleted (hard cancel / non-payment) ──────────────
         elif event_type == "customer.subscription.deleted":
             subscription_id = obj["id"]
             await conn.execute("""
                 UPDATE app.subscriptions
                 SET plan         = 'free',
+                    is_active    = FALSE,
                     cancelled_at = NOW()
                 WHERE stripe_subscription_id = $1
             """, subscription_id)

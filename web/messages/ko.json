@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "홈",
+    "stats": "스탯",
+    "dashboard": "대시보드",
+    "leaderboard": "리더보드",
+    "account": "계정",
+    "integrations": "연동",
+    "dataExport": "데이터 내보내기",
+    "about": "소개",
+    "privacy": "개인정보처리방침",
+    "terms": "이용약관",
+    "signIn": "Google로 로그인",
+    "signOut": "로그아웃",
+    "menu": "메뉴"
+  },
+  "auth": {
+    "notSignedIn": "로그인하지 않음",
+    "roles": {
+      "owner": "오너",
+      "trusted": "신뢰됨",
+      "premium": "프리미엄",
+      "free": "무료",
+      "guest": "게스트"
+    }
+  },
+  "stats": {
+    "pageTitle": "스탯 기록",
+    "game": "게임",
+    "selectGame": "게임 선택…",
+    "statType": "스탯 유형",
+    "value": "값",
+    "playedAt": "플레이 날짜",
+    "notes": "메모",
+    "addRow": "행 추가",
+    "submit": "제출",
+    "submitting": "제출 중…",
+    "success": "스탯이 저장되었습니다!",
+    "voiceInput": "음성 입력",
+    "stopListening": "듣기 중지"
+  },
+  "dashboard": {
+    "pageTitle": "대시보드",
+    "sessions": "세션",
+    "last30Days": "최근 30일",
+    "allTime": "전체 기간"
+  },
+  "leaderboard": {
+    "pageTitle": "리더보드",
+    "rank": "순위",
+    "player": "플레이어",
+    "game": "게임",
+    "sessions": "세션"
+  },
+  "account": {
+    "pageTitle": "계정",
+    "subscription": "구독",
+    "newsletter": "월간 요약 이메일",
+    "newsletterDesc": "게임 통계 월간 요약을 받아보세요.",
+    "dangerZone": "위험 구역",
+    "deleteAccount": "계정 삭제"
+  },
+  "common": {
+    "loading": "로딩 중…",
+    "error": "오류가 발생했습니다.",
+    "retry": "다시 시도",
+    "save": "저장",
+    "cancel": "취소",
+    "close": "닫기"
+  }
+}

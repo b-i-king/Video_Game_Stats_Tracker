@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "Inicio",
+    "stats": "Estadísticas",
+    "dashboard": "Panel",
+    "leaderboard": "Clasificación",
+    "account": "Cuenta",
+    "integrations": "Integraciones",
+    "dataExport": "Exportar Datos",
+    "about": "Acerca de",
+    "privacy": "Privacidad",
+    "terms": "Términos",
+    "signIn": "Iniciar sesión con Google",
+    "signOut": "Cerrar sesión",
+    "menu": "Menú"
+  },
+  "auth": {
+    "notSignedIn": "No has iniciado sesión",
+    "roles": {
+      "owner": "Propietario",
+      "trusted": "De confianza",
+      "premium": "Premium",
+      "free": "Gratis",
+      "guest": "Invitado"
+    }
+  },
+  "stats": {
+    "pageTitle": "Registrar Estadísticas",
+    "game": "Juego",
+    "selectGame": "Seleccionar un juego…",
+    "statType": "Tipo de Estadística",
+    "value": "Valor",
+    "playedAt": "Jugado el",
+    "notes": "Notas",
+    "addRow": "Agregar fila",
+    "submit": "Enviar",
+    "submitting": "Enviando…",
+    "success": "¡Estadísticas guardadas!",
+    "voiceInput": "Entrada de voz",
+    "stopListening": "Dejar de escuchar"
+  },
+  "dashboard": {
+    "pageTitle": "Panel",
+    "sessions": "Sesiones",
+    "last30Days": "Últimos 30 días",
+    "allTime": "Todos los tiempos"
+  },
+  "leaderboard": {
+    "pageTitle": "Clasificación",
+    "rank": "Rango",
+    "player": "Jugador",
+    "game": "Juego",
+    "sessions": "Sesiones"
+  },
+  "account": {
+    "pageTitle": "Cuenta",
+    "subscription": "Suscripción",
+    "newsletter": "Correo Mensual",
+    "newsletterDesc": "Recibe un resumen mensual de tus estadísticas de juego.",
+    "dangerZone": "Zona de peligro",
+    "deleteAccount": "Eliminar Cuenta"
+  },
+  "common": {
+    "loading": "Cargando…",
+    "error": "Algo salió mal.",
+    "retry": "Reintentar",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "close": "Cerrar"
+  }
+}

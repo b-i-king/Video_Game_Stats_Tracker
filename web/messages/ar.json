@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "الرئيسية",
+    "stats": "الإحصاءات",
+    "dashboard": "لوحة التحكم",
+    "leaderboard": "لوحة المتصدرين",
+    "account": "الحساب",
+    "integrations": "التكاملات",
+    "dataExport": "تصدير البيانات",
+    "about": "حول",
+    "privacy": "الخصوصية",
+    "terms": "الشروط",
+    "signIn": "تسجيل الدخول بـ Google",
+    "signOut": "تسجيل الخروج",
+    "menu": "القائمة"
+  },
+  "auth": {
+    "notSignedIn": "غير مسجل الدخول",
+    "roles": {
+      "owner": "المالك",
+      "trusted": "موثوق",
+      "premium": "مميز",
+      "free": "مجاني",
+      "guest": "ضيف"
+    }
+  },
+  "stats": {
+    "pageTitle": "تسجيل الإحصاءات",
+    "game": "اللعبة",
+    "selectGame": "اختر لعبة…",
+    "statType": "نوع الإحصاء",
+    "value": "القيمة",
+    "playedAt": "تاريخ اللعب",
+    "notes": "ملاحظات",
+    "addRow": "إضافة صف",
+    "submit": "إرسال",
+    "submitting": "جارٍ الإرسال…",
+    "success": "تم حفظ الإحصاءات!",
+    "voiceInput": "الإدخال الصوتي",
+    "stopListening": "إيقاف الاستماع"
+  },
+  "dashboard": {
+    "pageTitle": "لوحة التحكم",
+    "sessions": "الجلسات",
+    "last30Days": "آخر 30 يومًا",
+    "allTime": "كل الأوقات"
+  },
+  "leaderboard": {
+    "pageTitle": "لوحة المتصدرين",
+    "rank": "الترتيب",
+    "player": "اللاعب",
+    "game": "اللعبة",
+    "sessions": "الجلسات"
+  },
+  "account": {
+    "pageTitle": "الحساب",
+    "subscription": "الاشتراك",
+    "newsletter": "بريد الملخص الشهري",
+    "newsletterDesc": "احصل على ملخص شهري لإحصاءات ألعابك.",
+    "dangerZone": "منطقة الخطر",
+    "deleteAccount": "حذف الحساب"
+  },
+  "common": {
+    "loading": "جارٍ التحميل…",
+    "error": "حدث خطأ ما.",
+    "retry": "إعادة المحاولة",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "close": "إغلاق"
+  }
+}

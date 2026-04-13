@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { getDashboard, type DashboardData, type DashboardTopGame } from "@/lib/api";
 
@@ -269,6 +270,8 @@ function EmptyState() {
 export default function DashboardPageClient() {
   const { data: session } = useSession();
   const jwt = session?.flaskJwt ?? "";
+  const t = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
 
   const [data, setData]       = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -288,10 +291,10 @@ export default function DashboardPageClient() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
-      <h1 className="text-2xl font-bold text-[var(--gold)] text-center">📺 Dashboard</h1>
+      <h1 className="text-2xl font-bold text-[var(--gold)] text-center">📺 {t("pageTitle")}</h1>
 
       {loading && (
-        <p className="text-sm text-[var(--muted)] text-center animate-pulse">Loading…</p>
+        <p className="text-sm text-[var(--muted)] text-center animate-pulse">{tCommon("loading")}</p>
       )}
       {error && (
         <p className="text-sm text-red-400 text-center">{error}</p>

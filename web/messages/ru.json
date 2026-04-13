@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "Главная",
+    "stats": "Статистика",
+    "dashboard": "Панель",
+    "leaderboard": "Таблица лидеров",
+    "account": "Аккаунт",
+    "integrations": "Интеграции",
+    "dataExport": "Экспорт данных",
+    "about": "О нас",
+    "privacy": "Конфиденциальность",
+    "terms": "Условия",
+    "signIn": "Войти через Google",
+    "signOut": "Выйти",
+    "menu": "Меню"
+  },
+  "auth": {
+    "notSignedIn": "Не вошли в систему",
+    "roles": {
+      "owner": "Владелец",
+      "trusted": "Доверенный",
+      "premium": "Премиум",
+      "free": "Бесплатно",
+      "guest": "Гость"
+    }
+  },
+  "stats": {
+    "pageTitle": "Записать статистику",
+    "game": "Игра",
+    "selectGame": "Выберите игру…",
+    "statType": "Тип статистики",
+    "value": "Значение",
+    "playedAt": "Дата игры",
+    "notes": "Заметки",
+    "addRow": "Добавить строку",
+    "submit": "Отправить",
+    "submitting": "Отправка…",
+    "success": "Статистика сохранена!",
+    "voiceInput": "Голосовой ввод",
+    "stopListening": "Остановить прослушивание"
+  },
+  "dashboard": {
+    "pageTitle": "Панель",
+    "sessions": "Сессии",
+    "last30Days": "Последние 30 дней",
+    "allTime": "За всё время"
+  },
+  "leaderboard": {
+    "pageTitle": "Таблица лидеров",
+    "rank": "Место",
+    "player": "Игрок",
+    "game": "Игра",
+    "sessions": "Сессии"
+  },
+  "account": {
+    "pageTitle": "Аккаунт",
+    "subscription": "Подписка",
+    "newsletter": "Ежемесячный дайджест",
+    "newsletterDesc": "Получайте ежемесячную сводку вашей игровой статистики.",
+    "dangerZone": "Опасная зона",
+    "deleteAccount": "Удалить аккаунт"
+  },
+  "common": {
+    "loading": "Загрузка…",
+    "error": "Что-то пошло не так.",
+    "retry": "Повторить",
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "close": "Закрыть"
+  }
+}

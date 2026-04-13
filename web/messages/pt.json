@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "Início",
+    "stats": "Estatísticas",
+    "dashboard": "Painel",
+    "leaderboard": "Classificação",
+    "account": "Conta",
+    "integrations": "Integrações",
+    "dataExport": "Exportar Dados",
+    "about": "Sobre",
+    "privacy": "Privacidade",
+    "terms": "Termos",
+    "signIn": "Entrar com Google",
+    "signOut": "Sair",
+    "menu": "Menu"
+  },
+  "auth": {
+    "notSignedIn": "Não conectado",
+    "roles": {
+      "owner": "Proprietário",
+      "trusted": "Confiável",
+      "premium": "Premium",
+      "free": "Gratuito",
+      "guest": "Convidado"
+    }
+  },
+  "stats": {
+    "pageTitle": "Registrar Estatísticas",
+    "game": "Jogo",
+    "selectGame": "Selecionar um jogo…",
+    "statType": "Tipo de Estatística",
+    "value": "Valor",
+    "playedAt": "Jogado em",
+    "notes": "Notas",
+    "addRow": "Adicionar linha",
+    "submit": "Enviar",
+    "submitting": "Enviando…",
+    "success": "Estatísticas salvas!",
+    "voiceInput": "Entrada de voz",
+    "stopListening": "Parar de ouvir"
+  },
+  "dashboard": {
+    "pageTitle": "Painel",
+    "sessions": "Sessões",
+    "last30Days": "Últimos 30 dias",
+    "allTime": "Todos os tempos"
+  },
+  "leaderboard": {
+    "pageTitle": "Classificação",
+    "rank": "Posição",
+    "player": "Jogador",
+    "game": "Jogo",
+    "sessions": "Sessões"
+  },
+  "account": {
+    "pageTitle": "Conta",
+    "subscription": "Assinatura",
+    "newsletter": "E-mail de Resumo Mensal",
+    "newsletterDesc": "Receba um resumo mensal das suas estatísticas de jogo.",
+    "dangerZone": "Zona de perigo",
+    "deleteAccount": "Excluir Conta"
+  },
+  "common": {
+    "loading": "Carregando…",
+    "error": "Algo deu errado.",
+    "retry": "Tentar novamente",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "close": "Fechar"
+  }
+}

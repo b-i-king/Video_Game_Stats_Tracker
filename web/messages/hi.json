@@ -1,0 +1,71 @@
+{
+  "nav": {
+    "home": "होम",
+    "stats": "आँकड़े",
+    "dashboard": "डैशबोर्ड",
+    "leaderboard": "लीडरबोर्ड",
+    "account": "खाता",
+    "integrations": "एकीकरण",
+    "dataExport": "डेटा निर्यात",
+    "about": "हमारे बारे में",
+    "privacy": "गोपनीयता",
+    "terms": "नियम",
+    "signIn": "Google से साइन इन करें",
+    "signOut": "साइन आउट",
+    "menu": "मेनू"
+  },
+  "auth": {
+    "notSignedIn": "साइन इन नहीं है",
+    "roles": {
+      "owner": "स्वामी",
+      "trusted": "विश्वसनीय",
+      "premium": "प्रीमियम",
+      "free": "निःशुल्क",
+      "guest": "अतिथि"
+    }
+  },
+  "stats": {
+    "pageTitle": "आँकड़े दर्ज करें",
+    "game": "खेल",
+    "selectGame": "खेल चुनें…",
+    "statType": "आँकड़े का प्रकार",
+    "value": "मान",
+    "playedAt": "खेला गया",
+    "notes": "टिप्पणियाँ",
+    "addRow": "पंक्ति जोड़ें",
+    "submit": "सबमिट करें",
+    "submitting": "सबमिट हो रहा है…",
+    "success": "आँकड़े सहेजे गए!",
+    "voiceInput": "वॉइस इनपुट",
+    "stopListening": "सुनना बंद करें"
+  },
+  "dashboard": {
+    "pageTitle": "डैशबोर्ड",
+    "sessions": "सत्र",
+    "last30Days": "पिछले 30 दिन",
+    "allTime": "सभी समय"
+  },
+  "leaderboard": {
+    "pageTitle": "लीडरबोर्ड",
+    "rank": "रैंक",
+    "player": "खिलाड़ी",
+    "game": "खेल",
+    "sessions": "सत्र"
+  },
+  "account": {
+    "pageTitle": "खाता",
+    "subscription": "सदस्यता",
+    "newsletter": "मासिक रिकैप ईमेल",
+    "newsletterDesc": "अपने गेमिंग आँकड़ों का मासिक सारांश प्राप्त करें।",
+    "dangerZone": "खतरे का क्षेत्र",
+    "deleteAccount": "खाता हटाएं"
+  },
+  "common": {
+    "loading": "लोड हो रहा है…",
+    "error": "कुछ गलत हो गया।",
+    "retry": "पुनः प्रयास करें",
+    "save": "सहेजें",
+    "cancel": "रद्द करें",
+    "close": "बंद करें"
+  }
+}

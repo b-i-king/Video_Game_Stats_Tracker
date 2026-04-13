@@ -35,7 +35,9 @@ import {
 function resolveAlias(input: string) {
   return STAT_ALIASES[input.trim().toLowerCase()] ?? null;
 }
+import { useTranslations } from "next-intl";
 import Tooltip from "@/components/Tooltip";
+import SpeechInput from "@/components/SpeechInput";
 
 // Mirror flask_app.py regexes for immediate client-side feedback
 const STAT_TYPE_RE = /^[A-Za-z0-9 \-]{1,50}$/;
@@ -534,6 +536,8 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
   }, []);
 
   // ── Render ────────────────────────────────────────────────────────────────
+  const t = useTranslations("stats");
+
   if (!isTrusted) {
     return <GuestPreview />;
   }
@@ -1143,15 +1147,21 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
               {statRows.map((row, i) => (
                 <div key={i} className="grid sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="label">Stat Type {i + 1} <Tooltip text="e.g. Eliminations, Points, Kills, Assists. Start typing to see suggestions." /></label>
-                    <input
-                      className="input"
-                      list="prev-stat-types"
-                      value={row.type}
-                      onChange={(e) => updateStatRow(i, "type", e.target.value)}
-                      placeholder="e.g. Eliminations, Points, Wins"
-                      maxLength={50}
-                    />
+                    <label className="label">{t("statType")} {i + 1} <Tooltip text="e.g. Eliminations, Points, Kills, Assists. Start typing to see suggestions." /></label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        className="input"
+                        list="prev-stat-types"
+                        value={row.type}
+                        onChange={(e) => updateStatRow(i, "type", e.target.value)}
+                        placeholder="e.g. Eliminations, Points, Wins"
+                        maxLength={50}
+                      />
+                      <SpeechInput
+                        onResult={(text) => updateStatRow(i, "type", text)}
+                        label="Listening…"
+                      />
+                    </div>
                     {(() => {
                       const alias = resolveAlias(row.type);
                       return alias ? (
@@ -1242,7 +1252,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
                 onClick={handleSubmit}
                 title="Ctrl+Enter"
               >
-                {submitting ? SUBMIT_STAGES[submitStage] : "Submit Stats"}
+                {submitting ? SUBMIT_STAGES[submitStage] : t("submit")}
               </button>
 
               {/* Download — locked until today's stats are submitted */}
