@@ -90,7 +90,8 @@ async def get_dashboard(
                 f.game_id,
                 g.game_name,
                 g.game_installment,
-                COUNT(DISTINCT (f.played_at AT TIME ZONE $2)::date) AS sessions
+                COUNT(DISTINCT (f.played_at AT TIME ZONE $2)::date) AS sessions,
+                MAX((f.played_at AT TIME ZONE $2)::date)            AS last_played
             FROM fact.fact_game_stats f
             JOIN dim.dim_games g ON f.game_id = g.game_id
             JOIN dim.dim_players p ON f.player_id = p.player_id
@@ -123,6 +124,7 @@ async def get_dashboard(
             gs.game_name,
             gs.game_installment,
             gs.sessions,
+            gs.last_played,
             ts.stat_type  AS top_stat,
             ts.avg_value  AS top_stat_avg
         FROM game_sessions gs
@@ -136,6 +138,7 @@ async def get_dashboard(
             "game_name":        r["game_name"],
             "game_installment": r["game_installment"],
             "sessions":         r["sessions"],
+            "last_played":      r["last_played"].isoformat() if r["last_played"] else None,
             "top_stat":         r["top_stat"],
             "top_stat_avg":     float(r["top_stat_avg"]) if r["top_stat_avg"] else None,
         }

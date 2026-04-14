@@ -36,16 +36,25 @@ export default function AccountPageClient() {
 
   const justSubscribed = searchParams.get("subscribed") === "1";
 
+  const role      = (session as { role?: string })?.role ?? "free";
+  const isOwner   = (session as { isOwner?: boolean })?.isOwner ?? false;
+  const isTrusted = (session as { isTrusted?: boolean })?.isTrusted ?? false;
+
   useEffect(() => {
     if (!jwt) return;
-    getSubscriptionStatus(jwt)
-      .then(setStatus)
-      .catch(() => setError("Failed to load subscription status."))
-      .finally(() => setLoading(false));
+    // Owner and Trusted users have no subscription record — skip the call
+    if (isOwner || isTrusted) {
+      setLoading(false);
+    } else {
+      getSubscriptionStatus(jwt)
+        .then(setStatus)
+        .catch(() => setError("Failed to load subscription status."))
+        .finally(() => setLoading(false));
+    }
     getNewsletterOptin(jwt)
       .then((d) => setNewsletter(d.optin))
       .catch(() => {/* non-fatal */});
-  }, [jwt]);
+  }, [jwt, isOwner, isTrusted]);
 
   async function handleNewsletterToggle() {
     if (!jwt) return;
@@ -89,10 +98,6 @@ export default function AccountPageClient() {
       setWorking(false);
     }
   }
-
-  const role      = (session as { role?: string })?.role ?? "free";
-  const isOwner   = (session as { isOwner?: boolean })?.isOwner ?? false;
-  const isTrusted = (session as { isTrusted?: boolean })?.isTrusted ?? false;
 
   const t     = useTranslations("account");
   const tAuth = useTranslations("auth");

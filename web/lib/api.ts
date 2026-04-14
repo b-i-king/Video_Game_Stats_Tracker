@@ -685,6 +685,7 @@ export interface DashboardTopGame {
   game_name:        string;
   game_installment: string | null;
   sessions:         number;
+  last_played:      string | null;
   top_stat:         string | null;
   top_stat_avg:     number | null;
 }

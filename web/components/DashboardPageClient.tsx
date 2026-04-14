@@ -83,6 +83,17 @@ function Heatmap({ data }: { data: DashboardData["heatmap"] }) {
 
 // ── Top Game Card ─────────────────────────────────────────────────────────────
 
+function formatLastPlayed(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  const date  = new Date(y, m - 1, d);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff  = Math.round((today.getTime() - date.getTime()) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 function GameCard({
   game,
   rank,
@@ -95,11 +106,12 @@ function GameCard({
   const title = game.game_installment
     ? `${game.game_name}: ${game.game_installment}`
     : game.game_name;
-  const medal     = rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉";
-  const isSingle  = game.sessions === 1;
-  const statLabel = isSingle
+  const medal           = rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉";
+  const isSingle        = game.sessions === 1;
+  const statLabel       = isSingle
     ? `${game.top_stat ?? "Stat"} (1 session)`
     : `Avg ${game.top_stat ?? "Stat"}`;
+  const lastPlayedLabel = formatLastPlayed(game.last_played);
 
   return (
     <div
@@ -133,7 +145,12 @@ function GameCard({
             className="rounded border border-dashed border-[var(--border)] py-2 flex flex-col items-center justify-center gap-0.5 hover:border-[var(--gold)] hover:text-[var(--gold)] transition-colors"
           >
             <span className="text-lg">📊</span>
-            <span className="text-[10px] text-[var(--muted)]">Log session</span>
+            <span className="text-[10px] text-[var(--muted)]">Log Stats</span>
+            {lastPlayedLabel && (
+              <span className="text-[9px] text-[var(--muted)] opacity-70 mt-0.5">
+                Last played: {lastPlayedLabel}
+              </span>
+            )}
           </Link>
         )}
       </div>

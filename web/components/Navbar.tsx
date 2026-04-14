@@ -42,10 +42,18 @@ export default function Navbar() {
           </Link>
           <button
             onClick={toggle}
+            role="switch"
+            aria-checked={theme === "light"}
             aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            className="text-lg hover:opacity-70 transition-opacity"
+            className={`relative w-11 h-6 rounded-full transition-colors duration-200
+              ${theme === "light" ? "bg-sky-200" : "bg-zinc-600"}`}
           >
-            {theme === "dark" ? "☀️" : "🌙"}
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm
+              flex items-center justify-center text-xs transition-transform duration-200
+              ${theme === "light" ? "translate-x-5" : "translate-x-0"}`}
+            >
+              {theme === "dark" ? "🌙" : "☀️"}
+            </span>
           </button>
         </div>
 
