@@ -1789,3 +1789,209 @@ web/public/badges/
 - Do not archive Flask until all 41 routes are tested in FastAPI
 - Wednesday automation run is the go/no-go gate between Chunk 2 and Chunk 3
 - [ ] Bolt weekly recap endpoint + Resend email integration (post-launch)
+
+---
+
+## Phase 5 — Telegram Mini App (Option A: Wrapper)
+
+**Goal:** Make the existing Next.js web app accessible inside Telegram through the
+broadcast bot's menu button. No rewrite. No new hosting. Stripe continues to handle
+all payments. This phase validates Telegram engagement before committing to Stars
+integration (Option B).
+
+**Written:** 2026-04-14
+
+---
+
+### What is actually being built
+
+The Mini App is NOT built inside the bot. The bot is only the launcher.
+
+```
+User DMs your broadcast bot (@GameStatsBOLBot)
+              ↓
+Taps "Open Stats Tracker" menu button  ← set once in BotFather, points at Vercel URL
+              ↓
+Telegram opens WebView → loads https://yourdomain.vercel.app
+              ↓
+Your existing Next.js app runs — same code, same Vercel deployment
+              ↓
+Telegram SDK (3 lines of JS) provides user's Telegram identity automatically
+              ↓
+New FastAPI endpoint verifies identity, returns JWT → user is logged in
+```
+
+All build work is in the existing Next.js + FastAPI codebase.
+The bot receives one new BotFather setting (menu button URL). That is all.
+
+---
+
+### How authentication changes
+
+Currently: Google OAuth → NextAuth → FastAPI JWT
+
+Inside Telegram: Telegram injects `initData` (a signed payload containing the
+user's Telegram ID, name, and a hash). There is no sign-in form — Telegram
+handles identity automatically.
+
+```
+Telegram WebView loads app
+       ↓
+window.Telegram.WebApp.initData  (available immediately, no user action)
+       ↓
+POST /api/telegram_login  (new FastAPI endpoint)
+  → verify HMAC-SHA256 signature using bot token  ← security critical, must not be skipped
+  → upsert dim_users on telegram_user_id
+  → return FastAPI JWT (same shape as Google login)
+       ↓
+App behaves identically — all existing features work
+```
+
+Google login still works on the web. Telegram login only applies when running
+inside the Telegram WebView. They share the same `dim_users` table — a user can
+link both identities to one account later if needed.
+
+---
+
+### New files
+
+| File | Purpose |
+|---|---|
+| `web/components/TelegramProvider.tsx` | Client component — initialises `window.Telegram.WebApp`, calls `.ready()`, syncs Telegram color scheme with app theme, exposes context |
+| `web/hooks/useTelegramUser.ts` | Returns `{ isTelegram, telegramUser }` — used to conditionally hide Google sign-in UI |
+| `api/routers/telegram_auth.py` | `POST /telegram_login` — verifies `initData` HMAC, upserts user, returns JWT |
+
+---
+
+### Changes to existing files
+
+| File | Change |
+|---|---|
+| `web/app/layout.tsx` | Add Telegram SDK script tag to `<head>`; mount `<TelegramProvider />` |
+| `web/lib/auth.ts` | On first load inside Telegram, exchange `initData` for a FastAPI JWT instead of triggering Google OAuth |
+| `web/components/Navbar.tsx` | When `isTelegram`, hide Google sign-in button — user is already identified |
+| `web/components/AccountPageClient.tsx` | Stripe checkout button opens in `_blank` — Telegram blocks same-tab navigation to external URLs |
+| `api/main.py` | Register `telegram_auth.router` |
+| `api/core/config.py` | No change — `TELEGRAM_BROADCAST_BOT_TOKEN` already in env and is reused for HMAC verification |
+
+---
+
+### Database change (one SQL statement, public DB)
+
+```sql
+ALTER TABLE dim.dim_users
+  ADD COLUMN IF NOT EXISTS telegram_user_id BIGINT UNIQUE;
+```
+
+No other schema changes needed.
+
+---
+
+### HMAC verification — security critical
+
+Telegram provides a signed `initData` string. The signature must be verified
+server-side before trusting any identity claim. A failed or skipped check allows
+anyone to spoof a Telegram identity.
+
+```python
+# api/routers/telegram_auth.py
+import hashlib, hmac as _hmac, urllib.parse
+
+def verify_init_data(init_data: str, bot_token: str) -> dict:
+    parsed   = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
+    received = parsed.pop("hash", "")
+    data_str = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+    secret   = _hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    expected = _hmac.new(secret, data_str.encode(), hashlib.sha256).hexdigest()
+    if not _hmac.compare_digest(expected, received):
+        raise ValueError("Invalid initData — possible spoofing attempt")
+    return parsed  # safe to use after this point
+```
+
+---
+
+### BotFather setup (one-time, after deploy)
+
+1. Open `@BotFather` → `/mybots` → select your broadcast bot
+2. **Bot Settings → Menu Button → Configure menu button**
+3. Set URL: `https://yourdomain.vercel.app`
+4. Set Button Text: `Open Stats Tracker`
+
+This places a persistent button at the bottom of every DM with the bot.
+One tap opens the Mini App.
+
+Optional — add an inline launch button to channel session posts so subscribers
+can open the app directly from a post:
+
+```python
+# In utils/telegram_broadcast.py — add to post_session() payload
+"reply_markup": {
+    "inline_keyboard": [[{
+        "text": "📊 Open Stats Tracker",
+        "web_app": {"url": "https://yourdomain.vercel.app"}
+    }]]
+}
+```
+
+---
+
+### New env vars
+
+| Var | Value | Notes |
+|---|---|---|
+| `TELEGRAM_MINI_APP_URL` | `https://yourdomain.vercel.app` | Used to build Stripe `success_url` deep link back into Mini App after checkout |
+
+No new bot token — reuses `TELEGRAM_BROADCAST_BOT_TOKEN` for HMAC verification.
+
+---
+
+### Implementation checklist
+
+**Database**
+- [ ] Run `ALTER TABLE dim.dim_users ADD COLUMN IF NOT EXISTS telegram_user_id BIGINT UNIQUE` on personal DB
+
+**Backend (FastAPI)**
+- [ ] Create `api/routers/telegram_auth.py` with `POST /telegram_login`
+- [ ] Implement `verify_init_data()` HMAC check — reject anything that fails
+- [ ] Upsert `dim_users` on `telegram_user_id`; return same JWT shape as Google login
+- [ ] Register router in `api/main.py`
+
+**Frontend (Next.js)**
+- [ ] Add `<script src="https://telegram.org/js/telegram-web-app.js" />` to `layout.tsx` head
+- [ ] Write `TelegramProvider.tsx` — call `window.Telegram.WebApp.ready()` and `.expand()` on mount
+- [ ] Write `useTelegramUser.ts` hook
+- [ ] On app load inside Telegram: POST `initData` to `/api/telegram-auth` (Next.js route handler) → exchange for NextAuth session
+- [ ] `Navbar.tsx` — hide Google sign-in when `isTelegram === true`
+- [ ] `AccountPageClient.tsx` — open Stripe checkout in `target="_blank"`
+
+**Bot**
+- [ ] Set Menu Button URL in BotFather (see above)
+- [ ] Optionally add inline launch button to `post_session()` in `telegram_broadcast.py`
+
+**Testing**
+- [ ] Open bot on mobile Telegram → tap menu button → Mini App loads full-screen
+- [ ] `initData` HMAC verification passes; tampered requests return 403
+- [ ] User row created/matched in `dim_users` with correct `telegram_user_id`
+- [ ] Submit stats, view dashboard, leaderboard, account — all work inside WebView
+- [ ] Stripe checkout opens in external browser; returns to Mini App after payment
+- [ ] App theme matches Telegram's current color scheme (light and dark)
+- [ ] Tested on iOS and Android (WebView behavior differs slightly between platforms)
+
+---
+
+### Future — Option B: Add Telegram Stars alongside Stripe
+
+Once Option A is live and engagement is validated, Stars can be added as a
+second payment path without touching the Stripe flow. Stars purchases would
+then qualify for Telegram's native affiliate program.
+
+| Item | Work |
+|---|---|
+| "Pay with Stars" button on upgrade screen | Calls `Bot.sendInvoice` via Telegram Bot API |
+| `PreCheckoutQuery` webhook handler | FastAPI: validate order, respond within 10 s |
+| `successful_payment` webhook handler | FastAPI: upsert `app.subscriptions`, plan = premium |
+| Telegram native affiliate program | Enable in `@BotFather` → set commission % and period |
+| Parallel commission tracking | Stars commissions handled natively by Telegram; Stripe commissions stay in `app.referrals` |
+
+Stars and Stripe map to the same `app.subscriptions` row — the `plan` column
+does not care which payment method funded it.

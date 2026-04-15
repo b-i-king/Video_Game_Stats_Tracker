@@ -10,7 +10,7 @@ export default function PrivacyPage() {
   return (
     <div className="prose prose-invert max-w-3xl mx-auto space-y-6 py-4">
       <h1 className="text-3xl font-bold text-[var(--gold)]">Privacy Policy</h1>
-      <p className="text-[var(--muted)] text-sm">Last updated: 2026-04-03</p>
+      <p className="text-[var(--muted)] text-sm">Last updated: 2026-04-14</p>
 
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Introduction</h2>
@@ -32,6 +32,15 @@ export default function PrivacyPage() {
             — When you sign in with Google we receive your email address and
             public profile. We use this only to authenticate you and determine
             your access level (trusted user vs. registered guest).
+          </li>
+          <li>
+            <strong className="text-[var(--text)]">
+              Telegram Account Information
+            </strong>{" "}
+            — When you sign in via our Telegram Mini App we receive your
+            Telegram user ID, username, and display name. We store your Telegram
+            user ID to link your account and process Stars payments. We do not
+            store your Telegram messages.
           </li>
           <li>
             <strong className="text-[var(--text)]">Gaming Stats</strong> — Stat
@@ -78,6 +87,16 @@ export default function PrivacyPage() {
           <li>
             <strong className="text-[var(--text)]">IFTTT / Meta</strong> — to
             post content to Twitter and Instagram at your direction.
+          </li>
+          <li>
+            <strong className="text-[var(--text)]">Stripe</strong> — to process
+            subscription payments. Stripe handles all card data; we never store
+            payment card details.
+          </li>
+          <li>
+            <strong className="text-[var(--text)]">Telegram</strong> — when you
+            use the Telegram Mini App or pay with Stars. Telegram processes Stars
+            transactions under their own terms.
           </li>
         </ul>
       </section>

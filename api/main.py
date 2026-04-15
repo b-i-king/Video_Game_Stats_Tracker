@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from api.core.config import get_settings as _get_settings
 from api.core.database import init_pools, close_pools
-from api.routers import auth, players, games, stats, charts, queue, ai, obs, instagram, ml, admin, game_requests, leaderboard, dashboard, export_data, subscriptions, emails
+from api.routers import auth, players, games, stats, charts, queue, ai, obs, instagram, ml, admin, game_requests, leaderboard, dashboard, export_data, subscriptions, emails, referrals, telegram_channel, telegram_auth, telegram_stars
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -41,6 +41,10 @@ app.include_router(dashboard.router,    prefix="/api", tags=["dashboard"])
 app.include_router(export_data.router,      prefix="/api", tags=["export"])
 app.include_router(subscriptions.router,    prefix="/api", tags=["subscriptions"])
 app.include_router(emails.router,           prefix="/api", tags=["emails"])
+app.include_router(referrals.router,        prefix="/api", tags=["referrals"])
+app.include_router(telegram_channel.router, prefix="/api", tags=["telegram"])
+app.include_router(telegram_auth.router,    prefix="/api", tags=["telegram"])
+app.include_router(telegram_stars.router,   prefix="/api", tags=["telegram"])
 
 
 @app.get("/health", tags=["health"])

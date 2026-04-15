@@ -4,7 +4,7 @@ Dashboard route — All tiers (free → owner).
 GET /dashboard  — aggregate stats across all games for the calling user.
 
 Returns in a single round-trip:
-  - total_sessions    : distinct (game × day) pairs
+  - total_sessions    : distinct (game × minute) pairs
   - total_games       : distinct games ever played
   - current_streak    : consecutive days with any session (tz-aware)
   - longest_streak    : personal best streak
@@ -33,7 +33,7 @@ async def get_dashboard(
     # ── 1. Aggregate totals ───────────────────────────────────────────────────
     agg_row = await conn.fetchrow("""
         SELECT
-            COUNT(DISTINCT (f.game_id, (f.played_at AT TIME ZONE $2)::date)) AS total_sessions,
+            COUNT(DISTINCT (f.game_id, date_trunc('minute', f.played_at))) AS total_sessions,
             COUNT(DISTINCT f.game_id)                                          AS total_games
         FROM fact.fact_game_stats f
         JOIN dim.dim_players p ON f.player_id = p.player_id
@@ -90,7 +90,7 @@ async def get_dashboard(
                 f.game_id,
                 g.game_name,
                 g.game_installment,
-                COUNT(DISTINCT (f.played_at AT TIME ZONE $2)::date) AS sessions,
+                COUNT(DISTINCT date_trunc('minute', f.played_at)) AS sessions,
                 MAX((f.played_at AT TIME ZONE $2)::date)            AS last_played
             FROM fact.fact_game_stats f
             JOIN dim.dim_games g ON f.game_id = g.game_id

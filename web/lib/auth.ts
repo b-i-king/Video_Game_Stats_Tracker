@@ -4,6 +4,7 @@
 
 import type { AuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+import CredentialsProvider from "next-auth/providers/credentials";
 
 export const authOptions: AuthOptions = {
   providers: [
@@ -11,12 +12,60 @@ export const authOptions: AuthOptions = {
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     }),
+
+    // ── Telegram Mini App login ─────────────────────────────────────────────
+    // Called from TelegramProvider.tsx with the initData payload from the
+    // Telegram WebApp SDK. Verification happens server-side in FastAPI.
+    CredentialsProvider({
+      id:   "telegram",
+      name: "Telegram",
+      credentials: {
+        initData: { label: "initData", type: "text" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.initData) return null;
+        try {
+          const res = await fetch(
+            `${process.env.FASTAPI_URL}/api/telegram_login`,
+            {
+              method:  "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-API-KEY":    process.env.FASTAPI_API_KEY!,
+              },
+              body: JSON.stringify({ init_data: credentials.initData }),
+            }
+          );
+          if (!res.ok) return null;
+          const data = await res.json();
+          return {
+            id:         String(data.user_id),
+            email:      data.email,
+            flaskJwt:   data.token,
+            role:       data.role,
+            isOwner:    data.is_owner,
+            isTrusted:  data.is_trusted,
+          };
+        } catch {
+          return null;
+        }
+      },
+    }),
   ],
 
   // ── JWT callback: runs server-side when a token is created/refreshed ───────
   // On first sign-in (account is defined), call FastAPI to get a JWT.
   callbacks: {
     async jwt({ token, account, user }) {
+      // ── Telegram CredentialsProvider — user object carries all fields ──────
+      if (account?.provider === "telegram" && user) {
+        token.flaskJwt  = (user as any).flaskJwt;
+        token.role      = (user as any).role;
+        token.isOwner   = (user as any).isOwner;
+        token.isTrusted = (user as any).isTrusted;
+        return token;
+      }
+
       // Decode JWT expiry without a library (base64 payload, field: exp)
       const apiJwtExpired = (): boolean => {
         if (!token.flaskJwt) return true;

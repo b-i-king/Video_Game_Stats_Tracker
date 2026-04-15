@@ -498,6 +498,21 @@ async def add_stats(body: AddStatsRequest, conn: DynamicConn, user: CurrentUser)
                 queue_platforms=queue_platforms,
             )
         )
+
+        # Broadcast session to Telegram channel
+        import asyncio as _aio
+        from utils.telegram_broadcast import broadcaster
+        _aio.create_task(
+            _aio.to_thread(
+                broadcaster.post_session,
+                game_name=body.game_name,
+                game_installment=body.game_installment,
+                player_name=body.player_name,
+                stats=[s.model_dump() for s in body.stats],
+                played_at_iso=batch_timestamp.isoformat(),
+            )
+        )
+
         post_action = "queued" if queue_platforms else "posting"
     else:
         post_action = "skipped"

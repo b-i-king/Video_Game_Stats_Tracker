@@ -813,3 +813,42 @@ export async function setNewsletterOptin(
   if (!res.ok) throw new Error("Failed to update newsletter preference");
   return res.json();
 }
+
+// ── Referrals ─────────────────────────────────────────────────────────────────
+
+export interface ReferralStats {
+  code:               string;
+  link:               string;
+  commission_pct:     number;
+  total_referred:     number;
+  converted:          number;
+  total_earned_cents: number;
+  total_earned_usd:   number;
+}
+
+export async function getReferralCode(jwt: string): Promise<ReferralStats> {
+  const res = await fetchWithAuth(`${BASE}/api/referral/code`, {
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to load referral code");
+  return res.json();
+}
+
+export async function recordReferral(jwt: string, code: string): Promise<void> {
+  await fetchWithAuth(`${BASE}/api/referral/record`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+    body: JSON.stringify({ code }),
+  });
+}
+
+// ── Telegram Stars ────────────────────────────────────────────────────────────
+
+export async function createStarsInvoice(jwt: string): Promise<{ invoice_link: string }> {
+  const res = await fetchWithAuth(`${BASE}/api/telegram_stars/invoice`, {
+    method: "POST",
+    headers: authHeaders(jwt),
+  });
+  if (!res.ok) throw new Error("Failed to create Stars invoice");
+  return res.json();
+}

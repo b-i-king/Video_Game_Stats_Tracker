@@ -10,8 +10,12 @@ import {
   createBillingPortal,
   getNewsletterOptin,
   setNewsletterOptin,
+  getReferralCode,
+  createStarsInvoice,
   type SubscriptionStatus,
+  type ReferralStats,
 } from "@/lib/api";
+import { useTelegramUser } from "@/hooks/useTelegramUser";
 
 type Interval = "month" | "year";
 
@@ -33,8 +37,12 @@ export default function AccountPageClient() {
   const [working, setWorking]       = useState(false);
   const [newsletter, setNewsletter] = useState<boolean>(false);
   const [nlWorking, setNlWorking]   = useState(false);
+  const [referral, setReferral]     = useState<ReferralStats | null>(null);
+  const [refCopied, setRefCopied]   = useState(false);
 
   const justSubscribed = searchParams.get("subscribed") === "1";
+
+  const { isTelegram } = useTelegramUser();
 
   const role      = (session as { role?: string })?.role ?? "free";
   const isOwner   = (session as { isOwner?: boolean })?.isOwner ?? false;
@@ -54,7 +62,18 @@ export default function AccountPageClient() {
     getNewsletterOptin(jwt)
       .then((d) => setNewsletter(d.optin))
       .catch(() => {/* non-fatal */});
+    getReferralCode(jwt)
+      .then(setReferral)
+      .catch(() => {/* non-fatal */});
   }, [jwt, isOwner, isTrusted]);
+
+  function handleCopyReferral() {
+    if (!referral?.link) return;
+    navigator.clipboard.writeText(referral.link).then(() => {
+      setRefCopied(true);
+      setTimeout(() => setRefCopied(false), 2000);
+    });
+  }
 
   async function handleNewsletterToggle() {
     if (!jwt) return;
@@ -69,13 +88,37 @@ export default function AccountPageClient() {
     }
   }
 
+  async function handleStarsPayment() {
+    if (!jwt) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const { invoice_link } = await createStarsInvoice(jwt);
+      (window as any).Telegram.WebApp.openInvoice(invoice_link, (status: string) => {
+        if (status === "paid") {
+          getSubscriptionStatus(jwt).then(setStatus).catch(() => {});
+        }
+        setWorking(false);
+      });
+    } catch {
+      setError("Could not create Stars invoice. Please try again.");
+      setWorking(false);
+    }
+  }
+
   async function handleUpgrade() {
     if (!jwt) return;
     setWorking(true);
     setError(null);
     try {
       const { url } = await createSubscriptionCheckout(jwt, interval);
-      window.location.href = url;
+      // Inside Telegram WebView, same-tab navigation to external URLs is blocked
+      if (isTelegram) {
+        window.open(url, "_blank");
+        setWorking(false);
+      } else {
+        window.location.href = url;
+      }
     } catch (e: unknown) {
       if (e instanceof Error && e.message === "already_subscribed") {
         setError("You're already subscribed to Premium.");
@@ -254,11 +297,67 @@ export default function AccountPageClient() {
           >
             {working ? "Redirecting to checkout…" : `Upgrade — ${interval === "month" ? monthlyDisplay : annualDisplay}`}
           </button>
+
+          {/* Stars payment — only shown inside Telegram Mini App */}
+          {isTelegram && (
+            <button
+              onClick={handleStarsPayment}
+              disabled={working}
+              className="w-full rounded-xl border border-[var(--border)] py-3 text-sm font-bold hover:border-[var(--gold)] hover:text-[var(--gold)] disabled:opacity-50 transition-colors"
+            >
+              {working ? "Opening payment…" : "Pay with Stars ⭐ 750"}
+            </button>
+          )}
         </div>
       )}
 
       {error && (
         <p className="text-sm text-red-400 text-center">{error}</p>
+      )}
+
+      {/* Referral program */}
+      {referral && (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">Referral Program</p>
+            <span className="text-xs text-[var(--muted)] border border-[var(--border)] rounded px-2 py-0.5">
+              {referral.commission_pct}% lifetime
+            </span>
+          </div>
+
+          <p className="text-xs text-[var(--muted)]">
+            Earn {referral.commission_pct}% of every payment made by users you refer — for as long as they stay subscribed.
+          </p>
+
+          {/* Referral link */}
+          <div className="flex gap-2">
+            <input
+              readOnly
+              value={referral.link}
+              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--muted)] truncate focus:outline-none"
+            />
+            <button
+              onClick={handleCopyReferral}
+              className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium hover:border-[var(--gold)] hover:text-[var(--gold)] transition-colors"
+            >
+              {refCopied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            {[
+              { label: "Referred",  value: referral.total_referred },
+              { label: "Converted", value: referral.converted },
+              { label: "Earned",    value: `$${referral.total_earned_usd.toFixed(2)}` },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-lg border border-[var(--border)] p-2 text-center">
+                <p className="text-sm font-bold text-[var(--gold)]">{value}</p>
+                <p className="text-[10px] text-[var(--muted)] mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Newsletter opt-in */}

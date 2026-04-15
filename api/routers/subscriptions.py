@@ -226,6 +226,51 @@ async def stripe_sub_webhook(request: Request):
                 WHERE stripe_subscription_id = $5
             """, plan, interval, expires, cancelled_at, subscription_id)
 
+        # ── Referral: link stripe_customer_id once checkout completes ──────────
+        # Runs inside the same checkout.session.completed block above,
+        # but we need the user_id which is only resolved there, so we do
+        # a second pass here keyed off customer_id.
+        if event_type == "checkout.session.completed" and obj.get("mode") == "subscription":
+            customer_id = obj.get("customer")
+            user_id_str = obj.get("client_reference_id")
+            if customer_id and user_id_str:
+                try:
+                    uid = int(user_id_str)
+                    await conn.execute("""
+                        UPDATE app.referrals
+                        SET stripe_customer_id = $1,
+                            converted_at       = NOW()
+                        WHERE referred_user_id = $2
+                          AND stripe_customer_id IS NULL
+                    """, customer_id, uid)
+                except Exception as exc:
+                    print(f"[referral] Could not link stripe_customer_id: {exc}")
+
+        # ── Referral commission — credit referrer on every paid invoice ───────
+        elif event_type == "invoice.paid":
+            customer_id = obj.get("customer")
+            amount_paid = int(obj.get("amount_paid", 0))  # cents
+            if customer_id and amount_paid > 0:
+                ref_row = await conn.fetchrow("""
+                    SELECT r.id, r.referral_code_id
+                    FROM app.referrals r
+                    WHERE r.stripe_customer_id = $1
+                """, customer_id)
+                if ref_row:
+                    commission_pct    = float(os.getenv("REFERRAL_COMMISSION_PCT", "10")) / 100
+                    commission_cents  = round(amount_paid * commission_pct)
+                    await conn.execute("""
+                        UPDATE app.referrals
+                        SET total_earned_cents = total_earned_cents + $1
+                        WHERE id = $2
+                    """, commission_cents, ref_row["id"])
+                    await conn.execute("""
+                        UPDATE app.referral_codes
+                        SET total_earned_cents = total_earned_cents + $1
+                        WHERE id = $2
+                    """, commission_cents, ref_row["referral_code_id"])
+                    print(f"[referral] Credited {commission_cents}¢ commission for customer {customer_id}")
+
         # ── Payment failed (renewal) — Stripe will retry; log but don't downgrade yet ─
         elif event_type == "invoice.payment_failed":
             customer_id = obj.get("customer")

@@ -12,6 +12,8 @@ import Navbar from "@/components/Navbar";
 import SocialLinks from "@/components/SocialLinks";
 import RenderWarmup from "@/components/RenderWarmup";
 import MaintenanceBanner from "@/components/MaintenanceBanner";
+import ReferralTracker from "@/components/ReferralTracker";
+import TelegramProvider from "@/components/TelegramProvider";
 
 // Edge Config is only available on Vercel — falls back to env var for local dev.
 // Layout already renders dynamically (getServerSession reads cookies), so this
@@ -152,6 +154,8 @@ export default async function RootLayout({
       <head>
         {/* Anti-flash: read theme from localStorage before React hydrates */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();` }} />
+        {/* Telegram Mini App SDK — no-op outside of Telegram WebView */}
+        <script src="https://telegram.org/js/telegram-web-app.js" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -161,6 +165,8 @@ export default async function RootLayout({
         <Providers session={session}>
           <NextIntlClientProvider locale={locale} messages={messages}>
           <ThemeProvider>
+          <TelegramProvider />
+          <ReferralTracker />
           <RenderWarmup />
           <MaintenanceBanner msg={maintenanceMsg} />
           <Navbar />

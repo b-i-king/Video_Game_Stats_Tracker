@@ -7,10 +7,12 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslations } from "next-intl";
 import { useTheme } from "@/components/ThemeProvider";
 import LanguagePicker from "@/components/LanguagePicker";
+import { useTelegramUser } from "@/hooks/useTelegramUser";
 
 export default function Navbar() {
   const { data: session } = useSession();
   const { theme, toggle } = useTheme();
+  const { isTelegram }    = useTelegramUser();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const t = useTranslations("nav");
@@ -113,14 +115,14 @@ export default function Navbar() {
                 {t("signOut")}
               </button>
             </>
-          ) : (
+          ) : !isTelegram ? (
             <button
               onClick={() => signIn("google")}
               className="px-3 py-1 rounded bg-[var(--gold)] text-black font-semibold hover:opacity-90 transition-opacity"
             >
               {t("signIn")}
             </button>
-          )}
+          ) : null}
 
           {/* Hamburger menu */}
           <div className="relative" ref={menuRef}>
@@ -205,14 +207,14 @@ export default function Navbar() {
                     >
                       {t("signOut")}
                     </button>
-                  ) : (
+                  ) : !isTelegram ? (
                     <button
                       onClick={() => { setMenuOpen(false); signIn("google"); }}
                       className="w-full text-sm py-1.5 rounded bg-[var(--gold)] text-black font-semibold hover:opacity-90 transition-opacity"
                     >
                       {t("signIn")}
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </div>
             )}
