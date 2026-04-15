@@ -1,20 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 /**
  * Detects whether the app is running inside a Telegram Mini App WebView.
- * Returns isTelegram: true only on the client after hydration.
+ * Lazy useState initializer runs only on the client — typeof window guard
+ * makes it SSR-safe without needing an effect.
  */
 export function useTelegramUser(): { isTelegram: boolean } {
-  const [isTelegram, setIsTelegram] = useState(false);
-
-  useEffect(() => {
-    setIsTelegram(
+  const [isTelegram] = useState(
+    () =>
       typeof window !== "undefined" &&
-        Boolean((window as TelegramWindow).Telegram?.WebApp?.initData)
-    );
-  }, []);
+      Boolean((window as TelegramWindow).Telegram?.WebApp?.initData),
+  );
 
   return { isTelegram };
 }

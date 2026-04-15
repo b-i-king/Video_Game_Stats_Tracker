@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { Fira_Code } from "next/font/google";
+import Script from "next/script";
 import { getServerSession } from "next-auth";
 import { getLocale, getMessages } from "next-intl/server";
 import { NextIntlClientProvider } from "next-intl";
@@ -155,7 +156,7 @@ export default async function RootLayout({
         {/* Anti-flash: read theme from localStorage before React hydrates */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();` }} />
         {/* Telegram Mini App SDK — no-op outside of Telegram WebView */}
-        <script src="https://telegram.org/js/telegram-web-app.js" />
+        <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

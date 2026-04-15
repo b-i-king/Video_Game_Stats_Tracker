@@ -22,8 +22,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.core.deps import DynamicConn, require_api_key
-from api.core.database import public_pool
+from api.core.database import public_pool, personal_pool as _personal_pool
 from api.routers.auth import _make_token, _resolve_role, _owner_set, _trusted_set
+
+
+def _telegram_owner_id_set() -> set[int]:
+    """
+    Telegram user IDs that belong to owner accounts.
+    Set TELEGRAM_OWNER_IDS on Render (comma-separated numeric IDs).
+    Needed because Telegram logins carry no email — we can't match against OWNER_EMAILS.
+    Find your Telegram ID by messaging @userinfobot.
+    """
+    raw = os.getenv("TELEGRAM_OWNER_IDS", "")
+    return {int(i.strip()) for i in raw.split(",") if i.strip().isdigit()}
 
 router = APIRouter()
 
@@ -58,6 +69,12 @@ async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
     """
     Exchange Telegram initData for a FastAPI JWT.
     Called server-side from the NextAuth CredentialsProvider — never from the browser directly.
+
+    Pool routing:
+      - Owner Telegram IDs (TELEGRAM_OWNER_IDS) → personal_pool (same DB as Google login)
+      - All other users                          → public_pool via DynamicConn
+    DynamicConn always yields public_pool here because there is no Bearer JWT at login time,
+    so owner routing is handled explicitly below.
     """
     bot_token = os.getenv("TELEGRAM_BROADCAST_BOT_TOKEN", "")
     if not bot_token:
@@ -79,9 +96,34 @@ async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
     if not telegram_id:
         raise HTTPException(status_code=400, detail="No Telegram user ID in initData.")
 
+    # ── Owner path: use personal pool ─────────────────────────────────────────
+    if telegram_id in _telegram_owner_id_set():
+        async with _personal_pool.acquire() as pconn:
+            owner_row = await pconn.fetchrow(
+                "SELECT user_id, user_email FROM dim.dim_users WHERE user_email = ANY($1::text[])",
+                list(_owner_set()),
+            )
+        if not owner_row:
+            raise HTTPException(status_code=404, detail="Owner account not found in personal DB.")
+        user_id    = owner_row["user_id"]
+        email      = owner_row["user_email"]
+        is_owner   = True
+        is_trusted = True
+        plan       = "premium"
+        resolved_role = _resolve_role(email, is_trusted, is_owner, plan)
+        token         = _make_token(email, user_id, is_trusted, is_owner, resolved_role)
+        return {
+            "token":      token,
+            "user_id":    user_id,
+            "email":      email,
+            "role":       resolved_role,
+            "is_owner":   True,
+            "is_trusted": True,
+        }
+
+    # ── Public user path: use public pool (conn from DynamicConn) ─────────────
     synthetic_email = f"tg_{telegram_id}@telegram.local"
 
-    # ── Upsert dim_users ──────────────────────────────────────────────────────
     existing = await conn.fetchrow(
         "SELECT user_id, user_email, is_trusted FROM dim.dim_users WHERE telegram_user_id = $1",
         telegram_id,
@@ -117,9 +159,8 @@ async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
 
         email = synthetic_email
 
-    # ── Resolve role (same logic as /api/login) ───────────────────────────────
-    is_owner = email in _owner_set()
     # Sync trust from env
+    is_owner = False
     should_be_trusted = email in _trusted_set()
     if should_be_trusted != is_trusted:
         role_val = "trusted" if should_be_trusted else "registered"

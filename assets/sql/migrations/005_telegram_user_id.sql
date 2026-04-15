@@ -1,5 +1,6 @@
 -- Migration 005: Add telegram_user_id to dim_users
--- Run against the PERSONAL Supabase DB (same database as dim.dim_users)
+-- Run against the PUBLIC Supabase DB — general users (including Telegram Mini App
+-- users) live in the public dim.dim_users. The personal DB is owner-only.
 
 ALTER TABLE dim.dim_users
   ADD COLUMN IF NOT EXISTS telegram_user_id BIGINT UNIQUE;
