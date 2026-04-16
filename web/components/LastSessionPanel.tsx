@@ -51,8 +51,8 @@ function probabilityColor(p: number): string {
 
 export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
   const [session,      setSession]      = useState<LastSession | null | undefined>(undefined);
+  // undefined = not yet fetched / loading, null = no model trained, object = model ready
   const [mlCoeff,      setMlCoeff]      = useState<MLCoefficientsData | null | undefined>(undefined);
-  const [mlLoading,    setMlLoading]    = useState(false);
   const [trainQueued,  setTrainQueued]  = useState(false);
   const [trainLoading, setTrainLoading] = useState(false);
 
@@ -66,18 +66,16 @@ export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
     return () => { cancelled = true; };
   }, [jwt, refreshKey]);
 
-  // Fetch ML coefficients once session (with game_id/player_id) is loaded
+  // Fetch ML coefficients once session (with game_id/player_id) is loaded.
+  // Reset to undefined (loading) via the return cleanup so stale data never
+  // shows while a new fetch is in flight.
   useEffect(() => {
-    if (!session || !jwt) { setMlCoeff(undefined); return; }
+    if (!session || !jwt) return;
     let cancelled = false;
-    setMlLoading(true);
     getMLCoefficients(jwt, session.game_id, session.player_id)
-      .then((res) => {
-        if (!cancelled) setMlCoeff(res?.coefficients ?? null);
-      })
-      .catch(() => { if (!cancelled) setMlCoeff(null); })
-      .finally(() => { if (!cancelled) setMlLoading(false); });
-    return () => { cancelled = true; };
+      .then((res) => { if (!cancelled) setMlCoeff(res?.coefficients ?? null); })
+      .catch(()    => { if (!cancelled) setMlCoeff(null); });
+    return () => { cancelled = true; setMlCoeff(undefined); };
   }, [jwt, session?.game_id, session?.player_id]);
 
   function handleTrainModel() {
@@ -156,11 +154,11 @@ export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
           {/* Win Probability widget */}
           <hr className="border-[var(--border)]" />
 
-          {mlLoading && (
+          {mlCoeff === undefined && (
             <p className="text-xs text-[var(--muted)] animate-pulse">Checking model…</p>
           )}
 
-          {!mlLoading && winProb !== null && (
+          {mlCoeff !== undefined && winProb !== null && (
             <div
               className={`rounded border-2 bg-[var(--bg)] px-3 py-2 flex items-center justify-between ${probabilityColor(winProb)}`}
             >
@@ -173,7 +171,7 @@ export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
             </div>
           )}
 
-          {!mlLoading && winProb === null && mlCoeff === null && (
+          {mlCoeff !== undefined && winProb === null && mlCoeff === null && (
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-[var(--muted)]">
                 {trainQueued ? "Training queued…" : "No win model yet"}
