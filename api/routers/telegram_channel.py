@@ -128,7 +128,8 @@ async def _fetch_last_session() -> str:
                   ON gs.played_at = lb.played_at
                  AND gs.game_id   = lb.game_id
                  AND gs.player_id = lb.player_id
-                ORDER BY gs.stat_type
+                ORDER BY gs.stat_value DESC NULLS LAST
+                LIMIT 3
             """, user_id)
 
         if not rows:

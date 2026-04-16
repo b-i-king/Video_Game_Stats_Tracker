@@ -170,11 +170,17 @@ def run_social_media_pipeline(
             # photo URL is guaranteed ready (avoids race condition with stats.py).
             try:
                 from utils.telegram_broadcast import broadcaster
+                # Build top-3 stat list from stat_data_for_caption (already ranked)
+                top_stats_display = [
+                    {"stat_type": v["label"], "stat_value": v["value"]}
+                    for v in stat_data_for_caption.values()
+                    if v.get("label") and v.get("stat_value") is not None
+                ]
                 broadcaster.post_session_with_photo(
                     game_name=game_name,
                     game_installment=game_installment,
                     player_name=player_name,
-                    stats=stats,
+                    stats=top_stats_display,
                     played_at_iso=played_at_iso,
                     photo_url=twitter_url,
                 )

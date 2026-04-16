@@ -11,7 +11,7 @@ export function useTelegramUser(): { isTelegram: boolean } {
   const [isTelegram] = useState(
     () =>
       typeof window !== "undefined" &&
-      Boolean((window as TelegramWindow).Telegram?.WebApp?.initData),
+      Boolean((window as TelegramWindow).Telegram?.WebApp),
   );
 
   return { isTelegram };

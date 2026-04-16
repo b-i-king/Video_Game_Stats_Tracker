@@ -70,7 +70,7 @@ class TelegramBroadcaster:
             for s in stats
             if s.get("stat_type") and s.get("stat_value") is not None
         ]
-        stat_line = "  |  ".join(stat_parts[:5])  # cap at 5 to keep it readable
+        stat_line = "  |  ".join(stat_parts[:3])
 
         try:
             from datetime import datetime
@@ -121,7 +121,7 @@ class TelegramBroadcaster:
             for s in stats
             if s.get("stat_type") and s.get("stat_value") is not None
         ]
-        stat_line = "  |  ".join(stat_parts[:5])
+        stat_line = "  |  ".join(stat_parts[:3])
 
         try:
             from datetime import datetime
