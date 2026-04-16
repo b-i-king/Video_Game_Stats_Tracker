@@ -47,7 +47,7 @@ import requests as _requests
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from utils.telegram_broadcast import broadcaster
-from api.core.database import personal_pool, public_pool
+from api.core import database as _db
 
 router = APIRouter()
 
@@ -86,7 +86,7 @@ def _owner_emails() -> list[str]:
 
 async def _fetch_last_session() -> str:
     """Pull the most recent session across all owner accounts. Returns HTML."""
-    if personal_pool is None:
+    if _db.personal_pool is None:
         return "⚠️ Database unavailable right now."
 
     emails = _owner_emails()
@@ -94,7 +94,7 @@ async def _fetch_last_session() -> str:
         return "⚠️ OWNER_EMAILS is not configured."
 
     try:
-        async with personal_pool.acquire() as conn:
+        async with _db.personal_pool.acquire() as conn:
             # Match any email in the owner list
             user_id = await conn.fetchval(
                 "SELECT user_id FROM dim.dim_users WHERE user_email = ANY($1::text[])",
@@ -210,10 +210,10 @@ async def telegram_channel_webhook(
         except (ValueError, IndexError):
             user_id = None
 
-        if user_id and public_pool:
+        if user_id and _db.public_pool:
             try:
                 expires = datetime.now(timezone.utc) + timedelta(days=30)
-                async with public_pool.acquire() as pconn:
+                async with _db.public_pool.acquire() as pconn:
                     await pconn.execute("""
                         INSERT INTO app.subscriptions
                             (user_id, plan, billing_interval, started_at, expires_at)

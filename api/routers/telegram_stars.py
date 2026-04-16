@@ -19,7 +19,6 @@ import requests
 from fastapi import APIRouter, HTTPException
 
 from api.core.deps import DynamicConn, CurrentUser
-from api.core.database import personal_pool
 
 router = APIRouter()
 
@@ -39,22 +38,21 @@ async def create_stars_invoice(conn: DynamicConn, user: CurrentUser):
     Create a Telegram Stars invoice link scoped to the authenticated user.
     The invoice payload encodes the user_id so the webhook knows who to upgrade.
     """
-    user_id = user["user_id"]
+    user_id  = user["user_id"]
+    is_owner = user.get("is_owner", False)
 
-    # Verify the user has a telegram_user_id (must be logged in via Telegram)
-    if personal_pool is None:
-        raise HTTPException(status_code=503, detail="Database not available.")
-
-    async with personal_pool.acquire() as pconn:
-        tg_id = await pconn.fetchval(
+    # Verify the user is logged in via Telegram (has a telegram_user_id).
+    # Owners are exempt — their JWT was issued by telegram_auth.py which already
+    # verified their Telegram identity. The personal DB has no telegram_user_id column.
+    if not is_owner:
+        tg_id = await conn.fetchval(
             "SELECT telegram_user_id FROM dim.dim_users WHERE user_id = $1", user_id
         )
-
-    if not tg_id:
-        raise HTTPException(
-            status_code=400,
-            detail="No Telegram account linked. Open the app inside Telegram to pay with Stars.",
-        )
+        if not tg_id:
+            raise HTTPException(
+                status_code=400,
+                detail="No Telegram account linked. Open the app inside Telegram to pay with Stars.",
+            )
 
     token   = _bot_token()
     payload = f"premium_monthly_{user_id}"

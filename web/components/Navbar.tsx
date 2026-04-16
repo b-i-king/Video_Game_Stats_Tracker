@@ -59,8 +59,8 @@ export default function Navbar() {
           </button>
         </div>
 
-        {/* Primary nav links — absolutely centered on the full navbar width */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex gap-4 text-sm">
+        {/* Primary nav links — absolutely centered; hidden on narrow screens (Telegram WebView + mobile) */}
+        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex gap-4 text-sm">
           <Link href="/" className="hover:text-[var(--gold)] transition-colors">
             {t("home")}
           </Link>
@@ -91,7 +91,7 @@ export default function Navbar() {
                 {session.user?.email}
               </span>
 
-              {/* Tier badge — 5 levels, Phase 3 adds Premium via role column */}
+              {/* Tier badge — hidden on narrow screens, visible md+ */}
               {(() => {
                 const isOwner   = session.isOwner;
                 const isTrusted = session.isTrusted;
@@ -102,7 +102,7 @@ export default function Navbar() {
                             ? { label: tAuth("roles.premium"), cls: "text-purple-300 border-purple-700 bg-purple-900/30" } :
                               { label: tAuth("roles.free"),    cls: "text-emerald-300 border-emerald-700 bg-emerald-900/30" };
                 return (
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}>
+                  <span className={`hidden md:inline text-[11px] font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}>
                     {cfg.label}
                   </span>
                 );
@@ -110,7 +110,7 @@ export default function Navbar() {
 
               <button
                 onClick={() => signOut({ callbackUrl: "/" })}
-                className="px-3 py-1 rounded border border-[var(--border)] hover:border-[var(--gold)] hover:text-[var(--gold)] transition-colors"
+                className="hidden md:block px-3 py-1 rounded border border-[var(--border)] hover:border-[var(--gold)] hover:text-[var(--gold)] transition-colors"
               >
                 {t("signOut")}
               </button>

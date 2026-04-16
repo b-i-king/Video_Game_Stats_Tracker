@@ -86,15 +86,73 @@ class TelegramBroadcaster:
         if stat_line:
             lines.append(f"📊 {stat_line}")
         lines.append(f"📅 {played_str}")
-        if self.site_url:
-            lines.append(f'🔗 <a href="{self.site_url}">Track your own stats</a>')
 
-        self._post("sendMessage", {
+        payload: dict = {
             "chat_id":                  self.channel_id,
             "text":                     "\n".join(lines),
             "parse_mode":               "HTML",
             "disable_web_page_preview": True,
-        })
+        }
+
+        # Attach a Mini App launch button if SITE_URL is configured
+        if self.site_url:
+            payload["reply_markup"] = {
+                "inline_keyboard": [[
+                    {"text": "📊 Track Your Stats", "web_app": {"url": self.site_url}},
+                ]]
+            }
+
+        self._post("sendMessage", payload)
+
+    def post_session_with_photo(
+        self,
+        game_name:        str,
+        game_installment: str | None,
+        player_name:      str,
+        stats:            list[dict],
+        played_at_iso:    str,
+        photo_url:        str,
+    ) -> None:
+        """Post a session summary to the channel with a chart photo attached."""
+        title = f"{game_name}: {game_installment}" if game_installment else game_name
+
+        stat_parts = [
+            f"{s['stat_type']}: <b>{s['stat_value']}</b>"
+            for s in stats
+            if s.get("stat_type") and s.get("stat_value") is not None
+        ]
+        stat_line = "  |  ".join(stat_parts[:5])
+
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(played_at_iso.replace("Z", "+00:00"))
+            played_str = dt.strftime("%b %d, %Y")
+        except Exception:
+            played_str = played_at_iso
+
+        lines = [
+            f"🎮 <b>{title}</b>",
+            f"👤 {player_name}",
+        ]
+        if stat_line:
+            lines.append(f"📊 {stat_line}")
+        lines.append(f"📅 {played_str}")
+
+        payload: dict = {
+            "chat_id":    self.channel_id,
+            "photo":      photo_url,
+            "caption":    "\n".join(lines),
+            "parse_mode": "HTML",
+        }
+
+        if self.site_url:
+            payload["reply_markup"] = {
+                "inline_keyboard": [[
+                    {"text": "📊 Track Your Stats", "web_app": {"url": self.site_url}},
+                ]]
+            }
+
+        self._post("sendPhoto", payload)
 
     # ── Bot command replies ───────────────────────────────────────────────────
 

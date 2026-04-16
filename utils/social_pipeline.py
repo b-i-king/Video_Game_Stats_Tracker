@@ -26,6 +26,7 @@ def run_social_media_pipeline(
     is_live: bool,
     credit_style: str,
     queue_platforms: list[str],
+    played_at_iso: str = "",
 ) -> None:
     """Generate charts, upload to GCS, and queue/trigger social posts.
 
@@ -165,6 +166,21 @@ def run_social_media_pipeline(
             buf_tw, player_name, game_name, chart_type, platform="twitter",
         )
         if twitter_url:
+            # Post to Telegram channel with the chart image — runs here so the
+            # photo URL is guaranteed ready (avoids race condition with stats.py).
+            try:
+                from utils.telegram_broadcast import broadcaster
+                broadcaster.post_session_with_photo(
+                    game_name=game_name,
+                    game_installment=game_installment,
+                    player_name=player_name,
+                    stats=stats,
+                    played_at_iso=played_at_iso,
+                    photo_url=twitter_url,
+                )
+                print("✅ [bg] Telegram channel post sent with photo")
+            except Exception as _tg_err:
+                print(f"⚠️  [bg] Telegram broadcast failed (non-fatal): {_tg_err}")
             caption = generate_post_caption(
                 player_name, game_name, game_installment, stat_data_for_caption,
                 games_played, platform="twitter", is_live=is_live,
