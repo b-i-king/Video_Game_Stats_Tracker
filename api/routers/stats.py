@@ -53,6 +53,8 @@ async def last_session(conn: DynamicConn, user: CurrentUser):
             LIMIT 1
         )
         SELECT
+            gs.game_id,
+            gs.player_id,
             g.game_name,
             g.game_installment,
             p.player_name,
@@ -84,6 +86,8 @@ async def last_session(conn: DynamicConn, user: CurrentUser):
 
     return {
         "session": {
+            "game_id":      first["game_id"],
+            "player_id":    first["player_id"],
             "game_title":   game_title,
             "player_name":  first["player_name"],
             "game_mode":    first["game_mode"],
@@ -505,6 +509,14 @@ async def add_stats(body: AddStatsRequest, conn: DynamicConn, user: CurrentUser)
         post_action = "queued" if queue_platforms else "posting"
     else:
         post_action = "skipped"
+
+    # Auto-train LR win-probability model in the background (both owner + public).
+    # run_lr_training guards against insufficient data / single outcome class.
+    import asyncio
+    from api.routers.ml import run_lr_training
+    asyncio.create_task(
+        run_lr_training(user_id, game_id, player_id, is_owner)
+    )
 
     return {
         "message": f"Stats successfully added ({inserted} records)!",

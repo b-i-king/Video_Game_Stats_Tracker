@@ -276,6 +276,8 @@ export async function getRecentStats(jwt: string): Promise<StatEntry[]> {
 }
 
 export interface LastSession {
+  game_id: number;
+  player_id: number;
   game_title: string;
   player_name: string;
   game_mode: string | null;
@@ -284,6 +286,27 @@ export interface LastSession {
   played_at: string | null;
   win_loss: "Win" | "Loss" | null;
   stats: { stat_type: string; stat_value: number }[];
+}
+
+export interface MLCoefficientsData {
+  coef:          number[][];   // shape (1, n_features)
+  intercept:     number[];
+  classes:       number[];
+  feature_names: string[];
+  feature_means: number[];
+  feature_stds:  number[];
+  accuracy:      number;
+  n_sessions:    number;
+}
+
+export interface MLCoefficientsResponse {
+  game_id:       number;
+  player_id:     number;
+  model_type:    string;
+  accuracy:      number | null;
+  sessions_used: number;
+  trained_at:    string | null;
+  coefficients:  MLCoefficientsData;
 }
 
 export async function getLastSession(jwt: string): Promise<LastSession | null> {
@@ -851,4 +874,36 @@ export async function createStarsInvoice(jwt: string): Promise<{ invoice_link: s
   });
   if (!res.ok) throw new Error("Failed to create Stars invoice");
   return res.json();
+}
+
+// ── ML / Win Probability ──────────────────────────────────────────────────────
+
+/**
+ * Fetch the latest LR coefficients for a game+player.
+ * Returns null if no model has been trained yet (404).
+ */
+export async function getMLCoefficients(
+  jwt: string,
+  gameId: number,
+  playerId: number,
+): Promise<MLCoefficientsResponse | null> {
+  const res = await fetchWithAuth(
+    `${BASE}/api/ml/coefficients/${gameId}?player_id=${playerId}`,
+    { headers: authHeaders(jwt) },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Failed to load ML coefficients (${res.status})`);
+  return res.json();
+}
+
+/** Kick off background LR training for a game+player. */
+export async function triggerMLTraining(
+  jwt: string,
+  gameId: number,
+  playerId: number,
+): Promise<void> {
+  await fetchWithAuth(
+    `${BASE}/api/ml/train/${gameId}?player_id=${playerId}`,
+    { method: "POST", headers: authHeaders(jwt) },
+  );
 }
