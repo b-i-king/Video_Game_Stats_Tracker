@@ -44,13 +44,17 @@ class TelegramBroadcaster:
         if not self.enabled:
             return
         try:
-            requests.post(
+            resp = requests.post(
                 f"https://api.telegram.org/bot{self.token}/{method}",
                 json=payload,
                 timeout=8,
             )
-        except Exception:
-            pass
+            if resp.ok:
+                log.info("Telegram %s OK → %s", method, self.channel_id)
+            else:
+                log.warning("Telegram %s failed %s: %s", method, resp.status_code, resp.text[:300])
+        except Exception as exc:
+            log.warning("Telegram %s request error: %s", method, exc)
 
     # ── Channel posting ───────────────────────────────────────────────────────
 
@@ -94,11 +98,10 @@ class TelegramBroadcaster:
             "disable_web_page_preview": True,
         }
 
-        # Attach a Mini App launch button if SITE_URL is configured
         if self.site_url:
             payload["reply_markup"] = {
                 "inline_keyboard": [[
-                    {"text": "📊 Track Your Stats", "web_app": {"url": self.site_url}},
+                    {"text": "📊 Track Your Stats", "url": self.site_url},
                 ]]
             }
 
@@ -148,7 +151,7 @@ class TelegramBroadcaster:
         if self.site_url:
             payload["reply_markup"] = {
                 "inline_keyboard": [[
-                    {"text": "📊 Track Your Stats", "web_app": {"url": self.site_url}},
+                    {"text": "📊 Track Your Stats", "url": self.site_url},
                 ]]
             }
 

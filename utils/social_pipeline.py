@@ -184,7 +184,7 @@ def run_social_media_pipeline(
                     played_at_iso=played_at_iso,
                     photo_url=twitter_url,
                 )
-                print("✅ [bg] Telegram channel post sent with photo")
+                print(f"[bg] Telegram broadcast attempted → enabled={broadcaster.enabled}, channel={broadcaster.channel_id!r}")
             except Exception as _tg_err:
                 print(f"⚠️  [bg] Telegram broadcast failed (non-fatal): {_tg_err}")
             caption = generate_post_caption(
