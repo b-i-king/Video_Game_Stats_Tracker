@@ -107,7 +107,7 @@ async def ask(body: AskRequest, conn: DynamicConn, user: CurrentUser):
 
     # --- Call Gemini ---
     try:
-        reply = await asyncio.to_thread(ask_agent, prompt, context, model)
+        reply = await asyncio.to_thread(ask_agent, prompt, context, model, body.tz or "UTC")
     except Exception as e:
         print(f"[ai] Gemini error: {e}")
         return {"reply": "Something went wrong on my end. Try again in a moment."}
@@ -151,18 +151,15 @@ async def get_ai_usage(
     else:
         reset_date = date(today.year, today.month + 1, 1)
 
-    if is_owner:
+    try:
+        used = await conn.fetchval("""
+            SELECT COALESCE(SUM(query_count), 0)
+            FROM app.ai_usage
+            WHERE user_id = $1
+              AND query_date >= DATE_TRUNC('month', CURRENT_DATE)
+        """, user["user_id"])
+    except Exception:
         used = 0
-    else:
-        try:
-            used = await conn.fetchval("""
-                SELECT COALESCE(SUM(query_count), 0)
-                FROM app.ai_usage
-                WHERE user_id = $1
-                  AND query_date >= DATE_TRUNC('month', CURRENT_DATE)
-            """, user["user_id"])
-        except Exception:
-            used = 0
 
     response: dict = {
         "used":         int(used),

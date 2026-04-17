@@ -501,6 +501,7 @@ async def add_stats(body: AddStatsRequest, conn: DynamicConn, user: CurrentUser)
                 credit_style=body.credit_style,
                 queue_platforms=queue_platforms,
                 played_at_iso=batch_timestamp.isoformat(),
+                win=next((s.win for s in body.stats if s.win is not None), None),
             )
         )
         # Telegram channel post is now fired inside social_pipeline.py after

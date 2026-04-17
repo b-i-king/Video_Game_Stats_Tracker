@@ -115,31 +115,37 @@ class TelegramBroadcaster:
         stats:            list[dict],
         played_at_iso:    str,
         photo_url:        str,
+        win:              int | None = None,
     ) -> None:
         """Post a session summary to the channel with a chart photo attached."""
         title = f"{game_name}: {game_installment}" if game_installment else game_name
+
+        result_str = ""
+        if win == 1:
+            result_str = " · Win ✅"
+        elif win == 0:
+            result_str = " · Loss ❌"
 
         stat_parts = [
             f"{s['stat_type']}: <b>{s['stat_value']}</b>"
             for s in stats
             if s.get("stat_type") and s.get("stat_value") is not None
         ]
-        stat_line = "  |  ".join(stat_parts[:3])
 
         try:
             from datetime import datetime
             dt = datetime.fromisoformat(played_at_iso.replace("Z", "+00:00"))
-            played_str = dt.strftime("%b %d, %Y")
+            played_str = dt.strftime("%b %d, %Y %H:%M")
         except Exception:
             played_str = played_at_iso
 
         lines = [
-            f"🎮 <b>{title}</b>",
+            f"🎮 <b>{title}</b>{result_str}",
             f"👤 {player_name}",
+            f"📅 {played_str}",
         ]
-        if stat_line:
-            lines.append(f"📊 {stat_line}")
-        lines.append(f"📅 {played_str}")
+        if stat_parts:
+            lines.append("📊 " + "  |  ".join(stat_parts[:3]))
 
         payload: dict = {
             "chat_id":    self.channel_id,

@@ -61,8 +61,9 @@ async def get_interactive_chart(
     if games_played == 1:
         rows = await conn.fetch("""
             SELECT stat_type, stat_value FROM fact.fact_game_stats
-            WHERE player_id = $1 AND game_id = $2
-            ORDER BY stat_value DESC NULLS LAST, played_at DESC LIMIT 3
+            WHERE player_id = $1 AND game_id = $2 AND stat_type IS NOT NULL
+            ORDER BY stat_value DESC NULLS LAST
+            LIMIT 3
         """, player_id, game_id)
         data = {f"stat{i}": {"label": r["stat_type"], "value": r["stat_value"], "prev_value": None}
                 for i, r in enumerate(rows, 1)}
@@ -149,7 +150,9 @@ async def download_chart(body: DownloadChartRequest, conn: DynamicConn, user: Cu
     if games_played == 1:
         rows = await conn.fetch("""
             SELECT stat_type, stat_value FROM fact.fact_game_stats
-            WHERE player_id = $1 AND game_id = $2 ORDER BY played_at DESC LIMIT 3
+            WHERE player_id = $1 AND game_id = $2 AND stat_type IS NOT NULL
+            ORDER BY stat_value DESC NULLS LAST
+            LIMIT 3
         """, body.player_id, body.game_id)
         stat_data = {f"stat{i}": {"label": r["stat_type"], "value": r["stat_value"], "prev_value": None}
                      for i, r in enumerate(rows, 1)}
@@ -161,8 +164,9 @@ async def download_chart(body: DownloadChartRequest, conn: DynamicConn, user: Cu
         top_rows = await conn.fetch("""
             SELECT stat_type FROM fact.fact_game_stats
             WHERE player_id = $1 AND game_id = $2 AND stat_type IS NOT NULL
-            GROUP BY stat_type HAVING AVG(stat_value) > 0
-            ORDER BY AVG(stat_value) ASC LIMIT 3
+            GROUP BY stat_type HAVING COUNT(*) >= 2
+            ORDER BY AVG(stat_value) DESC, STDDEV(stat_value) DESC NULLS LAST, COUNT(*) DESC
+            LIMIT 3
         """, body.player_id, body.game_id)
         top_stats = [r["stat_type"] for r in top_rows]
 

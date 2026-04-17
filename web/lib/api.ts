@@ -554,10 +554,11 @@ export async function askBolt(
   jwt: string,
   prompt: string
 ): Promise<string> {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const res = await fetchWithAuth(`${BASE}/api/ask`, {
     method: "POST",
     headers: authHeaders(jwt),
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, tz }),
   });
   if (!res.ok) throw new Error("Bolt unavailable");
   const data = await res.json();

@@ -16,7 +16,7 @@ def get_gemini_client() -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
-def ask_agent(prompt: str, context: str = "", model: str = "gemini-2.0-flash") -> str:
+def ask_agent(prompt: str, context: str = "", model: str = "gemini-2.0-flash", tz: str = "UTC") -> str:
     """
     Send a prompt to Gemini with optional stat context.
 
@@ -25,15 +25,25 @@ def ask_agent(prompt: str, context: str = "", model: str = "gemini-2.0-flash") -
         context: Optional stat data as a formatted string to ground the response.
         model:   Gemini model ID. Trusted/Premium → gemini-2.0-flash,
                  Free → gemini-2.0-flash-lite.
+        tz:      IANA timezone string from the user's browser.
 
     Returns:
-        The agent's text response.    
+        The agent's text response.
     """
+    import zoneinfo
+    from datetime import datetime
+    try:
+        zone     = zoneinfo.ZoneInfo(tz)
+        now_str  = datetime.now(zone).strftime("%A, %B %d, %Y %H:%M (%Z)")
+    except Exception:
+        now_str  = datetime.now(zoneinfo.ZoneInfo("UTC")).strftime("%A, %B %d, %Y %H:%M (UTC)")
+
     client = get_gemini_client()
     system_prompt = (
         "You are a personal gaming performance assistant. "
         "You have access to the user's game stats and help them analyze performance, "
-        "write captions, and identify trends. Be concise and conversational."
+        "write captions, and identify trends. Be concise and conversational.\n"
+        f"Current date and time: {now_str}"
     )
     full_prompt = f"{system_prompt}\n\n{context}\n\n{prompt}" if context else f"{system_prompt}\n\n{prompt}"
     response = client.models.generate_content(

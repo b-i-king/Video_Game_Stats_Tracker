@@ -27,6 +27,7 @@ def run_social_media_pipeline(
     credit_style: str,
     queue_platforms: list[str],
     played_at_iso: str = "",
+    win: int | None = None,
 ) -> None:
     """Generate charts, upload to GCS, and queue/trigger social posts.
 
@@ -183,6 +184,7 @@ def run_social_media_pipeline(
                     stats=top_stats_display,
                     played_at_iso=played_at_iso,
                     photo_url=twitter_url,
+                    win=win,
                 )
                 print(f"[bg] Telegram broadcast attempted → enabled={broadcaster.enabled}, channel={broadcaster.channel_id!r}")
             except Exception as _tg_err:
