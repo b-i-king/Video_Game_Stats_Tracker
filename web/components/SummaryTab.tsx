@@ -16,11 +16,11 @@ import {
   type StreakData,
 } from "@/lib/api";
 
+import { formatLargeNumber } from "@/lib/format";
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatValue(value: number): string {
-  return value.toLocaleString();
-}
+const formatValue = formatLargeNumber;
 
 function gameLabel(g: { game_name: string; game_installment?: string | null }): string {
   return g.game_installment ? `${g.game_name}: ${g.game_installment}` : g.game_name;

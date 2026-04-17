@@ -3,6 +3,7 @@
 // Mirrors all form fields from pages/2_Stats.py.
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { formatLargeNumber } from "@/lib/format";
 import {
   getPlayers,
   getFranchises,
@@ -1351,7 +1352,7 @@ export default function StatsForm({ jwt, isTrusted, queueMode, activePlatforms, 
                         </td>
                         <td className="py-1 pr-3">{s.stat_type}</td>
                         <td className="py-1 pr-3 text-right font-mono text-[var(--gold)]">
-                          {s.stat_value.toLocaleString()}
+                          {formatLargeNumber(s.stat_value)}
                         </td>
                         <td className="py-1 text-[var(--muted)]">
                           {s.game_mode ?? "—"}

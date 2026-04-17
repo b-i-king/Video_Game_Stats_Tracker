@@ -11,6 +11,7 @@ import {
   type MLProgress,
 } from "@/lib/api";
 import { STAT_DISPLAY_LABELS } from "@/lib/constants";
+import { formatLargeNumber } from "@/lib/format";
 
 interface Props {
   jwt: string;
@@ -23,6 +24,30 @@ function formatPlayedAt(iso: string | null): string {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
+
+/**
+ * Port of chart_utils.py abbreviate_stat():
+ *   multi-word  → acronym ("Damage Dealt" → "DD")
+ *   single >8ch → first 4 + S ("Eliminations" → "ELIMS")
+ *   short       → full uppercase ("Assists" → "ASSISTS")
+ */
+function abbreviateStat(name: string): string {
+  if (!name) return "STAT";
+  const clean = name.trim();
+  const words = clean.replace(/-/g, " ").replace(/_/g, " ").split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return words.map(w => w[0].toUpperCase()).join("");
+  const single = words[0] ?? clean;
+  if (single.length > 8) return single.slice(0, 4).toUpperCase() + "S";
+  return single.toUpperCase();
+}
+
+/** Tailwind font-size class that scales with the number of stats displayed. */
+function statFontClass(count: number): string {
+  if (count <= 3) return "text-sm";
+  if (count <= 5) return "text-xs";
+  return "text-[10px]";
+}
+
 
 /**
  * Client-side LR sigmoid inference.
@@ -178,19 +203,26 @@ export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
           <hr className="border-[var(--border)]" />
 
           {/* Stats */}
-          <ul className="flex flex-col gap-1.5 overflow-y-auto flex-1">
-            {session.stats.map((s, i) => {
-              const label = STAT_DISPLAY_LABELS[s.stat_type] ?? s.stat_type;
-              return (
-                <li key={i} className="flex justify-between items-center text-xs">
-                  <span className="text-[var(--muted)]">{label}</span>
-                  <span className="font-semibold text-[var(--text)]">
-                    {s.stat_value.toLocaleString()}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+          {(() => {
+            const fontCls  = statFontClass(session.stats.length);
+            const abbreviate = session.stats.length >= 5;
+            return (
+              <ul className="flex flex-col gap-1 overflow-y-auto flex-1">
+                {session.stats.map((s, i) => {
+                  const full  = STAT_DISPLAY_LABELS[s.stat_type] ?? s.stat_type;
+                  const label = abbreviate ? abbreviateStat(full) : full;
+                  return (
+                    <li key={i} className={`flex justify-between items-center ${fontCls}`}>
+                      <span className="text-[var(--muted)]">{label}</span>
+                      <span className="font-semibold text-[var(--text)]">
+                        {formatLargeNumber(s.stat_value)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            );
+          })()}
 
           {/* Win Probability / progress widget */}
           <hr className="border-[var(--border)]" />
@@ -215,14 +247,17 @@ export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
           {/* No model — show circular progress toward unlock threshold */}
           {mlCoeff !== undefined && mlCoeff === null && mlProgress && (
             <div className="flex items-center gap-3">
-              <ProgressRing value={mlProgress.win_sessions} max={mlProgress.min_sessions} />
+              <ProgressRing value={mlProgress.wins} max={mlProgress.min_sessions} />
               <div className="flex flex-col gap-1 min-w-0">
                 <p className="text-xs font-semibold text-[var(--text)] leading-tight">
                   Win Model Locked
                 </p>
                 <p className="text-xs text-[var(--muted)] leading-snug">
-                  {mlProgress.win_sessions} / {mlProgress.min_sessions} win-tracked sessions
+                  {mlProgress.wins} / {mlProgress.min_sessions} wins recorded
                 </p>
+                {mlProgress.wins >= mlProgress.min_sessions && mlProgress.losses === 0 && (
+                  <p className="text-xs text-yellow-400 leading-snug">Need at least 1 loss to train</p>
+                )}
                 {mlProgress.ready && !trainQueued && (
                   <button
                     onClick={handleTrainModel}
