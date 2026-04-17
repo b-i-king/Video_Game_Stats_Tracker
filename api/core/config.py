@@ -5,63 +5,83 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # ── Personal Supabase — individual parts matching existing Render env vars ───
-    # TODO Phase 3 cleanup: consolidate into a single PERSONAL_DATABASE_URL DSN
-    # and remove these five vars from Render once Flask is archived.
-    db_host: str     = Field(default="", alias="DB_URL")       # host only, e.g. aws-0-us-west-2.pooler.supabase.com
-    db_name: str     = Field(default="postgres", alias="DB_NAME")
-    db_user: str     = Field(default="", alias="DB_USER")
-    db_password: str = Field(default="", alias="DB_PASSWORD")
-    db_port: int     = Field(default=6543, alias="DB_PORT")    # 6543 = Supabase transaction pooler
+    # ── Personal Supabase ─────────────────────────────────────────────────────────
+    # Preferred: single DSN  →  PERSONAL_DATABASE_URL=postgresql://user:pass@host/db
+    # Legacy fallback (still works if DSN not set): five separate parts below.
+    # Remove legacy vars from Render after PERSONAL_DATABASE_URL is confirmed live.
+    personal_database_url: str = Field(default="", alias="PERSONAL_DATABASE_URL")
 
-    # ── Public Supabase — full DSN ────────────────────────────────────────────────
-    # TODO Phase 3 cleanup: rename to PUBLIC_DATABASE_URL for consistency
-    public_db_url: str = Field(default="", alias="PUBLIC_DB_URL")
+    # Legacy parts — kept for backward compatibility only
+    _db_host:     str = Field(default="", alias="DB_URL")
+    _db_name:     str = Field(default="postgres", alias="DB_NAME")
+    _db_user:     str = Field(default="", alias="DB_USER")
+    _db_password: str = Field(default="", alias="DB_PASSWORD")
+    _db_port:     int = Field(default=6543, alias="DB_PORT")
+
+    # ── Public Supabase ───────────────────────────────────────────────────────────
+    # Preferred: PUBLIC_DATABASE_URL  (rename from PUBLIC_DB_URL in Render)
+    # Legacy alias kept until Render env var is renamed.
+    public_database_url: str  = Field(default="", alias="PUBLIC_DATABASE_URL")
+    _public_db_url_legacy: str = Field(default="", alias="PUBLIC_DB_URL")
 
     # ── Auth ──────────────────────────────────────────────────────────────────────
-    secret_key: str            = Field(default="change-me", alias="JWT_SECRET_KEY")
-    jwt_algorithm: str         = "HS256"
+    secret_key: str                  = Field(default="change-me", alias="JWT_SECRET_KEY")
+    jwt_algorithm: str               = "HS256"
     access_token_expire_minutes: int = 60
 
-    # ── API key — separate from FLASK_API_KEY during transition ───────────────────
-    # TODO Phase 3 cleanup: rename to API_KEY once Flask is archived
-    api_key: str               = Field(default="", alias="FASTAPI_API_KEY")
+    # ── API key ───────────────────────────────────────────────────────────────────
+    # Preferred: API_KEY  (rename from FASTAPI_API_KEY in Render)
+    api_key: str          = Field(default="", alias="API_KEY")
+    _api_key_legacy: str  = Field(default="", alias="FASTAPI_API_KEY")
 
     # ── Trusted / owner email lists (comma-separated) ─────────────────────────────
-    trusted_emails: str        = Field(default="", alias="TRUSTED_EMAILS")
-    owner_emails: str          = Field(default="", alias="OWNER_EMAILS")
+    trusted_emails: str = Field(default="", alias="TRUSTED_EMAILS")
+    owner_emails: str   = Field(default="", alias="OWNER_EMAILS")
 
     # ── CORS ──────────────────────────────────────────────────────────────────────
-    allowed_origins: str       = Field(default="*", alias="ALLOWED_ORIGINS")
+    allowed_origins: str = Field(default="*", alias="ALLOWED_ORIGINS")
 
     # ── GCS ───────────────────────────────────────────────────────────────────────
-    gcs_bucket: str            = Field(default="gaming-stats-images-thebolgroup", alias="GCS_BUCKET_NAME")
+    gcs_bucket: str = Field(default="gaming-stats-images-thebolgroup", alias="GCS_BUCKET_NAME")
 
     # ── Gemini ────────────────────────────────────────────────────────────────────
-    gemini_api_key: str        = Field(default="", alias="GEMINI_API_KEY")
+    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
 
-    # ── OBS overlay — browser source uses ?key= query param (no JWT possible) ────
-    obs_secret_key: str         = Field(default="", alias="OBS_SECRET_KEY")
+    # ── OBS overlay ───────────────────────────────────────────────────────────────
+    obs_secret_key: str = Field(default="", alias="OBS_SECRET_KEY")
 
-    # ── Cron — protects /api/process_queue called by Render cron job ─────────────
-    cron_secret: str            = Field(default="", alias="CRON_SECRET")
+    # ── Cron ──────────────────────────────────────────────────────────────────────
+    cron_secret: str = Field(default="", alias="CRON_SECRET")
 
     # ── Instagram / IFTTT ─────────────────────────────────────────────────────────
     instagram_access_token: str = Field(default="", alias="INSTAGRAM_ACCESS_TOKEN")
     ifttt_key: str              = Field(default="", alias="IFTTT_KEY")
 
-    # ── Constructed DSN — built from parts, used by database.py ──────────────────
-    # Not an env var — derived automatically via model_validator below
+    # ── Resolved DSNs — set by model_validator, used everywhere else ──────────────
     personal_db_url: str = ""
+    public_db_url:   str = ""
 
     @model_validator(mode="after")
-    def build_personal_dsn(self) -> "Settings":
-        """Construct the asyncpg DSN from individual Render env var parts."""
-        if self.db_host and self.db_user and self.db_password:
-            self.personal_db_url = (
-                f"postgresql://{self.db_user}:{self.db_password}"
-                f"@{self.db_host}:{self.db_port}/{self.db_name}"
-            )
+    def resolve_dsns(self) -> "Settings":
+        # Personal: prefer new single DSN, fall back to legacy parts
+        if self.personal_database_url:
+            self.personal_db_url = self.personal_database_url
+        else:
+            h = self._db_host
+            u = self._db_user
+            p = self._db_password
+            n = self._db_name
+            port = self._db_port
+            if h and u and p:
+                self.personal_db_url = f"postgresql://{u}:{p}@{h}:{port}/{n}"
+
+        # Public: prefer new name, fall back to old name
+        self.public_db_url = self.public_database_url or self._public_db_url_legacy
+
+        # API key: prefer new name, fall back to old name
+        if not self.api_key:
+            self.api_key = self._api_key_legacy
+
         return self
 
     model_config = {
