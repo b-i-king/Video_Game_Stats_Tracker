@@ -38,7 +38,7 @@ const firaCode = Fira_Code({
 
 // Production URL — set NEXT_PUBLIC_SITE_URL in Vercel environment variables.
 // Temporary fallback: your Vercel preview URL. Replace with a custom domain when purchased.
-const SITE_URL  = process.env.NEXT_PUBLIC_SITE_URL ?? "https://video-game-stats-tracker.vercel.app";
+const SITE_URL  = process.env.NEXT_PUBLIC_SITE_URL ?? "https://vgst.app";
 const SITE_NAME = "Video Game Stats Tracker";
 
 // Shown in SERPs — 150–160 chars, front-loads primary keyword, highlights key differentiator.
