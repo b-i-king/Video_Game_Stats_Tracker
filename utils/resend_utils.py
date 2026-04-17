@@ -23,7 +23,7 @@ def _client():
 
 
 def _app_url() -> str:
-    return os.getenv("NEXT_PUBLIC_APP_URL", "https://video-game-stats-tracker.vercel.app")
+    return os.getenv("NEXT_PUBLIC_APP_URL", "https://vgst.app")
 
 
 def _build_html(stats: dict, month_label: str) -> str:
