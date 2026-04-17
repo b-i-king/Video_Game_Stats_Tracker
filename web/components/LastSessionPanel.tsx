@@ -43,9 +43,9 @@ function abbreviateStat(name: string): string {
 
 /** Tailwind font-size class that scales with the number of stats displayed. */
 function statFontClass(count: number): string {
-  if (count <= 3) return "text-sm";
-  if (count <= 5) return "text-xs";
-  return "text-[10px]";
+  if (count <= 3) return "text-base";
+  if (count <= 5) return "text-lg";
+  return "text-sm";
 }
 
 
@@ -75,8 +75,8 @@ function probabilityColor(p: number): string {
 
 /** Circular SVG progress ring. Uses gold theme colour for the arc. */
 function ProgressRing({ value, max }: { value: number; max: number }) {
-  const size   = 64;
-  const stroke = 6;
+  const size   = 80;
+  const stroke = 7;
   const r      = (size - stroke) / 2;
   const circ   = 2 * Math.PI * r;
   const pct    = Math.min(value / max, 1);
@@ -99,7 +99,7 @@ function ProgressRing({ value, max }: { value: number; max: number }) {
       </svg>
       {/* centred label — counter-rotate so text is upright */}
       <div className="absolute inset-0 flex items-center justify-center rotate-0">
-        <span className="text-xs font-bold text-[var(--gold)] tabular-nums leading-none">
+        <span className="text-sm font-bold text-[var(--gold)] tabular-nums leading-none">
           {Math.round(pct * 100)}%
         </span>
       </div>
@@ -177,25 +177,25 @@ export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
         <>
           {/* Game + meta */}
           <div className="space-y-0.5">
-            <p className="text-sm font-semibold text-[var(--text)] leading-tight">
+            <p className="text-base font-semibold text-[var(--text)] leading-tight">
               {session.game_title}
             </p>
-            <p className="text-xs text-[var(--muted)]">{session.player_name}</p>
+            <p className="text-sm text-[var(--muted)]">{session.player_name}</p>
             <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
               {session.played_at && (
-                <span className="text-xs text-[var(--muted)]">
+                <span className="text-sm text-[var(--muted)]">
                   {formatPlayedAt(session.played_at)}
                 </span>
               )}
               {session.win_loss && (
-                <span className={`text-xs font-semibold ${
+                <span className={`text-sm font-semibold ${
                   session.win_loss === "Win" ? "text-emerald-400" : "text-red-400"
                 }`}>
                   {session.win_loss}
                 </span>
               )}
               {session.game_mode && session.game_mode !== "Main" && (
-                <span className="text-xs text-[var(--muted)]">{session.game_mode}</span>
+                <span className="text-sm text-[var(--muted)]">{session.game_mode}</span>
               )}
             </div>
           </div>
@@ -207,7 +207,7 @@ export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
             const fontCls  = statFontClass(session.stats.length);
             const abbreviate = session.stats.length >= 5;
             return (
-              <ul className="flex flex-col gap-1 overflow-y-auto flex-1">
+              <ul className="flex flex-col gap-2 overflow-y-auto flex-1">
                 {session.stats.map((s, i) => {
                   const full  = STAT_DISPLAY_LABELS[s.stat_type] ?? s.stat_type;
                   const label = abbreviate ? abbreviateStat(full) : full;
@@ -246,29 +246,29 @@ export default function LastSessionPanel({ jwt, refreshKey = 0 }: Props) {
 
           {/* No model — show circular progress toward unlock threshold */}
           {mlCoeff !== undefined && mlCoeff === null && mlProgress && (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4 py-2">
               <ProgressRing value={mlProgress.wins} max={mlProgress.min_sessions} />
-              <div className="flex flex-col gap-1 min-w-0">
-                <p className="text-xs font-semibold text-[var(--text)] leading-tight">
+              <div className="flex flex-col gap-1.5 min-w-0">
+                <p className="text-sm font-semibold text-[var(--text)] leading-tight">
                   Win Model Locked
                 </p>
-                <p className="text-xs text-[var(--muted)] leading-snug">
+                <p className="text-sm text-[var(--muted)] leading-snug">
                   {mlProgress.wins} / {mlProgress.min_sessions} wins recorded
                 </p>
                 {mlProgress.wins >= mlProgress.min_sessions && mlProgress.losses === 0 && (
-                  <p className="text-xs text-yellow-400 leading-snug">Need at least 1 loss to train</p>
+                  <p className="text-sm text-yellow-400 leading-snug">Need at least 1 loss to train</p>
                 )}
                 {mlProgress.ready && !trainQueued && (
                   <button
                     onClick={handleTrainModel}
                     disabled={trainLoading}
-                    className="mt-1 text-xs px-2 py-1 rounded border border-[var(--gold)] text-[var(--gold)] hover:bg-[var(--gold)] hover:text-black transition-colors disabled:opacity-40 self-start"
+                    className="mt-1.5 text-sm px-3 py-1.5 rounded border border-[var(--gold)] text-[var(--gold)] hover:bg-[var(--gold)] hover:text-black transition-colors disabled:opacity-40 self-start"
                   >
                     {trainLoading ? "Queuing…" : "Train Model"}
                   </button>
                 )}
                 {trainQueued && (
-                  <p className="text-xs text-[var(--gold)]">Training queued…</p>
+                  <p className="text-sm text-[var(--gold)]">Training queued…</p>
                 )}
               </div>
             </div>
