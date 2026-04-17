@@ -216,13 +216,49 @@ async def trigger_training(
     import asyncio
     is_owner = user.get("is_owner", False)
     asyncio.create_task(
-        asyncio.to_thread(
-            lambda: asyncio.run(
-                run_lr_training(user["user_id"], game_id, player_id, is_owner)
-            )
-        )
+        run_lr_training(user["user_id"], game_id, player_id, is_owner)
     )
     return {"status": "training_queued", "game_id": game_id, "player_id": player_id}
+
+
+@router.get("/ml/progress/{game_id}")
+async def get_training_progress(
+    game_id:   int,
+    player_id: int = Query(...),
+    conn:      DynamicConn = None,
+    user:      CurrentUser = None,
+):
+    """
+    Return win-labeled session counts vs the training threshold for a game+player.
+    Used by the frontend to render a progress indicator before a model exists.
+    """
+    row = await conn.fetchrow("""
+        SELECT
+            COUNT(DISTINCT date_trunc('minute', gs.played_at))                                   AS win_sessions,
+            COUNT(DISTINCT CASE WHEN gs.win = 1 THEN date_trunc('minute', gs.played_at) END)    AS wins,
+            COUNT(DISTINCT CASE WHEN gs.win = 0 THEN date_trunc('minute', gs.played_at) END)    AS losses
+        FROM fact.fact_game_stats gs
+        JOIN dim.dim_players p ON gs.player_id = p.player_id
+        WHERE p.user_id    = $1
+          AND gs.game_id   = $2
+          AND gs.player_id = $3
+          AND gs.win        IS NOT NULL
+          AND gs.stat_value IS NOT NULL
+    """, user["user_id"], game_id, player_id)
+
+    is_owner     = user.get("is_owner", False)
+    min_sessions = MIN_SESSIONS_PERSONAL if is_owner else MIN_SESSIONS_PUBLIC
+    win_sessions = int(row["win_sessions"])
+    wins         = int(row["wins"])
+    losses       = int(row["losses"])
+
+    return {
+        "win_sessions": win_sessions,   # total sessions with win/loss recorded
+        "wins":         wins,           # sessions where win = 1
+        "losses":       losses,         # sessions where win = 0
+        "min_sessions": min_sessions,   # threshold to unlock training
+        "ready":        win_sessions >= min_sessions and wins >= 1 and losses >= 1,
+    }
 
 
 @router.get("/ml/model_runs/{game_id}")

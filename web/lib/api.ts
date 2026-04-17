@@ -896,6 +896,28 @@ export async function getMLCoefficients(
   return res.json();
 }
 
+export interface MLProgress {
+  win_sessions: number;   // sessions with win/loss recorded
+  wins:         number;   // sessions where win = 1
+  losses:       number;   // sessions where win = 0
+  min_sessions: number;   // threshold to unlock training
+  ready:        boolean;  // true when threshold + both classes are met
+}
+
+/** Fetch win-labeled session counts vs the training threshold. */
+export async function getMLProgress(
+  jwt: string,
+  gameId: number,
+  playerId: number,
+): Promise<MLProgress | null> {
+  const res = await fetchWithAuth(
+    `${BASE}/api/ml/progress/${gameId}?player_id=${playerId}`,
+    { headers: authHeaders(jwt) },
+  );
+  if (!res.ok) return null;
+  return res.json();
+}
+
 /** Kick off background LR training for a game+player. */
 export async function triggerMLTraining(
   jwt: string,
