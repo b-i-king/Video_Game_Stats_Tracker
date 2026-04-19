@@ -40,21 +40,32 @@ const firaCode = Fira_Code({
 // Temporary fallback: your Vercel preview URL. Replace with a custom domain when purchased.
 const SITE_URL  = process.env.NEXT_PUBLIC_SITE_URL ?? "https://vgst.app";
 const SITE_NAME = "Video Game Stats Tracker";
+const SITE_ABBR = "VGST";
 
 // Shown in SERPs — 150–160 chars, front-loads primary keyword, highlights key differentiator.
 const DESCRIPTION =
-  "Video game stats tracker for every game — no app downloads. Log matches, track KPIs, view performance trends, and get AI win-probability predictions across all your games in one free web app.";
+  "VGST — Video Game Stats Tracker for every game. No app downloads. Log matches, track KPIs, view performance trends, and get AI win-probability predictions across all your games in one free web app.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
 
   // Title template — individual pages export their own segment via metadata.title
   title: {
-    default: `${SITE_NAME} — Track Every Game, No App Required`,
-    template: `%s | ${SITE_NAME}`,
+    default: `${SITE_ABBR} — ${SITE_NAME} | Track Every Game, No App Required`,
+    template: `%s | ${SITE_ABBR} — ${SITE_NAME}`,
   },
   description: DESCRIPTION,
+  icons: {
+    icon:     [{ url: "/favicon.ico", sizes: "any" }, { url: "/icon.png", type: "image/png", sizes: "192x192" }],
+    shortcut: "/favicon.ico",
+    apple:    "/apple-touch-icon.png",
+  },
   keywords: [
+    // ── Brand ────────────────────────────────────────────────────────────────
+    "VGST",
+    "vgst.app",
+    "vgst game tracker",
+    "vgst gaming stats",
     // ── Primary target ────────────────────────────────────────────────────────
     "video game stats tracker",
     "game stats tracker",
@@ -150,6 +161,22 @@ export const viewport: Viewport = {
   width:         "device-width",
   initialScale:  1,
   minimumScale:  1,
+};
+
+// WebSite structured data — establishes VGST as an alternate name so Google
+// associates the abbreviation with this site, not the Vanguard ETF ticker.
+const jsonLdSite = {
+  "@context":     "https://schema.org",
+  "@type":        "WebSite",
+  name:           SITE_NAME,
+  alternateName:  [SITE_ABBR, "vgst.app", "BOL Game Tracker", "Game Stats Tracker", "Game Tracker", "Tracker Network", "Play Trackter", "Game Stats Log", "Universal Game Tracker", "No Download Game Tracker"],
+  url:            SITE_URL,
+  description:    DESCRIPTION,
+  potentialAction: {
+    "@type":       "SearchAction",
+    target:        `${SITE_URL}/stats?q={search_term_string}`,
+    "query-input": "required name=search_term_string",
+  },
 };
 
 // WebApplication structured data — powers Google rich results / app cards.
@@ -277,6 +304,10 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();` }} />
         {/* Telegram Mini App SDK — no-op outside of Telegram WebView */}
         <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdSite) }}
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdApp) }}

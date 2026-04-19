@@ -52,7 +52,7 @@ export const GENRES: Record<string, string[]> = {
     "Roguelike",
     "MMO",
   ],
-  "Tacical RPGs": ["Grid-Based", "Western", "Roguelike", "Hybrid", "Real-Time"],
+  "Tactical RPGs": ["Grid-Based", "Western", "Roguelike", "Hybrid", "Real-Time"],
   Simulation: [
     "Construction & Management (CMS)",
     "Business",
