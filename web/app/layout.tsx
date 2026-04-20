@@ -163,70 +163,69 @@ export const viewport: Viewport = {
   minimumScale:  1,
 };
 
-// WebSite structured data — establishes VGST as an alternate name so Google
-// associates the abbreviation with this site, not the Vanguard ETF ticker.
-const jsonLdSite = {
-  "@context":     "https://schema.org",
-  "@type":        "WebSite",
-  name:           SITE_NAME,
-  alternateName:  [SITE_ABBR, "vgst.app", "BOL Game Tracker", "Game Stats Tracker", "Game Tracker", "Tracker Network", "Play Trackter", "Game Stats Log", "Universal Game Tracker", "No Download Game Tracker"],
-  url:            SITE_URL,
-  description:    DESCRIPTION,
-  potentialAction: {
-    "@type":       "SearchAction",
-    target:        `${SITE_URL}/stats?q={search_term_string}`,
-    "query-input": "required name=search_term_string",
-  },
-};
-
-// WebApplication structured data — powers Google rich results / app cards.
-const jsonLdApp = {
+// Single @graph block — Google's recommended pattern for multiple schema types
+// on one page. Avoids duplicate-field warnings from having potentialAction in
+// both WebSite and WebApplication separately.
+const jsonLd = {
   "@context": "https://schema.org",
-  "@type": "WebApplication",
-  name:                SITE_NAME,
-  url:                 SITE_URL,
-  description:         "A free web application to log, track, and analyze personal video game statistics across every game — no app downloads required.",
-  applicationCategory: "GameApplication",
-  applicationSubCategory: "Sports & Esports Analytics",
-  operatingSystem:     "Web Browser",
-  browserRequirements: "Requires JavaScript. Works in Chrome, Firefox, Safari, Edge.",
-  inLanguage:          "en-US",
-  isAccessibleForFree: true,
-  offers: [
-    { "@type": "Offer", price: "0",   priceCurrency: "USD", name: "Free" },
-    { "@type": "Offer", price: "10", priceCurrency: "USD", name: "Premium", billingIncrement: "month" },
+  "@graph": [
+    // WebSite — establishes VGST as alternate name, owns the SearchAction
+    {
+      "@type":        "WebSite",
+      name:           SITE_NAME,
+      alternateName:  [SITE_ABBR, "vgst.app", "BOL Game Tracker"],
+      url:            SITE_URL,
+      description:    DESCRIPTION,
+      potentialAction: {
+        "@type":       "SearchAction",
+        target:        `${SITE_URL}/stats?q={search_term_string}`,
+        "query-input": "required name=search_term_string",
+      },
+    },
+    // WebApplication — powers Google rich results / app cards
+    {
+      "@type":                 "WebApplication",
+      name:                    SITE_NAME,
+      url:                     SITE_URL,
+      description:             "A free web application to log, track, and analyze personal video game statistics across every game — no app downloads required.",
+      applicationCategory:     "GameApplication",
+      applicationSubCategory:  "Sports & Esports Analytics",
+      operatingSystem:         "Web Browser",
+      browserRequirements:     "Requires JavaScript. Works in Chrome, Firefox, Safari, Edge.",
+      inLanguage:              "en-US",
+      isAccessibleForFree:     true,
+      offers: [
+        { "@type": "Offer", price: "0",  priceCurrency: "USD", name: "Free" },
+        { "@type": "Offer", price: "10", priceCurrency: "USD", name: "Premium", billingIncrement: "month" },
+      ],
+      author: {
+        "@type": "Organization",
+        name:    "The BOL Group LLC",
+        url:     SITE_URL,
+        sameAs:  [
+          "https://youtube.com/@TheBOLGuide",
+          "https://twitter.com/TheBOLGuide",
+        ],
+      },
+      featureList: [
+        "Log video game match statistics for any game",
+        "Universal cross-game tracking — no per-game app required",
+        "AI win-probability predictions using logistic regression",
+        "KPI and bar chart stat visualizations",
+        "Session heatmap and streak tracking",
+        "Multi-game support with genre and subgenre classification",
+        "Leaderboards across public users",
+        "Instagram and Twitter/X stat card image sharing",
+        "Telegram Mini App and channel broadcast integration",
+        "Steam game library integration (coming soon)",
+        "Riot Games / Valorant API integration (coming soon)",
+        "IGDB game database integration (coming soon)",
+        "Achievement and gamification system (coming soon)",
+        "K-Means clustering performance insights (coming soon)",
+      ],
+      keywords: "video game stats tracker, universal game tracker, no download game tracker, gaming analytics, esports stats, AI win prediction, COD stats, FPS tracker, Steam stats, Valorant stats",
+    },
   ],
-  author: {
-    "@type": "Organization",
-    name:    "The BOL Group LLC",
-    url:     SITE_URL,
-    sameAs:  [
-      "https://youtube.com/@TheBOLGuide",
-      "https://twitter.com/TheBOLGuide",
-    ],
-  },
-  featureList: [
-    "Log video game match statistics for any game",
-    "Universal cross-game tracking — no per-game app required",
-    "AI win-probability predictions using logistic regression",
-    "KPI and bar chart stat visualizations",
-    "Session heatmap and streak tracking",
-    "Multi-game support with genre and subgenre classification",
-    "Leaderboards across public users",
-    "Instagram and Twitter/X stat card image sharing",
-    "Telegram Mini App and channel broadcast integration",
-    "Steam game library integration (coming soon)",
-    "Riot Games / Valorant API integration (coming soon)",
-    "IGDB game database integration (coming soon)",
-    "Achievement and gamification system (coming soon)",
-    "K-Means clustering performance insights (coming soon)",
-  ],
-  keywords: "video game stats tracker, universal game tracker, no download game tracker, gaming analytics, esports stats, AI win prediction, COD stats, FPS tracker, Steam stats, Valorant stats",
-  potentialAction: {
-    "@type":       "SearchAction",
-    target:        `${SITE_URL}/stats?q={search_term_string}`,
-    "query-input": "required name=search_term_string",
-  },
 };
 
 // FAQ structured data — targets featured snippet / People Also Ask boxes on Google.
@@ -255,7 +254,7 @@ const jsonLdFaq = {
       name: "Is Video Game Stats Tracker free?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Yes, there is a free tier with full stat logging and analytics. A Premium plan ($4.99/month) unlocks advanced features including AI win-probability predictions, data export, and leaderboard access.",
+        text: "Yes, there is a free tier with full stat logging and analytics. A Premium plan ($10/month) unlocks advanced features including AI win-probability predictions, data export, and leaderboard access.",
       },
     },
     {
@@ -306,11 +305,7 @@ export default async function RootLayout({
         <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdSite) }}
-        />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdApp) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
         <script
           type="application/ld+json"
