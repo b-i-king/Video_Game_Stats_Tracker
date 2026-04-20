@@ -177,8 +177,11 @@ const jsonLd = {
       url:            SITE_URL,
       description:    DESCRIPTION,
       potentialAction: {
-        "@type":       "SearchAction",
-        target:        `${SITE_URL}/stats?q={search_term_string}`,
+        "@type": "SearchAction",
+        target: {
+          "@type":      "EntryPoint",
+          urlTemplate:  `${SITE_URL}/stats?q={search_term_string}`,
+        },
         "query-input": "required name=search_term_string",
       },
     },
@@ -196,7 +199,7 @@ const jsonLd = {
       isAccessibleForFree:     true,
       offers: [
         { "@type": "Offer", price: "0",  priceCurrency: "USD", name: "Free" },
-        { "@type": "Offer", price: "10", priceCurrency: "USD", name: "Premium", billingIncrement: "month" },
+        { "@type": "Offer", price: "10", priceCurrency: "USD", name: "Premium", description: "Monthly billing" },
       ],
       author: {
         "@type": "Organization",
