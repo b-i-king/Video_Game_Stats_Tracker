@@ -228,61 +228,6 @@ const jsonLd = {
   ],
 };
 
-// FAQ structured data — targets featured snippet / People Also Ask boxes on Google.
-const jsonLdFaq = {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: [
-    {
-      "@type": "Question",
-      name: "What is a video game stats tracker?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "A video game stats tracker is a web app or tool that lets you log, store, and analyze your in-game performance data — things like kills, deaths, win rate, and KPIs — across multiple sessions and games. Video Game Stats Tracker by BOL tracks all your games in one place without requiring any app download.",
-      },
-    },
-    {
-      "@type": "Question",
-      name: "Can I track stats for every game in one place?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Yes. Video Game Stats Tracker is a universal platform — you add any game manually or via API integrations (Steam and Riot Games coming soon) and log stats for all of them from a single dashboard. No separate app download is needed for each game.",
-      },
-    },
-    {
-      "@type": "Question",
-      name: "Is Video Game Stats Tracker free?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Yes, there is a free tier with full stat logging and analytics. A Premium plan ($10/month) unlocks advanced features including AI win-probability predictions, data export, and leaderboard access.",
-      },
-    },
-    {
-      "@type": "Question",
-      name: "Do I need to download an app to track my gaming stats?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "No. Video Game Stats Tracker runs entirely in your web browser. There is nothing to install — just sign in with Google and start logging your sessions.",
-      },
-    },
-    {
-      "@type": "Question",
-      name: "How does AI win probability prediction work?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "After you log enough sessions with win/loss results, the app trains a logistic regression model on your personal stats. It then computes a win probability percentage for each new session based on your historical performance — entirely client-side with no extra API calls.",
-      },
-    },
-    {
-      "@type": "Question",
-      name: "Will Steam and Riot Games stats be supported?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Yes. Steam API integration and Riot Games (Valorant, League of Legends) API integration are on the roadmap. Once live, your stats will import automatically without manual logging.",
-      },
-    },
-  ],
-};
 
 export default async function RootLayout({
   children,
@@ -306,10 +251,6 @@ export default async function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdFaq) }}
         />
       </head>
       <body className="min-h-screen flex flex-col font-mono">

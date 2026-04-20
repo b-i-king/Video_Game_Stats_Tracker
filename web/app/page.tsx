@@ -8,6 +8,7 @@ import { authOptions } from "@/lib/auth";
 import GetStartedButton from "@/components/GetStartedButton";
 import PricingSection from "@/components/PricingSection";
 import BoltAICard from "@/components/BoltAICard";
+import FaqSection from "@/components/FaqSection";
 
 export const metadata: Metadata = {
   title: { absolute: "🎮 Video Game Stats Tracker" },
@@ -122,6 +123,9 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* FAQ — visible content required for FAQPage schema to be valid */}
+      <FaqSection />
+
       {/* Legal links */}
       <section className="text-sm text-center text-[var(--muted)] space-x-4">
         <Link href="/privacy" className="hover:text-[var(--gold)]">
@@ -134,6 +138,48 @@ export default async function HomePage() {
           Data Deletion
         </Link>
       </section>
+
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: [
+              {
+                "@type": "Question",
+                name: "What is a video game stats tracker?",
+                acceptedAnswer: { "@type": "Answer", text: "A video game stats tracker is a web app that lets you log, store, and analyze your in-game performance data — kills, deaths, win rate, KPIs — across multiple sessions and games. VGST tracks all your games in one place without requiring any app download." },
+              },
+              {
+                "@type": "Question",
+                name: "Can I track stats for every game in one place?",
+                acceptedAnswer: { "@type": "Answer", text: "Yes. VGST is a universal platform — add any game manually or via API integrations (Steam and Riot Games coming soon) and log stats for all of them from a single dashboard. No separate app download needed for each game." },
+              },
+              {
+                "@type": "Question",
+                name: "Is Video Game Stats Tracker free?",
+                acceptedAnswer: { "@type": "Answer", text: "Yes, there is a free tier with full stat logging and analytics. A Premium plan unlocks advanced features including AI win-probability predictions, data export, and leaderboard access." },
+              },
+              {
+                "@type": "Question",
+                name: "Do I need to download an app to track my gaming stats?",
+                acceptedAnswer: { "@type": "Answer", text: "No. VGST runs entirely in your web browser. There is nothing to install — just sign in with Google and start logging your sessions." },
+              },
+              {
+                "@type": "Question",
+                name: "How does AI win probability prediction work?",
+                acceptedAnswer: { "@type": "Answer", text: "After you log enough sessions with win/loss results, the app trains a logistic regression model on your personal stats. It then computes a win probability percentage for each new session based on your historical performance." },
+              },
+              {
+                "@type": "Question",
+                name: "Will Steam and Riot Games stats be supported?",
+                acceptedAnswer: { "@type": "Answer", text: "Yes. Steam API integration and Riot Games (Valorant, League of Legends) API integration are on the roadmap. Once live, your stats will import automatically without manual logging." },
+              },
+            ],
+          }),
+        }}
+      />
     </div>
   );
 }

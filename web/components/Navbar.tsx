@@ -162,6 +162,9 @@ export default function Navbar() {
                   </>
                 )}
 
+                <MenuLink href="/#faq" onClick={() => setMenuOpen(false)}>
+                  {t("faq")}
+                </MenuLink>
                 <MenuLink href="/about" onClick={() => setMenuOpen(false)}>
                   {t("about")}
                 </MenuLink>
