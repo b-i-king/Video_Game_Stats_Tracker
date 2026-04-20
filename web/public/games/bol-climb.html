@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>BOL Climb</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:#0a0a1a;
+    display:flex; align-items:center; justify-content:center;
+    height:100vh; overflow:hidden;
+    font-family:'Segoe UI', sans-serif;
+    touch-action:none;
+  }
+  canvas {
+    display:block; image-rendering:pixelated;
+    border-radius:16px;
+    box-shadow:0 0 60px rgba(212,175,55,0.25);
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// ── Telegram WebApp init ──────────────────────────────────────────────────────
+const tg      = window.Telegram?.WebApp ?? null;
+const TG_USER = tg?.initDataUnsafe?.user ?? null;
+if (tg) { tg.ready(); tg.expand(); }
+
+const PLAYER_NAME     = TG_USER?.first_name ?? 'YOU';
+const PLAYER_INITIALS = PLAYER_NAME.slice(0,2).toUpperCase();
+const TG_INIT_DATA    = tg?.initData ?? '';
+
+// ── Canvas setup ──────────────────────────────────────────────────────────────
+const C   = document.getElementById('game');
+const ctx = C.getContext('2d');
+const W   = 400, H = 600;
+C.width = W; C.height = H;
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const GRAVITY   = 0.45;
+const JUMP      = -11.5;
+const PLAT_H    = 14;
+const GOLD      = '#D4AF37';
+const GOLD_DIM  = '#9a7d24';
+
+const PLAT_COLORS = ['#ff6b6b','#ffd166','#06d6a0','#118ab2','#ff9f43','#a29bfe'];
+const POWERUP_CFG = [
+  { emoji:'⚡', color:'#ffd166', label:'Speed' },
+  { emoji:'🟢', color:'#00cec9', label:'Boost' },
+  { emoji:'🛡', color:'#a29bfe', label:'Shield' },
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let state       = 'start';
+let camY        = 0;
+let frameCount  = 0;
+let highScore   = 0;
+let combo       = 0, comboTimer = 0;
+let particles   = [];
+let platforms   = [];
+let player, bot;
+let keys        = {};
+let touched     = { left:false, right:false };
+let topReached  = 50;
+
+function randInt(a,b){ return Math.floor(Math.random()*(b-a))+a; }
+function rand(a,b){ return Math.random()*(b-a)+a; }
+
+// ── Platform ──────────────────────────────────────────────────────────────────
+class Platform {
+  constructor(x, y, w, colorIdx, type) {
+    this.x = x; this.y = y; this.w = w; this.h = PLAT_H;
+    this.colorIdx = colorIdx ?? randInt(0, PLAT_COLORS.length);
+    this.type     = type ?? 'normal';
+    this.vx       = this.type === 'moving' ? rand(-1.5,1.5) : 0;
+    this.bounce   = 1;
+    this.hasPowerup       = Math.random() < 0.12;
+    this.powerupType      = randInt(0,3);
+    this.powerupCollected = false;
+  }
+
+  update() {
+    if (this.type === 'moving') {
+      this.x += this.vx;
+      if (this.x < 0 || this.x + this.w > W) this.vx *= -1;
+    }
+    if (this.bounce > 1) this.bounce = Math.max(1, this.bounce - 0.05);
+  }
+
+  draw(cam) {
+    const dy = this.y - cam;
+    if (dy > H+20 || dy < -40) return;
+    const cx = this.x + this.w/2, cy = dy + this.h/2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(this.bounce, 1/this.bounce);
+    ctx.beginPath();
+    ctx.roundRect(-this.w/2, -this.h/2, this.w, this.h, 7);
+    ctx.fillStyle = PLAT_COLORS[this.colorIdx];
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    if (this.type === 'moving') {
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect(-this.w/2+6, -2, this.w-12, 4);
+    }
+    ctx.restore();
+
+    if (this.hasPowerup && !this.powerupCollected) {
+      const cfg = POWERUP_CFG[this.powerupType % 3];
+      const bob = Math.sin(frameCount*0.07 + this.x)*3;
+      const px  = this.x + this.w/2;
+      const py  = dy - 28 + bob;
+      ctx.save();
+      ctx.shadowColor = cfg.color; ctx.shadowBlur = 14;
+      ctx.fillStyle   = cfg.color + 'bb';
+      ctx.beginPath();
+      ctx.arc(px, py, 12, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(cfg.emoji, px, py+5);
+    }
+  }
+}
+
+// ── Player ────────────────────────────────────────────────────────────────────
+class Player {
+  constructor(x, isBot) {
+    this.x = x; this.y = 0;
+    this.vx = 0; this.vy = 0;
+    this.w = 28; this.h = 32;
+    this.isBot       = isBot;
+    this.color       = isBot ? '#74b9ff' : GOLD;
+    this.dir         = 1;
+    this.trail       = [];
+    this.squish      = 0;
+    this.boosted     = 0;
+    this.shielded    = 0;
+    this.speedBoost  = 0;
+    this.score       = 0;
+    this.lastPlatY   = 0;
+    this.runAnim     = 0;
+  }
+
+  get cx()     { return this.x + this.w/2; }
+  get bottom() { return this.y + this.h; }
+
+  applyPowerup(type) {
+    if (type === 0) this.speedBoost = 120;
+    if (type === 1) this.boosted    = 60;
+    if (type === 2) this.shielded   = 180;
+    spawnParticles(this.cx, this.y + this.h/2, 10, [POWERUP_CFG[type%3].color,'#fff']);
+  }
+
+  update(platforms, keys) {
+    this.runAnim += 0.25;
+    const speed = this.speedBoost > 0 ? 5.5 : 3.8;
+
+    if (!this.isBot) {
+      if (keys['ArrowLeft']  || keys['a'] || keys['A']) { this.vx = -speed; this.dir = -1; }
+      else if (keys['ArrowRight'] || keys['d'] || keys['D']) { this.vx = speed; this.dir = 1; }
+      else this.vx *= 0.78;
+    } else {
+      this._botAI(platforms, speed);
+    }
+
+    this.vy += GRAVITY;
+    this.x  += this.vx;
+    this.y  += this.vy;
+
+    if (this.x < -this.w) this.x = W;
+    if (this.x > W)       this.x = -this.w;
+
+    this.squish     = Math.max(0, this.squish - 1);
+    if (this.speedBoost > 0) this.speedBoost--;
+    if (this.boosted    > 0) this.boosted--;
+    if (this.shielded   > 0) this.shielded--;
+
+    this.trail.push({ x: this.cx, y: this.y + this.h/2 });
+    if (this.trail.length > 8) this.trail.shift();
+
+    for (const p of platforms) {
+      if (this.vy >= 0
+        && this.bottom > p.y && this.bottom < p.y + p.h + 14
+        && this.cx > p.x - 4  && this.cx < p.x + p.w + 4) {
+        this.y  = p.y - this.h;
+        this.vy = this.boosted > 0 ? JUMP * 1.4 : JUMP;
+        this.squish = 8;
+        p.bounce = 1.15;
+        combo++;
+        comboTimer = 90;
+        spawnParticles(this.cx, this.bottom, 4, [PLAT_COLORS[p.colorIdx]]);
+        if (p.hasPowerup && !p.powerupCollected) {
+          p.powerupCollected = true;
+          this.applyPowerup(p.powerupType);
+        }
+        if (p.y < this.lastPlatY) {
+          this.score    = Math.round((camY - p.y) / 40);
+          this.lastPlatY = p.y;
+        }
+        break;
+      }
+    }
+  }
+
+  _botAI(platforms, speed) {
+    let best = null, bestDist = Infinity;
+    for (const p of platforms) {
+      if (p.y < this.y && p.y > this.y - 250) {
+        const d = Math.abs(p.x + p.w/2 - this.cx) + Math.abs(p.y - this.y) * 0.5;
+        if (d < bestDist) { bestDist = d; best = p; }
+      }
+    }
+    if (best) {
+      const tx = best.x + best.w/2;
+      if      (this.cx < tx - 10) { this.vx = speed*0.85; this.dir =  1; }
+      else if (this.cx > tx + 10) { this.vx = -speed*0.85; this.dir = -1; }
+      else this.vx *= 0.8;
+    } else { this.vx *= 0.8; }
+  }
+
+  draw(cam) {
+    const dy = this.y - cam;
+    const cx = this.cx;
+
+    // Trail
+    for (let i = 0; i < this.trail.length; i++) {
+      const t = this.trail[i];
+      ctx.globalAlpha = (i / this.trail.length) * 0.2;
+      ctx.fillStyle   = this.color;
+      ctx.beginPath();
+      ctx.ellipse(t.x, t.y - cam, 7, 9, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Shield aura
+    if (this.shielded > 0) {
+      ctx.save();
+      ctx.strokeStyle  = '#a29bfe';
+      ctx.lineWidth    = 3;
+      ctx.globalAlpha  = 0.5 + Math.sin(frameCount*0.2)*0.3;
+      ctx.beginPath();
+      ctx.ellipse(cx, dy + this.h/2, 22, 26, 0, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.translate(cx, dy + this.h);
+    ctx.scale(this.dir, 1);
+
+    // Shadow
+    ctx.fillStyle   = this.color + '66';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 10, 4, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    const sy = this.squish > 0 ? 1.3 - (this.squish/8)*0.3 : 1;
+    ctx.scale(1, 1/sy);
+    ctx.translate(0, -this.h);
+
+    // Body (legs)
+    ctx.fillStyle = this.isBot ? '#2980b9' : '#9a6900';
+    ctx.beginPath();
+    ctx.roundRect(-12, 16, 24, 16, 4);
+    ctx.fill();
+
+    // Torso/head
+    ctx.scale(1, sy);
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.roundRect(-11, 0, 22, 22, [8,8,2,2]);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.ellipse(-4, 9, 4, 4.5, 0, 0, Math.PI*2);
+    ctx.ellipse( 4, 9, 4, 4.5, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.ellipse(-3.5, 9.5, 2.5, 2.5, 0, 0, Math.PI*2);
+    ctx.ellipse( 4.5, 9.5, 2.5, 2.5, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Speed boost indicator
+    if (this.speedBoost > 0) {
+      ctx.fillStyle = '#ffd166';
+      ctx.font      = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚡', 0, -4);
+    }
+
+    ctx.restore();
+
+    // Name tag (player only)
+    if (!this.isBot) {
+      ctx.fillStyle = GOLD;
+      ctx.font      = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(PLAYER_NAME.length > 10 ? PLAYER_INITIALS : PLAYER_NAME, cx, dy - 6);
+    }
+  }
+}
+
+// ── Particles ─────────────────────────────────────────────────────────────────
+class Particle {
+  constructor(x, y, color) {
+    this.x  = x; this.y = y;
+    this.vx = rand(-3,3); this.vy = rand(-4,-1);
+    this.color = color; this.life = 1; this.r = rand(3,7);
+  }
+  update() { this.x += this.vx; this.y += this.vy; this.vy += 0.15; this.life -= 0.04; }
+  draw(cam) {
+    ctx.globalAlpha = this.life;
+    ctx.fillStyle   = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y - cam, this.r, 0, Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function spawnParticles(x, y, n, colors) {
+  for (let i = 0; i < n; i++)
+    particles.push(new Particle(x, y, colors[randInt(0, colors.length)]));
+}
+
+// ── Platform generation ───────────────────────────────────────────────────────
+function generatePlatforms(fromY, toY) {
+  let y = fromY;
+  while (y > toY) {
+    const gap  = Math.min(190, 75 + Math.abs(fromY)/500);
+    y -= rand(60, gap);
+    const type = Math.random() < 0.15 ? 'moving' : 'normal';
+    const w    = Math.max(48, 88 - Math.abs(y)/350);
+    platforms.push(new Platform(rand(0, W-w), y, w, null, type));
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+function initGame() {
+  platforms = []; particles = [];
+  camY = 0; frameCount = 0; combo = 0; comboTimer = 0; topReached = 50;
+
+  platforms.push(new Platform(W/2 - 60, 50, 120, 0, 'normal'));
+  generatePlatforms(50, -2000);
+
+  player = new Player(W/2 - 50, false);
+  player.y = 10; player.vy = 0; player.lastPlatY = 0;
+
+  bot = new Player(W/2 + 20, true);
+  bot.y = 10; bot.vy = 0; bot.lastPlatY = 0;
+}
+
+// ── Score submission ──────────────────────────────────────────────────────────
+async function submitScore(score) {
+  if (!TG_INIT_DATA) return;
+  try {
+    await fetch('/api/game/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tg_init_data: TG_INIT_DATA, score, game: 'bol-climb' }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch { /* silent — game score ≠ app data */ }
+}
+
+// ── Draw helpers ──────────────────────────────────────────────────────────────
+function drawBackground() {
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#0d0d2b');
+  grad.addColorStop(1,'#1a1150');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,W,H);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  for (let i = 0; i < 40; i++) {
+    const sx = ((i*137 + frameCount*0.1) % W);
+    const sy = ((i*97  + (camY%H)*0.3 + frameCount*0.04*(i%3)) % H);
+    ctx.beginPath();
+    ctx.arc(sx, sy, i%3===0 ? 1.4 : 0.6, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function drawHUD() {
+  // Player score
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.beginPath(); ctx.roundRect(8,8,140,52,10); ctx.fill();
+  ctx.fillStyle = '#aaa'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(PLAYER_INITIALS + ' HEIGHT', 18, 24);
+  ctx.fillStyle = GOLD; ctx.font = 'bold 22px sans-serif';
+  ctx.fillText(Math.max(0,player.score) + 'm', 18, 50);
+
+  // Bot score
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.beginPath(); ctx.roundRect(W-148,8,140,52,10); ctx.fill();
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#74b9ff'; ctx.font = 'bold 10px sans-serif';
+  ctx.fillText('BOT HEIGHT', W-18, 24);
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillText(Math.max(0,bot.score) + 'm', W-18, 50);
+
+  // Combo
+  if (comboTimer > 0) {
+    comboTimer--;
+    if (combo > 2) {
+      ctx.globalAlpha = Math.min(1, comboTimer/30);
+      ctx.textAlign   = 'center';
+      ctx.font        = 'bold 18px sans-serif';
+      ctx.fillStyle   = '#ff6b6b';
+      ctx.fillText('x' + combo + ' COMBO!', W/2, H-75);
+      ctx.globalAlpha = 1;
+    }
+  } else { combo = 0; }
+}
+
+function drawStartScreen() {
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0,0,W,H);
+  ctx.textAlign = 'center';
+
+  // Logo
+  ctx.fillStyle = GOLD; ctx.font = 'bold 14px sans-serif';
+  ctx.fillText('VGST PRESENTS', W/2, H/2 - 130);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 52px sans-serif';
+  ctx.fillText('BOL', W/2, H/2 - 80);
+  ctx.fillStyle = GOLD; ctx.font = 'bold 52px sans-serif';
+  ctx.fillText('CLIMB', W/2, H/2 - 30);
+
+  // Welcome line
+  if (TG_USER) {
+    ctx.fillStyle = '#ccc'; ctx.font = '15px sans-serif';
+    ctx.fillText('Welcome, ' + PLAYER_NAME + '! 👋', W/2, H/2 + 10);
+  } else {
+    ctx.fillStyle = '#888'; ctx.font = '14px sans-serif';
+    ctx.fillText('Race the bot to the top!', W/2, H/2 + 10);
+  }
+
+  // Play button
+  ctx.fillStyle = GOLD;
+  ctx.beginPath(); ctx.roundRect(W/2-80, H/2+28, 160, 50, 12); ctx.fill();
+  ctx.fillStyle = '#000'; ctx.font = 'bold 20px sans-serif';
+  ctx.fillText('TAP TO PLAY', W/2, H/2+60);
+
+  ctx.fillStyle = '#666'; ctx.font = '12px sans-serif';
+  ctx.fillText('← → Arrow keys / WASD', W/2, H/2+112);
+  ctx.fillText('Mobile: tap left or right side', W/2, H/2+130);
+}
+
+function drawGameOver() {
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillRect(0,0,W,H);
+  ctx.textAlign = 'center';
+
+  const won = player.score >= bot.score;
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 30px sans-serif';
+  ctx.fillText('GAME OVER', W/2, H/2 - 90);
+
+  ctx.fillStyle = won ? '#06d6a0' : '#ff6b6b';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillText(won ? '🏆 ' + PLAYER_NAME + ' WINS!' : '🤖 BOT WINS!', W/2, H/2 - 52);
+
+  ctx.font = '16px sans-serif';
+  ctx.fillStyle = GOLD;
+  ctx.fillText('Your height: ' + player.score + 'm', W/2, H/2 - 8);
+  ctx.fillStyle = '#74b9ff';
+  ctx.fillText('Bot height:  ' + bot.score + 'm',   W/2, H/2 + 18);
+
+  if (player.score > highScore) {
+    highScore = player.score;
+    ctx.fillStyle = GOLD; ctx.font = 'bold 15px sans-serif';
+    ctx.fillText('🎉 NEW HIGH SCORE!', W/2, H/2 + 50);
+  }
+  ctx.fillStyle = '#666'; ctx.font = '13px sans-serif';
+  ctx.fillText('Best: ' + highScore + 'm', W/2, H/2 + 72);
+
+  ctx.fillStyle = GOLD;
+  ctx.beginPath(); ctx.roundRect(W/2-80, H/2+88, 160, 50, 12); ctx.fill();
+  ctx.fillStyle = '#000'; ctx.font = 'bold 18px sans-serif';
+  ctx.fillText('PLAY AGAIN', W/2, H/2+120);
+}
+
+function drawTouchZones() {
+  ctx.fillStyle = touched.left  ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.03)';
+  ctx.fillRect(0, H*0.35, W*0.42, H*0.65);
+  ctx.fillStyle = touched.right ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.03)';
+  ctx.fillRect(W*0.58, H*0.35, W*0.42, H*0.65);
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.font = '26px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('◀', W*0.21, H*0.93);
+  ctx.fillText('▶', W*0.79, H*0.93);
+}
+
+// ── Game loop ─────────────────────────────────────────────────────────────────
+let scoreSubmitted = false;
+
+function gameLoop() {
+  requestAnimationFrame(gameLoop);
+  frameCount++;
+
+  if (state === 'start') { drawBackground(); drawStartScreen(); return; }
+  if (state === 'gameover') { drawBackground(); drawGameOver(); return; }
+
+  // Touch → keys
+  keys['ArrowLeft']  = touched.left;
+  keys['ArrowRight'] = touched.right;
+
+  player.update(platforms, keys);
+  bot.update(platforms, keys);
+
+  // Camera
+  const target = Math.min(player.y, bot.y) - H*0.45;
+  camY += (target - camY) * 0.08;
+
+  // Generate more platforms ahead
+  if (player.y < topReached - 30) {
+    generatePlatforms(topReached - 30, topReached - 2200);
+    topReached -= 2200;
+  }
+
+  platforms = platforms.filter(p => p.y - camY < H + 100);
+  platforms.forEach(p => p.update());
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => p.update());
+
+  drawBackground();
+  platforms.forEach(p => p.draw(camY));
+  particles.forEach(p => p.draw(camY));
+  player.draw(camY); bot.draw(camY);
+  drawTouchZones();
+  drawHUD();
+
+  // Death
+  if (player.y - camY > H + 80) {
+    state = 'gameover';
+    if (!scoreSubmitted) {
+      scoreSubmitted = true;
+      submitScore(player.score);
+    }
+  }
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (state === 'start')   { state = 'playing'; scoreSubmitted = false; initGame(); }
+  if (state === 'gameover' && e.key === 'Enter') { state = 'playing'; scoreSubmitted = false; initGame(); }
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+C.addEventListener('pointerdown', e => {
+  const rect  = C.getBoundingClientRect();
+  const scaleX = W / rect.width;
+  const scaleY = H / rect.height;
+  const cx = (e.clientX - rect.left) * scaleX;
+  const cy = (e.clientY - rect.top)  * scaleY;
+
+  if (state === 'start') { state = 'playing'; scoreSubmitted = false; initGame(); e.preventDefault(); return; }
+  if (state === 'gameover') {
+    if (cy > H*0.5 && cx > W*0.22 && cx < W*0.78) { state = 'playing'; scoreSubmitted = false; initGame(); }
+    e.preventDefault(); return;
+  }
+  if (cx < W*0.45)  touched.left  = true;
+  if (cx > W*0.55)  touched.right = true;
+  e.preventDefault();
+}, { passive: false });
+
+C.addEventListener('pointerup',  () => { touched.left = false; touched.right = false; });
+C.addEventListener('pointermove', e => {
+  if (!touched.left && !touched.right) return;
+  const rect  = C.getBoundingClientRect();
+  const cx    = (e.clientX - rect.left) * (W / rect.width);
+  touched.left  = cx < W*0.45;
+  touched.right = cx > W*0.55;
+});
+
+gameLoop();
+</script>
+</body>
+</html>

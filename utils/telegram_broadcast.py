@@ -174,6 +174,21 @@ class TelegramBroadcaster:
             "disable_web_page_preview": True,
         })
 
+    def reply_with_keyboard(
+        self,
+        chat_id:  int | str,
+        text:     str,
+        keyboard: list[list[dict]],
+    ) -> None:
+        """Send a reply with an inline keyboard (e.g. web_app launch buttons)."""
+        self._post("sendMessage", {
+            "chat_id":                  chat_id,
+            "text":                     text,
+            "parse_mode":               "HTML",
+            "disable_web_page_preview": True,
+            "reply_markup":             {"inline_keyboard": keyboard},
+        })
+
     def answer_callback(self, callback_query_id: str, text: str) -> None:
         """Acknowledge a callback query (removes the Telegram loading spinner)."""
         self._post("answerCallbackQuery", {

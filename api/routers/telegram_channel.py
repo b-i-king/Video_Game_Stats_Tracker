@@ -8,6 +8,7 @@ Endpoints:
 
 Bot commands:
   /start | /help   — welcome + command list
+  /play            — launch BOL Climb HTML5 mini game (web_app button)
   /link | /website — web app link
   /lastsession     — live recap of the owner's most recent session (DB query)
   /premium         — premium tier upsell + upgrade link
@@ -256,6 +257,7 @@ async def telegram_channel_webhook(
             "📊 Log every session, track KPIs, and see your performance trends over time.",
             "",
             "What you can do here:",
+            "• /play         — Launch BOL Climb mini game",
             "• /link         — Open the web app",
             "• /lastsession  — See your most recent session",
             "• /premium      — Upgrade for full access",
@@ -308,6 +310,18 @@ async def telegram_channel_webhook(
         if site:
             lines += ["", f'👉 <a href="{site}/account">Get your link</a>']
         broadcaster.reply(chat_id, "\n".join(lines))
+
+    # ── /play ─────────────────────────────────────────────────────────────────
+    elif command == "/play":
+        game_url = f"{site}/games/bol-climb.html" if site else None
+        if game_url:
+            broadcaster.reply_with_keyboard(
+                chat_id,
+                "🎮 <b>BOL Climb</b>\n\nScale the tower, beat your high score!",
+                [[{"text": "🎮 Play Now", "web_app": {"url": game_url}}]],
+            )
+        else:
+            broadcaster.reply(chat_id, "⚠️ Game URL not configured (set SITE_URL).")
 
     # ── /lastsession ──────────────────────────────────────────────────────────
     elif command == "/lastsession":
