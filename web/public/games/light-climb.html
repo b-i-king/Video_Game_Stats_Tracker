@@ -39,7 +39,7 @@ const THEMES = [
   { name:'Space Station', bgTop:'#0d0d2b', bgBot:'#1a1150',
     plat:['#ff6b6b','#ffd166','#06d6a0','#118ab2','#ff9f43','#a29bfe'],
     hazTop:'rgba(255,69,0,0.85)',  hazBot:'rgba(255,107,43,0.9)',  hazLabel:'🌌 GALAXY RISING' },
-  { name:'Neon City',     bgTop:'#0a0a1a', bgBot:'#1a0030',
+  { name:'Neon City',     bgTop:'#12002e', bgBot:'#260055',
     plat:['#ff00ff','#00ffff','#ff6b6b','#39ff14','#ff9f43','#fff700'],
     hazTop:'rgba(0,245,255,0.85)', hazBot:'rgba(0,80,255,0.9)',    hazLabel:'⚡ SURGE RISING' },
   { name:'Digital Forest',bgTop:'#001a0d', bgBot:'#002b12',
@@ -99,7 +99,7 @@ const SKIN_STOPS = [
   [1.00, [0x4A,0x25,0x11]],
 ];
 const SGBX = 40, SGBY_OFF = 48, SGW = W-80, SGH = 28; // gradient bar geometry
-const SPEC_H = 20, SPEC_Y_OFF = SGBY_OFF + SGH + 10;   // spectrum bar (below skin tones)
+const SPEC_H = 20, SPEC_Y_OFF = SGBY_OFF + SGH + 24;   // spectrum bar (below skin tones)
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const GRAVITY            = 0.45;
@@ -120,7 +120,7 @@ let skinColor = '#E8A87C';
 let skinDragging = false, specDragging = false;
 let skinToneT = 0.30, specT = 0.5;
 
-let frameCount = 0, highScore = 0;
+let frameCount = 0, highScore = parseInt(localStorage.getItem('lc_hs')||'0');
 let camY = 0, topReached = 50;
 let combo = 0, comboTimer = 0;
 let platforms = [], particles = [];
@@ -132,6 +132,8 @@ let checkpointCount = 0, theme = 0;
 let prestige = 0, ngBannerTimer = 0, themeFlash = 0;
 let activePrompt = null;   // { q, correct, decoy } — set when challenge generated
 let scoreSubmitted = false;
+let gamePaused = false;
+let scorePops = [], cpStreak = 0;
 let keys = {}, touched = { left:false, right:false };
 
 function ri(a,b){ return Math.floor(Math.random()*(b-a))+a; }
@@ -213,16 +215,19 @@ class Player {
     this.w=28; this.h=32; this.dir=1;
     this.trail=[]; this.squish=0;
     this.boosted=0; this.shielded=0; this.speedy=0; this.debuff=0;
-    this.score=0; this.lastPlatY=0;
+    this.score=0; this.lastPlatY=0; this.lastScore=0;
+    this.runDir=0; this.runFrames=0;
   }
   get cx(){ return this.x+this.w/2; }
   get bottom(){ return this.y+this.h; }
   applyPow(t){
-    const C=[{c:'#ffd166'},{c:'#00cec9'},{c:'#a29bfe'}];
+    const C=[{c:'#ffd166',label:'⚡ SPEED'},{c:'#00cec9',label:'↑ BOOST JUMP'},{c:'#a29bfe',label:'🛡 SHIELD'}];
     if(t===0) this.speedy =120;
     if(t===1) this.boosted=60;
     if(t===2) this.shielded=180;
-    spawnP(this.cx,this.y+this.h/2,10,[C[t%3].c,'#fff']);
+    const cfg=C[t%3];
+    scorePops.push({x:this.cx,sy:this.y-camY-30,val:cfg.label,life:1,c:cfg.c});
+    spawnP(this.cx,this.y+this.h/2,10,[cfg.c,'#fff']);
   }
   springJump(){
     this.vy=JUMP*3;
@@ -236,6 +241,9 @@ class Player {
     const spd = this.speedy>0?5.5 : this.debuff>0?1.8 : 3.8;
     const goL  = keys['ArrowLeft'] ||keys['a']||keys['A']||touched.left;
     const goR  = keys['ArrowRight']||keys['d']||keys['D']||touched.right;
+    const curDir=goL?-1:goR?1:0;
+    if(curDir!==0&&curDir===this.runDir) this.runFrames=Math.min(this.runFrames+1,60);
+    else{ this.runDir=curDir; this.runFrames=curDir!==0?1:0; }
     if(goL){ this.vx=-spd; this.dir=-1; }
     else if(goR){ this.vx=spd;  this.dir= 1; }
     else this.vx*=0.78;
@@ -257,16 +265,21 @@ class Player {
         &&this.cx>p.x-4  &&this.cx<p.x+p.w+4){
         this.y =p.y-this.h;
         this.vy=this.boosted>0?JUMP*1.4:JUMP;
+        if(this.runFrames>=25) this.vx=this.runDir*(spd+1.8);
         this.squish=8; p.bounce=1.15;
         combo++; comboTimer=90;
         spawnP(this.cx,this.bottom,4,[THEMES[theme].plat[p.ci%THEMES[theme].plat.length]||GOLD]);
         if(p.hasPow&&!p.powOk){ p.powOk=true; this.applyPow(p.powT); }
         // Challenge resolution
         if(p.type==='ch_correct'){ activePrompt=null; this.springJump(); }
-        if(p.type==='ch_wrong')  { activePrompt=null; p.crumble=1; this.applyDebuff(); }
+        if(p.type==='ch_wrong'){
+          activePrompt=null;
+          if(this.shielded>0){ this.shielded=0; spawnP(this.cx,this.bottom,12,['#a29bfe','#fff','#c8b0ff']); }
+          else{ p.crumble=1; this.applyDebuff(); }
+        }
         // Checkpoint
         if(p.type==='checkpoint'){
-          checkpointCount++;
+          checkpointCount++; cpStreak++;
           theme = checkpointCount % THEMES.length;
           hazardSpeed = HAZARD_START_SPEED*Math.pow(HAZARD_MULT,checkpointCount);
           hazardPause = PAUSE_FRAMES;
@@ -278,7 +291,11 @@ class Player {
             ngBannerTimer = 220;
           }
         }
-        if(p.y<this.lastPlatY){ this.score=Math.round(Math.abs(p.y)/40); this.lastPlatY=p.y; }
+        if(p.y<this.lastPlatY){
+          const ns=Math.round(Math.abs(p.y)/40);
+          if(ns>this.score) scorePops.push({x:this.cx,sy:this.y-camY-18,val:'+'+(ns-this.score)+'m',life:1});
+          this.score=ns; this.lastPlatY=p.y;
+        }
         break;
       }
     }
@@ -341,6 +358,7 @@ function generatePlatforms(fromY,toY){
     if(platSpawnCount===nextCheckpoint){
       platforms.push(new Platform(0,y,W,0,'checkpoint'));
       nextCheckpoint+=CHECKPOINT_EVERY;
+      y -= 160; // force gap above — normal jump (~147 max) can't skip it; spring jump clears easily
       continue;
     }
     if(platSpawnCount===nextChallenge){
@@ -370,11 +388,17 @@ function initGame(){
   checkpointCount=0; theme=0; activePrompt=null;
   hazardY=800; hazardSpeed=HAZARD_START_SPEED; hazardPause=0;
   prestige=0; ngBannerTimer=0;
-  scoreSubmitted=false;
+  scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
   platforms.push(new Platform(W/2-60,50,120,0,'normal'));
   generatePlatforms(50,-2000);
   player=new Player();
   player.y=10; player.vy=0; player.lastPlatY=0;
+}
+
+// ── Share score ───────────────────────────────────────────────────────────────
+function shareScore(){
+  const msg=`I climbed ${player.score}m in Light Climb! 🎮 Can you beat me?`;
+  if(tg){ try{ tg.openTelegramLink('https://t.me/share/url?url='+encodeURIComponent(window.location.href)+'&text='+encodeURIComponent(msg)); }catch{} }
 }
 
 // ── Score submission ──────────────────────────────────────────────────────────
@@ -487,6 +511,17 @@ function drawPrestigeOverlay(){
   ctx.restore();
 }
 
+function drawHazardWarning(){
+  const dist=hazardY-player.bottom;
+  if(dist>110||hazardPause>0) return;
+  const a=(1-dist/110)*0.32*(0.7+Math.sin(frameCount*0.35)*0.3);
+  ctx.save(); ctx.globalAlpha=a;
+  const g=ctx.createLinearGradient(0,H,0,H-55);
+  g.addColorStop(0,'rgba(255,40,40,0.9)'); g.addColorStop(1,'rgba(255,40,40,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,H-55,W,55);
+  ctx.restore();
+}
+
 function drawPowerUpHUD(){
   const pups=[];
   if(player.speedy>0)   pups.push({e:'⚡',c:'#ffd166',t:player.speedy,  max:120});
@@ -514,7 +549,7 @@ function drawHUD(){
   ctx.fillStyle='rgba(0,0,0,0.4)';
   ctx.beginPath(); ctx.roundRect(8,8,140,52,10); ctx.fill();
   ctx.fillStyle='#aaa'; ctx.font='bold 10px sans-serif'; ctx.textAlign='left';
-  ctx.fillText(PLAYER_INITIALS+' HEIGHT',18,24);
+  ctx.fillText(PLAYER_INITIALS+' HEIGHT'+(gamePaused?' ⏸':''),18,24);
   ctx.fillStyle=GOLD; ctx.font='bold 22px sans-serif';
   ctx.fillText(Math.max(0,player.score)+'m',18,50);
 
@@ -562,8 +597,16 @@ function drawHUD(){
     ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center';
     ctx.fillStyle=GOLD; ctx.font='bold 20px sans-serif';
     ctx.fillText('✓ CHECKPOINT  '+THEMES[theme].name,W/2,H/2-150);
+    if(cpStreak>1){
+      ctx.fillStyle='#ff9f43'; ctx.font='bold 13px sans-serif';
+      ctx.fillText('🔥 '+cpStreak+' checkpoint streak',W/2,H/2-128);
+    }
     ctx.restore();
   }
+
+  // Theme name (always visible, bottom-left of score panel)
+  ctx.fillStyle=THEMES[theme].plat[0]+'cc'; ctx.font='bold 9px sans-serif'; ctx.textAlign='left';
+  ctx.fillText(THEMES[theme].name.toUpperCase(),18,58);
 
   // NG+ escalation banner
   if(ngBannerTimer>0){
@@ -610,19 +653,19 @@ function drawSkinPicker(){
   ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(SGBX,sgby,SGW,SGH,8); ctx.fill();
   ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1.5; ctx.stroke();
   const tx2=thumbX();
-  ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.fillStyle=skinColor;
+  ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.fillStyle=colorFromT(skinToneT);
   ctx.beginPath(); ctx.arc(tx2,sgby+SGH/2,15,0,Math.PI*2); ctx.fill(); ctx.stroke();
 
   // ── Spectrum bar (all colors) ────────────────────────────────────────────────
   const specby=H/2+SPEC_Y_OFF;
   ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.font='bold 9px sans-serif'; ctx.textAlign='left';
-  ctx.fillText('ALL COLORS',SGBX,specby-4);
+  ctx.fillText('ALL COLORS',SGBX,specby-5);
   const sg=ctx.createLinearGradient(SGBX,0,SGBX+SGW,0);
   for(let i=0;i<=12;i++) sg.addColorStop(i/12,hslToHex(i/12*360,90,55));
   ctx.fillStyle=sg; ctx.beginPath(); ctx.roundRect(SGBX,specby,SGW,SPEC_H,6); ctx.fill();
   ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1.5; ctx.stroke();
   const stx=specThumbX();
-  ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.fillStyle=skinColor;
+  ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.fillStyle=hslToHex(specT*360,90,55);
   ctx.beginPath(); ctx.arc(stx,specby+SPEC_H/2,11,0,Math.PI*2); ctx.fill(); ctx.stroke();
 
   // Character preview
@@ -661,6 +704,8 @@ function drawStart(){
   ctx.fillStyle='#555'; ctx.font='12px sans-serif';
   ctx.fillText('← → Arrow keys / WASD',W/2,H/2+110);
   ctx.fillText('Mobile: tap left or right half',W/2,H/2+128);
+  ctx.fillStyle='#6c5ce7'; ctx.font='13px sans-serif';
+  ctx.fillText('Two-color platforms = math challenge!',W/2,H/2+150);
 }
 
 function drawGameOver(){
@@ -675,11 +720,18 @@ function drawGameOver(){
   ctx.fillStyle='#aaa'; ctx.fillText('Checkpoints: '+checkpointCount,W/2,H/2+18);
   if(player.score>highScore){
     highScore=player.score;
+    localStorage.setItem('lc_hs',highScore);
     ctx.fillStyle=GOLD; ctx.font='bold 15px sans-serif'; ctx.fillText('🎉 NEW HIGH SCORE!',W/2,H/2+50);
   }
   ctx.fillStyle='#666'; ctx.font='13px sans-serif'; ctx.fillText('Best: '+highScore+'m',W/2,H/2+72);
   ctx.fillStyle=GOLD; ctx.beginPath(); ctx.roundRect(W/2-80,H/2+88,160,50,12); ctx.fill();
   ctx.fillStyle='#000'; ctx.font='bold 18px sans-serif'; ctx.fillText('PLAY AGAIN',W/2,H/2+120);
+  if(tg){
+    ctx.strokeStyle='rgba(212,175,55,0.65)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(W/2-72,H/2+150,144,38,10); ctx.stroke();
+    ctx.fillStyle='#aaa'; ctx.font='13px sans-serif';
+    ctx.fillText('📤 Share Score',W/2,H/2+174);
+  }
 }
 
 // ── Game loop ─────────────────────────────────────────────────────────────────
@@ -690,19 +742,21 @@ function gameLoop(){
   if(state==='start')   { drawStart(); return; }
   if(state==='gameover'){ drawGameOver(); return; }
 
-  player.update();
-  const target=player.y-H*0.45;
-  camY+=(target-camY)*0.08;
+  if(!gamePaused){
+    player.update();
+    const target=player.y-H*0.45;
+    camY+=(target-camY)*0.08;
 
-  if(player.y<topReached-30){ generatePlatforms(topReached-30,topReached-2200); topReached-=2200; }
+    if(player.y<topReached-30){ generatePlatforms(topReached-30,topReached-2200); topReached-=2200; }
 
-  platforms=platforms.filter(p=>!p.dead&&p.y-camY<H+100);
-  platforms.forEach(p=>p.update());
-  particles=particles.filter(p=>p.life>0);
-  particles.forEach(p=>p.update());
+    platforms=platforms.filter(p=>!p.dead&&p.y-camY<H+100);
+    platforms.forEach(p=>p.update());
+    particles=particles.filter(p=>p.life>0);
+    particles.forEach(p=>p.update());
 
-  if(hazardPause>0) hazardPause--;
-  else              hazardY-=hazardSpeed;
+    if(hazardPause>0) hazardPause--;
+    else              hazardY-=hazardSpeed;
+  }
 
   drawBg();
   if(themeFlash>0){
@@ -714,11 +768,31 @@ function gameLoop(){
   platforms.forEach(p=>p.draw(camY));
   particles.forEach(p=>p.draw(camY));
   player.draw(camY);
+  // Score pops
+  scorePops=scorePops.filter(p=>p.life>0);
+  scorePops.forEach(p=>{
+    p.sy-=1.2; p.life-=0.025;
+    ctx.save(); ctx.globalAlpha=p.life;
+    ctx.fillStyle=p.c??GOLD; ctx.font='bold 12px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(p.val,p.x,p.sy);
+    ctx.restore();
+  });
   drawTouchZones();
+  drawHazardWarning();
   drawPrestigeOverlay();
   drawChallengeFlash();
   drawPowerUpHUD();
   drawHUD();
+
+  if(gamePaused){
+    ctx.save();
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,W,H);
+    ctx.textAlign='center';
+    ctx.fillStyle='#fff'; ctx.font='bold 28px sans-serif'; ctx.fillText('⏸ PAUSED',W/2,H/2);
+    ctx.fillStyle='#888'; ctx.font='13px sans-serif'; ctx.fillText('Tap score panel to resume',W/2,H/2+28);
+    ctx.restore();
+    return;
+  }
 
   if(player.bottom>hazardY||player.y-camY>H+80){
     state='gameover';
@@ -754,9 +828,11 @@ C.addEventListener('pointerdown',e=>{
   }
   if(state==='start'){ state='playing'; initGame(); return; }
   if(state==='gameover'){
-    if(cy>H*0.5&&cx>W*0.22&&cx<W*0.78){ state='playing'; initGame(); }
+    if(cy>H/2+145&&cy<H/2+192&&cx>W/2-72&&cx<W/2+72){ shareScore(); return; }
+    if(cy>H/2+85&&cy<H/2+145&&cx>W*0.22&&cx<W*0.78){ state='playing'; initGame(); }
     return;
   }
+  if(state==='playing'&&cx>=8&&cx<=148&&cy>=8&&cy<=60){ gamePaused=!gamePaused; return; }
   if(cx<W*0.45) touched.left =true;
   if(cx>W*0.55) touched.right=true;
 },{passive:false});
