@@ -159,6 +159,7 @@ class Platform {
     this.powOk = false;
     this.crumble=0;
     this.dead  = false;
+    this.cpUsed= false;
   }
   update(){
     if(this.type==='moving'){ this.x+=this.vx; if(this.x<0||this.x+this.w>W) this.vx*=-1; }
@@ -265,7 +266,7 @@ class Player {
         &&this.cx>p.x-4  &&this.cx<p.x+p.w+4){
         this.y =p.y-this.h;
         this.vy=this.boosted>0?JUMP*1.4:JUMP;
-        if(this.runFrames>=25) this.vx=this.runDir*(spd+1.8);
+        if(this.runFrames>=25){ this.vx=this.runDir*(spd+1.8); this.vy*=1.1; }
         this.squish=8; p.bounce=1.15;
         combo++; comboTimer=90;
         spawnP(this.cx,this.bottom,4,[THEMES[theme].plat[p.ci%THEMES[theme].plat.length]||GOLD]);
@@ -278,7 +279,8 @@ class Player {
           else{ p.crumble=1; this.applyDebuff(); }
         }
         // Checkpoint
-        if(p.type==='checkpoint'){
+        if(p.type==='checkpoint' && !p.cpUsed){
+          p.cpUsed = true;
           checkpointCount++; cpStreak++;
           theme = checkpointCount % THEMES.length;
           hazardSpeed = HAZARD_START_SPEED*Math.pow(HAZARD_MULT,checkpointCount);
@@ -358,7 +360,7 @@ function generatePlatforms(fromY,toY){
     if(platSpawnCount===nextCheckpoint){
       platforms.push(new Platform(0,y,W,0,'checkpoint'));
       nextCheckpoint+=CHECKPOINT_EVERY;
-      y -= 160; // force gap above — normal jump (~147 max) can't skip it; spring jump clears easily
+      y -= 95; // skip-safe gap: from 60 units below, player reaches max 87 above; 95 > 87 prevents skip; 95 < 147 so reachable from checkpoint
       continue;
     }
     if(platSpawnCount===nextChallenge){
