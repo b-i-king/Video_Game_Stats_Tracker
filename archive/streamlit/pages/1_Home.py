@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.app_utils import YOUR_PRIVACY_POLICY_URL, YOUR_TERMS_OF_SERVICE_URL
+from archive.utils.app_utils import YOUR_PRIVACY_POLICY_URL, YOUR_TERMS_OF_SERVICE_URL
 
 # --- SEO: Inject meta tags, Open Graph, Twitter Card, JSON-LD into <head> ---
 st.markdown("""

@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
-from utils.app_utils import (
+from archive.utils.app_utils import (
     GENRES, FLASK_API_URL,
     get_all_players, get_game_ranks, get_all_games, get_game_details,
     get_game_modes, get_game_stat_types, get_auth_headers,

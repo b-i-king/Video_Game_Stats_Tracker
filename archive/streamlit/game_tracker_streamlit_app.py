@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd # Import pandas for session state
-from utils.app_utils import (
+from archive.utils.app_utils import (
     attempt_flask_login, 
     register_guest_user, 
     DB_URL, 

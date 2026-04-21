@@ -38,19 +38,19 @@ C.width = W; C.height = H;
 const THEMES = [
   { name:'Space Station', bgTop:'#0d0d2b', bgBot:'#1a1150',
     plat:['#ff6b6b','#ffd166','#06d6a0','#118ab2','#ff9f43','#a29bfe'],
-    hazTop:'rgba(255,69,0,0.85)',  hazBot:'rgba(255,107,43,0.9)',  hazLabel:'🌋 LAVA RISING' },
+    hazTop:'rgba(255,69,0,0.85)',  hazBot:'rgba(255,107,43,0.9)',  hazLabel:'🌌 GALAXY RISING' },
   { name:'Neon City',     bgTop:'#0a0a1a', bgBot:'#1a0030',
     plat:['#ff00ff','#00ffff','#ff6b6b','#39ff14','#ff9f43','#fff700'],
     hazTop:'rgba(0,245,255,0.85)', hazBot:'rgba(0,80,255,0.9)',    hazLabel:'⚡ SURGE RISING' },
   { name:'Digital Forest',bgTop:'#001a0d', bgBot:'#002b12',
     plat:['#06d6a0','#52c41a','#b5e853','#96f7d2','#20bf6b','#ffd166'],
-    hazTop:'rgba(0,192,255,0.85)', hazBot:'rgba(0,80,179,0.9)',    hazLabel:'🌊 FLOOD RISING' },
+    hazTop:'rgba(0,192,255,0.85)', hazBot:'rgba(0,80,179,0.9)',    hazLabel:'☁️ CLOUD RISING' },
   { name:'Data Core',     bgTop:'#001a2e', bgBot:'#003355',
     plat:['#00b4d8','#48cae4','#90e0ef','#caf0f8','#0096c7','#a29bfe'],
     hazTop:'rgba(0,255,247,0.85)', hazBot:'rgba(0,97,255,0.9)',    hazLabel:'💡 ENERGY RISING' },
   { name:'Gold Rush',     bgTop:'#1a0800', bgBot:'#3d1500',
     plat:['#D4AF37','#ffb347','#ff6b6b','#ffd166','#ff9f43','#06d6a0'],
-    hazTop:'rgba(255,140,0,0.85)', hazBot:'rgba(255,34,0,0.9)',    hazLabel:'🔥 FIRE RISING' },
+    hazTop:'rgba(255,140,0,0.85)', hazBot:'rgba(255,34,0,0.9)',    hazLabel:'🪙 GOLD RISING' },
 ];
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
@@ -99,6 +99,7 @@ const SKIN_STOPS = [
   [1.00, [0x4A,0x25,0x11]],
 ];
 const SGBX = 40, SGBY_OFF = 48, SGW = W-80, SGH = 28; // gradient bar geometry
+const SPEC_H = 20, SPEC_Y_OFF = SGBY_OFF + SGH + 10;   // spectrum bar (below skin tones)
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const GRAVITY            = 0.45;
@@ -106,7 +107,7 @@ const JUMP               = -11.5;
 const PLAT_H             = 14;
 const GOLD               = '#D4AF37';
 const CHECKPOINT_EVERY   = 100;   // platforms between checkpoints
-const CHALLENGE_EVERY    = 25;    // platforms between challenges
+const CHALLENGE_EVERY    = 50;    // platforms between challenges
 const CHALLENGE_JITTER   = 8;
 const HAZARD_START_SPEED = 0.55;
 const HAZARD_MULT        = 1.15;  // speed multiplier per checkpoint
@@ -116,7 +117,8 @@ const CHALLENGE_DIST     = 380;   // show flash when this close (world units abo
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = 'skin';
 let skinColor = '#E8A87C';
-let skinDragging = false;
+let skinDragging = false, specDragging = false;
+let skinToneT = 0.30, specT = 0.5;
 
 let frameCount = 0, highScore = 0;
 let camY = 0, topReached = 50;
@@ -127,13 +129,19 @@ let player;
 let platSpawnCount = 0, nextChallenge = 0, nextCheckpoint = CHECKPOINT_EVERY;
 let hazardY = 0, hazardSpeed = HAZARD_START_SPEED, hazardPause = 0;
 let checkpointCount = 0, theme = 0;
-let prestige = 0, ngBannerTimer = 0;
+let prestige = 0, ngBannerTimer = 0, themeFlash = 0;
 let activePrompt = null;   // { q, correct, decoy } — set when challenge generated
 let scoreSubmitted = false;
 let keys = {}, touched = { left:false, right:false };
 
 function ri(a,b){ return Math.floor(Math.random()*(b-a))+a; }
 function rf(a,b){ return Math.random()*(b-a)+a; }
+function hslToHex(h,s,l){
+  s/=100; l/=100;
+  const k=n=>(n+h/30)%12, a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  return '#'+[0,8,4].map(n=>Math.round(255*f(n)).toString(16).padStart(2,'0')).join('');
+}
 
 // ── Platform ──────────────────────────────────────────────────────────────────
 class Platform {
@@ -233,8 +241,8 @@ class Player {
     else this.vx*=0.78;
     this.vy+=GRAVITY;
     this.x+=this.vx; this.y+=this.vy;
-    if(this.x<-this.w) this.x=W;
-    if(this.x>W)       this.x=-this.w;
+    if(this.x<0)         { this.x=0;        this.vx= Math.abs(this.vx)*0.55; }
+    if(this.x+this.w>W)  { this.x=W-this.w; this.vx=-Math.abs(this.vx)*0.55; }
     if(this.squish>0)  this.squish--;
     if(this.speedy>0)  this.speedy--;
     if(this.boosted>0) this.boosted--;
@@ -262,6 +270,7 @@ class Player {
           theme = checkpointCount % THEMES.length;
           hazardSpeed = HAZARD_START_SPEED*Math.pow(HAZARD_MULT,checkpointCount);
           hazardPause = PAUSE_FRAMES;
+          themeFlash = 28;
           spawnP(this.cx,this.bottom,35,[GOLD,'#fff','#ffd166']);
           const newPrestige = Math.floor(checkpointCount / THEMES.length);
           if(newPrestige > prestige){
@@ -392,11 +401,8 @@ function colorFromT(t){
   return '#'+[0,1,2].map(i=>lerp(s0[1][i],s1[1][i],r).toString(16).padStart(2,'0')).join('');
 }
 function tFromX(x){ return Math.max(0,Math.min(1,(x-SGBX)/SGW)); }
-function thumbX(){
-  const rgb=[parseInt(skinColor.slice(1,3),16),parseInt(skinColor.slice(3,5),16),parseInt(skinColor.slice(5,7),16)];
-  const t=1-Math.max(0,Math.min(1,(rgb[0]-0x4A)/(0xFD-0x4A)));
-  return SGBX+t*SGW;
-}
+function thumbX(){ return SGBX + skinToneT * SGW; }
+function specThumbX(){ return SGBX + specT * SGW; }
 
 // ── Draw helpers ──────────────────────────────────────────────────────────────
 function drawBg(){
@@ -439,24 +445,25 @@ function drawHazard(){
 
 function drawChallengeFlash(){
   if(!activePrompt) return;
-  const cp=platforms.find(p=>p.type==='ch_correct'||p.type==='ch_wrong');
-  if(!cp){ activePrompt=null; return; }
-  const dist=player.y-cp.y;
-  if(dist<0||dist>CHALLENGE_DIST) return;
-  const alpha=Math.min(1,dist/150)*0.93;
+  const pair=platforms.filter(p=>p.type==='ch_correct'||p.type==='ch_wrong');
+  if(!pair.length){ activePrompt=null; return; }
+  const cp=pair[0];
+  const platSY=cp.y-camY;
+  if(platSY>H+20||platSY<-60) return;
+  // Float question bubble above the two platforms
+  const p2=pair[1];
+  const midX=p2?(cp.x+cp.w/2+p2.x+p2.w/2)/2:cp.x+cp.w/2;
+  const qy=Math.max(platSY-44, 28);
   ctx.save();
-  ctx.globalAlpha=alpha;
-  ctx.fillStyle='rgba(0,0,0,0.72)';
-  ctx.beginPath(); ctx.roundRect(W/2-135,H/2-72,270,124,14); ctx.fill();
-  ctx.globalAlpha=1;
   ctx.textAlign='center';
-  ctx.fillStyle=GOLD; ctx.font='bold 11px sans-serif';
-  ctx.fillText('⚡ CHALLENGE INCOMING!',W/2,H/2-48);
-  ctx.fillStyle='#fff'; ctx.font='bold 30px sans-serif';
-  ctx.fillText(activePrompt.q,W/2,H/2-6);
-  ctx.fillStyle='#aaa'; ctx.font='11px sans-serif';
-  ctx.fillText('Correct platform → MEGA BOOST 🚀',W/2,H/2+24);
-  ctx.fillText('Wrong platform → MUD SLOW 🟫',W/2,H/2+42);
+  ctx.fillStyle='rgba(0,0,0,0.82)';
+  ctx.beginPath(); ctx.roundRect(midX-100,qy-22,200,44,10); ctx.fill();
+  ctx.strokeStyle=GOLD; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.roundRect(midX-100,qy-22,200,44,10); ctx.stroke();
+  ctx.fillStyle=GOLD; ctx.font='bold 9px sans-serif';
+  ctx.fillText('⚡ CHALLENGE',midX,qy-8);
+  ctx.fillStyle='#fff'; ctx.font='bold 20px sans-serif';
+  ctx.fillText(activePrompt.q,midX,qy+13);
   ctx.restore();
 }
 
@@ -478,6 +485,29 @@ function drawPrestigeOverlay(){
   gb.addColorStop(0,'rgba(0,120,255,0.9)'); gb.addColorStop(1,'rgba(0,120,255,0)');
   ctx.fillStyle=gb; ctx.fillRect(W-shift*4,0,shift*4,H);
   ctx.restore();
+}
+
+function drawPowerUpHUD(){
+  const pups=[];
+  if(player.speedy>0)   pups.push({e:'⚡',c:'#ffd166',t:player.speedy,  max:120});
+  if(player.boosted>0)  pups.push({e:'↑', c:'#00cec9',t:player.boosted, max:60});
+  if(player.shielded>0) pups.push({e:'🛡',c:'#a29bfe',t:player.shielded,max:180});
+  if(!pups.length) return;
+  const r=16, y=H-30;
+  const sx=W/2-(pups.length-1)*42/2;
+  pups.forEach((p,i)=>{
+    const x=sx+i*42, prog=Math.max(0,p.t/p.max);
+    ctx.save();
+    ctx.fillStyle='rgba(0,0,0,0.65)';
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle=p.c+'44'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(x,y,r-1.5,0,Math.PI*2); ctx.stroke();
+    ctx.strokeStyle=p.c; ctx.lineWidth=3; ctx.lineCap='round';
+    ctx.beginPath(); ctx.arc(x,y,r-1.5,-Math.PI/2,-Math.PI/2+prog*Math.PI*2); ctx.stroke();
+    ctx.globalAlpha=1; ctx.font='13px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(p.e,x,y+5);
+    ctx.restore();
+  });
 }
 
 function drawHUD(){
@@ -571,27 +601,38 @@ function drawSkinPicker(){
   ctx.fillStyle=GOLD; ctx.font='bold 52px sans-serif'; ctx.fillText('CLIMB',W/2,H/2-50);
   ctx.fillStyle='#bbb'; ctx.font='14px sans-serif'; ctx.fillText('Choose your look',W/2,H/2-8);
 
-  // Gradient bar
+  // ── Skin tone bar (primary) ──────────────────────────────────────────────────
   const sgby=H/2+SGBY_OFF;
+  ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.font='bold 9px sans-serif'; ctx.textAlign='left';
+  ctx.fillText('SKIN TONES',SGBX,sgby-4);
   const g=ctx.createLinearGradient(SGBX,0,SGBX+SGW,0);
   SKIN_STOPS.forEach(([t,[r,gg,b]])=>g.addColorStop(t,`rgb(${r},${gg},${b})`));
   ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(SGBX,sgby,SGW,SGH,8); ctx.fill();
   ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1.5; ctx.stroke();
-
-  // Thumb
   const tx2=thumbX();
-  ctx.strokeStyle='#fff'; ctx.lineWidth=3;
-  ctx.fillStyle=skinColor;
+  ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.fillStyle=skinColor;
   ctx.beginPath(); ctx.arc(tx2,sgby+SGH/2,15,0,Math.PI*2); ctx.fill(); ctx.stroke();
 
+  // ── Spectrum bar (all colors) ────────────────────────────────────────────────
+  const specby=H/2+SPEC_Y_OFF;
+  ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.font='bold 9px sans-serif'; ctx.textAlign='left';
+  ctx.fillText('ALL COLORS',SGBX,specby-4);
+  const sg=ctx.createLinearGradient(SGBX,0,SGBX+SGW,0);
+  for(let i=0;i<=12;i++) sg.addColorStop(i/12,hslToHex(i/12*360,90,55));
+  ctx.fillStyle=sg; ctx.beginPath(); ctx.roundRect(SGBX,specby,SGW,SPEC_H,6); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1.5; ctx.stroke();
+  const stx=specThumbX();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.fillStyle=skinColor;
+  ctx.beginPath(); ctx.arc(stx,specby+SPEC_H/2,11,0,Math.PI*2); ctx.fill(); ctx.stroke();
+
   // Character preview
-  drawCharPreview(W/2, sgby+SGH+55);
+  drawCharPreview(W/2, specby+SPEC_H+46);
 
   // Play button
-  ctx.fillStyle=GOLD;
-  ctx.beginPath(); ctx.roundRect(W/2-80,sgby+SGH+110,160,50,12); ctx.fill();
+  ctx.fillStyle=GOLD; ctx.textAlign='center';
+  ctx.beginPath(); ctx.roundRect(W/2-80,specby+SPEC_H+96,160,50,12); ctx.fill();
   ctx.fillStyle='#000'; ctx.font='bold 20px sans-serif';
-  ctx.fillText('PLAY →',W/2,sgby+SGH+142);
+  ctx.fillText('PLAY →',W/2,specby+SPEC_H+128);
 }
 
 function drawCharPreview(cx,cy){
@@ -664,6 +705,11 @@ function gameLoop(){
   else              hazardY-=hazardSpeed;
 
   drawBg();
+  if(themeFlash>0){
+    ctx.save(); ctx.globalAlpha=(themeFlash/28)*0.55;
+    ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,H);
+    ctx.restore(); themeFlash--;
+  }
   drawHazard();
   platforms.forEach(p=>p.draw(camY));
   particles.forEach(p=>p.draw(camY));
@@ -671,6 +717,7 @@ function gameLoop(){
   drawTouchZones();
   drawPrestigeOverlay();
   drawChallengeFlash();
+  drawPowerUpHUD();
   drawHUD();
 
   if(player.bottom>hazardY||player.y-camY>H+80){
@@ -693,9 +740,16 @@ C.addEventListener('pointerdown',e=>{
   const cx=(e.clientX-rect.left)*(W/rect.width);
   const cy=(e.clientY-rect.top)*(H/rect.height);
   const sgby=H/2+SGBY_OFF;
+  const specby=H/2+SPEC_Y_OFF;
   if(state==='skin'){
-    if(cy>=sgby-12&&cy<=sgby+SGH+12){ skinDragging=true; skinColor=colorFromT(tFromX(cx)); return; }
-    if(cy>sgby+SGH+110&&cy<sgby+SGH+162&&cx>W/2-80&&cx<W/2+80){ state='start'; return; }
+    if(cy>=sgby-12&&cy<=sgby+SGH+12){
+      skinDragging=true; skinToneT=tFromX(cx); skinColor=colorFromT(skinToneT); return;
+    }
+    if(cy>=specby-10&&cy<=specby+SPEC_H+10){
+      specDragging=true; specT=Math.max(0,Math.min(1,(cx-SGBX)/SGW));
+      skinColor=hslToHex(specT*360,90,55); return;
+    }
+    if(cy>specby+SPEC_H+96&&cy<specby+SPEC_H+148&&cx>W/2-80&&cx<W/2+80){ state='start'; return; }
     return;
   }
   if(state==='start'){ state='playing'; initGame(); return; }
@@ -711,11 +765,12 @@ C.addEventListener('pointermove',e=>{
   const rect=C.getBoundingClientRect();
   const cx=(e.clientX-rect.left)*(W/rect.width);
   const cy=(e.clientY-rect.top)*(H/rect.height);
-  if(skinDragging){ skinColor=colorFromT(tFromX(cx)); return; }
+  if(skinDragging){ skinToneT=tFromX(cx); skinColor=colorFromT(skinToneT); return; }
+  if(specDragging){ specT=Math.max(0,Math.min(1,(cx-SGBX)/SGW)); skinColor=hslToHex(specT*360,90,55); return; }
   if(!touched.left&&!touched.right) return;
   touched.left=cx<W*0.45; touched.right=cx>W*0.55;
 });
-C.addEventListener('pointerup',()=>{ skinDragging=false; touched.left=false; touched.right=false; });
+C.addEventListener('pointerup',()=>{ skinDragging=false; specDragging=false; touched.left=false; touched.right=false; });
 
 gameLoop();
 </script>

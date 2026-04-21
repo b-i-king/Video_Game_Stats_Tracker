@@ -51,11 +51,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Environment variables
-DB_URL      = os.environ.get("DB_URL")
-DB_PORT     = int(os.environ.get("DB_PORT", 6543))
-DB_NAME     = os.environ.get("DB_NAME", "postgres")
-DB_USER     = os.environ.get("DB_USER")
-DB_PASSWORD = os.environ.get("DB_PASSWORD")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 INSTAGRAM_ACCESS_TOKEN = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
 INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID")
 
@@ -92,12 +88,7 @@ def _get_pg_conn():
     global _pg_conn
     if _pg_conn is None or _pg_conn.closed:
         _pg_conn = psycopg2.connect(
-            host=DB_URL,
-            port=DB_PORT,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            sslmode="require",
+            DATABASE_URL,
             connect_timeout=30,
         )
     return _pg_conn
@@ -134,7 +125,7 @@ def _resolve_player_id(player_name: str) -> int:
         raise RuntimeError(f"No player found with name '{player_name}'. Check SOCIAL_PLAYER_NAME.")
     return rows[0][0]
 
-PLAYER_ID: int | None = _resolve_player_id(SOCIAL_PLAYER_NAME) if (SOCIAL_PLAYER_NAME and DB_URL) else None
+PLAYER_ID: int | None = _resolve_player_id(SOCIAL_PLAYER_NAME) if (SOCIAL_PLAYER_NAME and DATABASE_URL) else None
 
 
 # ============================================================================

@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.app_utils import YOUR_APP_HOME_URL
+from archive.utils.app_utils import YOUR_APP_HOME_URL
 
 st.set_page_config(layout="wide", page_title="Privacy Policy", page_icon="📄")
 
