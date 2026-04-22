@@ -227,7 +227,8 @@ class Platform {
     this.vx    = this.type==='moving' ? rf(-1.5,1.5) : 0;
     this.bounce= 1;
     this.hasPow= this.type==='normal' && Math.random()<0.10;
-    this.powT  = ri(0,3);
+    const _pr=Math.random();
+    this.powT  = _pr<0.45 ? 0 : _pr<0.90 ? 1 : 2; // 45% speed, 45% boost, 10% shield
     this.powOk = false;
     this.crumble=0;
     this.dead  = false;
