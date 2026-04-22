@@ -106,8 +106,8 @@ const GRAVITY            = 0.45;
 const JUMP               = -11.5;
 const PLAT_H             = 14;
 const GOLD               = '#D4AF37';
-const CHECKPOINT_EVERY   = 100;   // platforms between checkpoints
-const CHALLENGE_EVERY    = 50;    // platforms between challenges
+const CHECKPOINT_EVERY   = 100;   // metres between checkpoints
+const CHALLENGE_EVERY    = 50;    // metres between challenges
 const CHALLENGE_JITTER   = 8;
 const HAZARD_START_SPEED = 0.55;
 const HAZARD_MULT        = 1.15;  // speed multiplier per checkpoint
@@ -357,13 +357,14 @@ function generatePlatforms(fromY,toY){
     const gap=Math.min(190,75+Math.abs(fromY)/500);
     y-=rf(60,gap);
     platSpawnCount++;
-    if(platSpawnCount===nextCheckpoint){
+    const hm=Math.round(Math.abs(y)/40); // current height in metres
+    if(hm>=nextCheckpoint){
       platforms.push(new Platform(0,y,W,0,'checkpoint'));
       nextCheckpoint+=CHECKPOINT_EVERY;
-      y -= 95; // skip-safe gap: from 60 units below, player reaches max 87 above; 95 > 87 prevents skip; 95 < 147 so reachable from checkpoint
+      y -= 130; // skip-safe: momentum max reach from 60 below = 118 units < 130; reachable from checkpoint (147 normal)
       continue;
     }
-    if(platSpawnCount===nextChallenge){
+    if(hm>=nextChallenge){
       const pool = prestige===0 ? PROMPTS : prestige===1 ? [...PROMPTS,...PROMPTS_HARD] : PROMPTS_HARD;
       const pr=pool[ri(0,pool.length)];
       const cLeft=Math.random()<0.5;
@@ -371,7 +372,7 @@ function generatePlatforms(fromY,toY){
       platforms.push(new Platform(lx,     y,pw,0, cLeft?'ch_correct':'ch_wrong',  String(cLeft?pr.correct:pr.decoy)));
       platforms.push(new Platform(lx+pw+g2,y,pw,0,!cLeft?'ch_correct':'ch_wrong', String(!cLeft?pr.correct:pr.decoy)));
       activePrompt=pr;
-      nextChallenge=platSpawnCount+CHALLENGE_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
+      nextChallenge+=CHALLENGE_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
       continue;
     }
     const t=Math.random()<0.15?'moving':'normal';
