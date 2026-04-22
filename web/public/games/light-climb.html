@@ -182,7 +182,8 @@ const CHECKPOINT_EVERY   = 100;   // metres between checkpoints
 const CHALLENGE_EVERY    = 50;    // metres between challenges
 const CHALLENGE_JITTER   = 8;
 const HAZARD_START_SPEED = 0.55;
-const HAZARD_MULT        = 1.15;  // speed multiplier per checkpoint
+const HAZARD_MULT        = 1.08;  // speed multiplier per checkpoint
+const HAZARD_MAX_SPEED   = 2.5;   // cap so late game stays playable
 const PAUSE_FRAMES       = 180;   // hazard pause at checkpoint (3 s @ 60 fps)
 const CHALLENGE_DIST     = 380;   // show flash when this close (world units above player)
 
@@ -357,7 +358,7 @@ class Player {
           p.cpUsed = true;
           checkpointCount++; cpStreak++;
           theme = checkpointCount % THEMES.length;
-          hazardSpeed = HAZARD_START_SPEED*Math.pow(HAZARD_MULT,checkpointCount);
+          hazardSpeed = Math.min(HAZARD_MAX_SPEED, HAZARD_START_SPEED*Math.pow(HAZARD_MULT,checkpointCount));
           hazardPause = PAUSE_FRAMES;
           themeFlash = 28;
           spawnP(this.cx,this.bottom,35,[GOLD,'#fff','#ffd166']);
