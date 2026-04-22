@@ -187,7 +187,6 @@ const HAZARD_START_SPEED = 0.55;
 const HAZARD_MULT        = 1.08;  // speed multiplier per checkpoint
 const HAZARD_MAX_SPEED   = 2.5;   // cap so late game stays playable
 const PAUSE_FRAMES       = 180;   // hazard pause at checkpoint (3 s @ 60 fps)
-const CHALLENGE_DIST     = 380;   // show flash when this close (world units above player)
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = 'skin';
@@ -210,7 +209,7 @@ let activePrompt = null;   // { q, correct, decoy } — set when challenge gener
 let scoreSubmitted = false;
 let gamePaused = false;
 let autoDir = 1; // mobile auto-run direction: 1=right, -1=left
-let scorePops = [], cpStreak = 0;
+let scorePops = [], cpStreak = 0, caughtTimer = 0;
 let keys = {}, touched = { left:false, right:false };
 
 function ri(a,b){ return Math.floor(Math.random()*(b-a))+a; }
@@ -350,16 +349,23 @@ class Player {
         this.lastLandedPlat=p;
         spawnP(this.cx,this.bottom,4,[THEMES[theme].plat[p.ci%THEMES[theme].plat.length]||GOLD]);
         if(p.hasPow&&!p.powOk){ p.powOk=true; this.applyPow(p.powT); }
-        // Challenge resolution
-        if(p.type==='ch_correct'){ activePrompt=null; this.springJump(); }
-        if(p.type==='ch_wrong'){
+        // Challenge resolution — remove both platforms regardless of which was landed on
+        if(p.type==='ch_correct' || p.type==='ch_wrong'){
           activePrompt=null;
-          if(this.shielded>0){ this.shielded=0; spawnP(this.cx,this.bottom,12,['#a29bfe','#fff','#c8b0ff']); }
-          else{ p.crumble=1; this.applyDebuff(); }
+          platforms.forEach(cp=>{ if(cp.type==='ch_correct'||cp.type==='ch_wrong') cp.dead=true; });
+          if(p.type==='ch_correct'){ this.springJump(); }
+          else{
+            if(this.shielded>0){
+              this.shielded=0;
+              spawnP(this.cx,this.bottom,12,['#a29bfe','#fff','#c8b0ff']);
+              scorePops.push({x:this.cx,sy:this.y-camY-18,val:'✗ SHIELDED',life:1,c:'#a29bfe'});
+            } else{ this.applyDebuff(); }
+          }
         }
         // Checkpoint platform — rest reward only; mechanics are height-based below
         if(p.type==='checkpoint' && !p.cpUsed){
           p.cpUsed = true;
+          cpStreak++;
           hazardPause = PAUSE_FRAMES; // rest point: only granted if player lands on platform
           themeFlash = 28;
           spawnP(this.cx,this.bottom,35,[GOLD,'#fff','#ffd166']);
@@ -370,7 +376,7 @@ class Player {
             scorePops.push({x:this.cx,sy:this.y-camY-18,val:'+'+(ns-this.score)+'m',life:1});
             // Height-based: theme/hazard/prestige fire regardless of whether checkpoint was landed on
             while(ns>=nextTheme){
-              checkpointCount++; cpStreak++;
+              checkpointCount++;
               theme = checkpointCount % THEMES.length;
               hazardSpeed = Math.min(HAZARD_MAX_SPEED, HAZARD_START_SPEED*Math.pow(HAZARD_MULT,checkpointCount));
               nextTheme += CHECKPOINT_EVERY;
@@ -499,7 +505,7 @@ function initGame(){
   nextCheckpoint=CHECKPOINT_EVERY;
   checkpointCount=0; theme=0; activePrompt=null; nextTheme=CHECKPOINT_EVERY; autoDir=1;
   hazardY=800; hazardSpeed=HAZARD_START_SPEED; hazardPause=0;
-  prestige=0; ngBannerTimer=0;
+  prestige=0; ngBannerTimer=0; themeFlash=0; caughtTimer=0;
   scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
   platforms.push(new Platform(W/2-60,50,120,0,'normal'));
   generatePlatforms(50, 50-2200);  // full first batch
@@ -725,17 +731,19 @@ function drawHUD(){
   ctx.fillStyle=THEMES[theme].plat[0]+'cc'; ctx.font='bold 9px sans-serif'; ctx.textAlign='left';
   ctx.fillText(THEMES[theme].name.toUpperCase(),18,58);
 
-  // NG+ escalation banner
+  // Left-side toast: slides in from left when prestige increases
   if(ngBannerTimer>0){
     ngBannerTimer--;
-    const a=Math.min(1,ngBannerTimer/40)*Math.min(1,(220-ngBannerTimer)/40+0.2);
-    ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center';
-    ctx.fillStyle='rgba(0,0,0,0.65)';
-    ctx.beginPath(); ctx.roundRect(W/2-160,H/2-42,320,56,12); ctx.fill();
-    ctx.fillStyle='#ff4466'; ctx.font='bold 14px sans-serif';
-    ctx.fillText('⚡  NG+'+prestige+' ACTIVATED',W/2,H/2-18);
-    ctx.fillStyle='#ccc'; ctx.font='12px sans-serif';
-    ctx.fillText('Harder prompts · Faster hazard · Visual noise',W/2,H/2+4);
+    const slideIn = Math.min(1,(220-ngBannerTimer)/25);
+    const fadeOut = ngBannerTimer<40 ? ngBannerTimer/40 : 1;
+    const tx = 8-(1-slideIn)*160;
+    ctx.save(); ctx.globalAlpha=slideIn*fadeOut;
+    ctx.fillStyle='rgba(0,0,0,0.72)';
+    ctx.beginPath(); ctx.roundRect(tx,68,158,32,9); ctx.fill();
+    ctx.fillStyle='#ff4466'; ctx.font='bold 10px sans-serif'; ctx.textAlign='left';
+    ctx.fillText('NG+'+prestige+' · HARDER PROMPTS',tx+10,86);
+    ctx.fillStyle='#aaa'; ctx.font='9px sans-serif';
+    ctx.fillText('faster hazard · visual noise',tx+10,98);
     ctx.restore();
   }
 }
@@ -827,7 +835,7 @@ function drawStart(){
   ctx.fillStyle='#000'; ctx.font='bold 20px sans-serif'; ctx.fillText('TAP TO PLAY',W/2,H/2+60);
   ctx.fillStyle='#555'; ctx.font='12px sans-serif';
   ctx.fillText('← → Arrow keys / WASD',W/2,H/2+110);
-  ctx.fillText('Mobile: tap left or right half',W/2,H/2+128);
+  ctx.fillText('Mobile: tap anywhere to flip direction',W/2,H/2+128);
   ctx.fillStyle='#6c5ce7'; ctx.font='13px sans-serif';
   ctx.fillText('Two-color platforms = math challenge!',W/2,H/2+150);
 }
@@ -871,7 +879,7 @@ function gameLoop(){
     const target=player.y-H*0.45;
     camY+=(target-camY)*0.08;
 
-    if(player.y<topReached-30){ generatePlatforms(topReached-30,topReached-2200); topReached-=2200; }
+    if(player.y<topReached+1200){ generatePlatforms(topReached,topReached-400); topReached-=400; }
 
     platforms=platforms.filter(p=>!p.dead&&p.y-camY<H+100);
     platforms.forEach(p=>p.update());
@@ -919,8 +927,15 @@ function gameLoop(){
   }
 
   if(player.bottom>hazardY||player.y-camY>H+80){
-    state='gameover';
     if(!scoreSubmitted){ scoreSubmitted=true; submitScore(player.score); }
+    if(caughtTimer===0) spawnP(player.cx,player.bottom,50,['#ff4466','#ff0033','#fff','#ffd166']);
+    caughtTimer++;
+    const cf=Math.min(1,caughtTimer/18);
+    ctx.save(); ctx.globalAlpha=cf*0.72; ctx.fillStyle='#ff0033'; ctx.fillRect(0,0,W,H); ctx.restore();
+    ctx.save(); ctx.globalAlpha=cf; ctx.textAlign='center';
+    ctx.fillStyle='#fff'; ctx.font='bold 32px sans-serif'; ctx.fillText('CAUGHT!',W/2,H/2);
+    ctx.restore();
+    if(caughtTimer>=48){ caughtTimer=0; state='gameover'; }
   }
 }
 
