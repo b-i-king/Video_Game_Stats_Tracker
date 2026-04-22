@@ -289,7 +289,7 @@ class Player {
     this.trail=[]; this.squish=0;
     this.boosted=0; this.shielded=0; this.speedy=0; this.debuff=0;
     this.score=0; this.lastPlatY=0; this.lastScore=0;
-    this.runDir=0; this.runFrames=0;
+    this.runDir=0; this.runFrames=0; this.lastLandedPlat=null;
   }
   get cx(){ return this.x+this.w/2; }
   get bottom(){ return this.y+this.h; }
@@ -340,7 +340,8 @@ class Player {
         this.vy=this.boosted>0?JUMP*1.4:JUMP;
         if(this.runFrames>=25){ this.vx=this.runDir*(spd+1.8); this.vy*=1.1; }
         this.squish=8; p.bounce=1.15;
-        combo++; comboTimer=90;
+        if(p===this.lastLandedPlat){ combo=0; comboTimer=0; } else { combo++; comboTimer=90; }
+        this.lastLandedPlat=p;
         spawnP(this.cx,this.bottom,4,[THEMES[theme].plat[p.ci%THEMES[theme].plat.length]||GOLD]);
         if(p.hasPow&&!p.powOk){ p.powOk=true; this.applyPow(p.powT); }
         // Challenge resolution
