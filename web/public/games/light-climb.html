@@ -434,7 +434,10 @@ function generatePlatforms(fromY,toY){
     if(hm>=nextCheckpoint){
       platforms.push(new Platform(0,y,W,0,'checkpoint'));
       nextCheckpoint+=CHECKPOINT_EVERY;
-      y -= 130; // skip-safe: momentum max reach from 60 below = 118 units < 130; reachable from checkpoint (147 normal)
+      y -= 125; // skip-safe zone: max reach from 60 below w/ momentum = 118 < 125
+      platSpawnCount++;
+      const hw=Math.max(60,90-Math.abs(y)/400);
+      platforms.push(new Platform(rf(0,W-hw),y,hw,null,'normal')); // guaranteed reachable from checkpoint (147 normal jump > 125)
       continue;
     }
     if(hm>=nextChallenge){
