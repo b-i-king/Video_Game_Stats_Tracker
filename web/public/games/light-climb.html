@@ -427,7 +427,8 @@ function spawnP(x,y,n,cols){ for(let i=0;i<n;i++) particles.push(new Particle(x,
 function generatePlatforms(fromY,toY){
   let y=fromY;
   while(y>toY){
-    const gap=Math.min(190,75+Math.abs(fromY)/500);
+    const targetPlats=Math.max(42,50-checkpointCount); // 50 at start, -1 per checkpoint, floor 42
+    const gap=Math.min(130,2*(4000/targetPlats)-60);
     y-=rf(60,gap);
     platSpawnCount++;
     const hm=Math.round(Math.abs(y)/40); // current height in metres
@@ -452,7 +453,7 @@ function generatePlatforms(fromY,toY){
       continue;
     }
     const t=Math.random()<0.15?'moving':'normal';
-    const w=Math.max(48,88-Math.abs(y)/350);
+    const w=Math.max(48,88-Math.abs(y)/600);
     platforms.push(new Platform(rf(0,W-w),y,w,null,t));
   }
 }
