@@ -33,6 +33,8 @@ const C   = document.getElementById('game');
 const ctx = C.getContext('2d');
 const W = 400, H = 600;
 C.width = W; C.height = H;
+const IS_MOBILE = ('ontouchstart' in window) || /Mobi|Android/i.test(navigator.userAgent);
+const STAR_COUNT = IS_MOBILE ? 20 : 40;
 
 // ── Themes ────────────────────────────────────────────────────────────────────
 const THEMES = [
@@ -200,12 +202,14 @@ let platforms = [], particles = [];
 let player;
 
 let platSpawnCount = 0, nextChallenge = 0, nextCheckpoint = CHECKPOINT_EVERY;
+let nextTheme = CHECKPOINT_EVERY; // height-based mechanics trigger, independent of platform generation
 let hazardY = 0, hazardSpeed = HAZARD_START_SPEED, hazardPause = 0;
 let checkpointCount = 0, theme = 0;
 let prestige = 0, ngBannerTimer = 0, themeFlash = 0;
 let activePrompt = null;   // { q, correct, decoy } — set when challenge generated
 let scoreSubmitted = false;
 let gamePaused = false;
+let autoDir = 1; // mobile auto-run direction: 1=right, -1=left
 let scorePops = [], cpStreak = 0;
 let keys = {}, touched = { left:false, right:false };
 
@@ -254,7 +258,7 @@ class Platform {
     const mx=this.x+this.w/2, my=sy+this.h/2;
     ctx.save();
     ctx.translate(mx,my); ctx.scale(this.bounce,1/this.bounce);
-    if(this.type==='checkpoint'){ ctx.shadowColor=GOLD; ctx.shadowBlur=22; }
+    if(this.type==='checkpoint'&&!IS_MOBILE){ ctx.shadowColor=GOLD; ctx.shadowBlur=22; }
     ctx.beginPath(); ctx.roundRect(-this.w/2,-this.h/2,this.w,this.h,7);
     ctx.fillStyle=this.color; ctx.fill();
     ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=1.5; ctx.stroke();
@@ -275,7 +279,7 @@ class Platform {
       const cfg=CFG[this.powT%3];
       const bob=Math.sin(frameCount*0.07+this.x)*3;
       const px=this.x+this.w/2, py=sy-28+bob;
-      ctx.save(); ctx.shadowColor=cfg.c; ctx.shadowBlur=14;
+      ctx.save(); if(!IS_MOBILE){ ctx.shadowColor=cfg.c; ctx.shadowBlur=14; }
       ctx.fillStyle=cfg.c+'bb'; ctx.beginPath(); ctx.arc(px,py,12,0,Math.PI*2); ctx.fill();
       ctx.restore();
       ctx.font='13px sans-serif'; ctx.textAlign='center'; ctx.fillText(cfg.e,px,py+5);
@@ -314,8 +318,8 @@ class Player {
   }
   update(){
     const spd = this.speedy>0?5.5 : this.debuff>0?1.8 : 3.8;
-    const goL  = keys['ArrowLeft'] ||keys['a']||keys['A']||touched.left;
-    const goR  = keys['ArrowRight']||keys['d']||keys['D']||touched.right;
+    const goL  = keys['ArrowLeft'] ||keys['a']||keys['A']||(IS_MOBILE?autoDir===-1:touched.left);
+    const goR  = keys['ArrowRight']||keys['d']||keys['D']||(IS_MOBILE?autoDir===1 :touched.right);
     const curDir=goL?-1:goR?1:0;
     if(curDir!==0&&curDir===this.runDir) this.runFrames=Math.min(this.runFrames+1,60);
     else{ this.runDir=curDir; this.runFrames=curDir!==0?1:0; }
@@ -353,24 +357,27 @@ class Player {
           if(this.shielded>0){ this.shielded=0; spawnP(this.cx,this.bottom,12,['#a29bfe','#fff','#c8b0ff']); }
           else{ p.crumble=1; this.applyDebuff(); }
         }
-        // Checkpoint
+        // Checkpoint platform — rest reward only; mechanics are height-based below
         if(p.type==='checkpoint' && !p.cpUsed){
           p.cpUsed = true;
-          checkpointCount++; cpStreak++;
-          theme = checkpointCount % THEMES.length;
-          hazardSpeed = Math.min(HAZARD_MAX_SPEED, HAZARD_START_SPEED*Math.pow(HAZARD_MULT,checkpointCount));
-          hazardPause = PAUSE_FRAMES;
+          hazardPause = PAUSE_FRAMES; // rest point: only granted if player lands on platform
           themeFlash = 28;
           spawnP(this.cx,this.bottom,35,[GOLD,'#fff','#ffd166']);
-          const newPrestige = Math.floor(checkpointCount / THEMES.length);
-          if(newPrestige > prestige){
-            prestige = newPrestige;
-            ngBannerTimer = 220;
-          }
         }
         if(p.y<this.lastPlatY){
           const ns=Math.round(Math.abs(p.y)/40);
-          if(ns>this.score) scorePops.push({x:this.cx,sy:this.y-camY-18,val:'+'+(ns-this.score)+'m',life:1});
+          if(ns>this.score){
+            scorePops.push({x:this.cx,sy:this.y-camY-18,val:'+'+(ns-this.score)+'m',life:1});
+            // Height-based: theme/hazard/prestige fire regardless of whether checkpoint was landed on
+            while(ns>=nextTheme){
+              checkpointCount++; cpStreak++;
+              theme = checkpointCount % THEMES.length;
+              hazardSpeed = Math.min(HAZARD_MAX_SPEED, HAZARD_START_SPEED*Math.pow(HAZARD_MULT,checkpointCount));
+              nextTheme += CHECKPOINT_EVERY;
+              const newPrestige = Math.floor(checkpointCount / THEMES.length);
+              if(newPrestige > prestige){ prestige = newPrestige; ngBannerTimer = 220; }
+            }
+          }
           this.score=ns; this.lastPlatY=p.y;
         }
         break;
@@ -379,17 +386,41 @@ class Player {
   }
   draw(cam){
     const dy=this.y-cam, cx=this.cx;
-    for(let i=0;i<this.trail.length;i++){
-      const t=this.trail[i];
-      ctx.globalAlpha=(i/this.trail.length)*0.18;
-      ctx.fillStyle=skinColor; ctx.beginPath();
-      ctx.ellipse(t.x,t.y-cam,7,9,0,0,Math.PI*2); ctx.fill();
+    if(this.speedy>0){
+      for(let i=0;i<this.trail.length;i++){
+        const t=this.trail[i];
+        const prog=i/this.trail.length;
+        ctx.globalAlpha=prog*0.5;
+        ctx.strokeStyle=i%2===0?'#ffd166':'#fffbe6';
+        ctx.lineWidth=1.5;
+        ctx.beginPath();
+        const len=6+i*2;
+        const yo=(i%3-1)*3;
+        ctx.moveTo(t.x,t.y-cam+yo);
+        ctx.lineTo(t.x-this.dir*len,t.y-cam+yo);
+        ctx.stroke();
+      }
+    } else {
+      for(let i=0;i<this.trail.length;i++){
+        const t=this.trail[i];
+        ctx.globalAlpha=(i/this.trail.length)*0.18;
+        ctx.fillStyle=skinColor; ctx.beginPath();
+        ctx.ellipse(t.x,t.y-cam,7,9,0,0,Math.PI*2); ctx.fill();
+      }
     }
     ctx.globalAlpha=1;
     if(this.shielded>0){
       ctx.save(); ctx.strokeStyle='#a29bfe'; ctx.lineWidth=3;
       ctx.globalAlpha=0.5+Math.sin(frameCount*0.2)*0.3;
       ctx.beginPath(); ctx.ellipse(cx,dy+this.h/2,22,26,0,0,Math.PI*2); ctx.stroke();
+      ctx.restore();
+    }
+    if(this.speedy>0){
+      ctx.save(); ctx.strokeStyle='#ffd166'; ctx.lineWidth=2.5;
+      ctx.setLineDash([5,3]);
+      ctx.globalAlpha=0.55+Math.sin(frameCount*0.4)*0.35;
+      ctx.beginPath(); ctx.roundRect(cx-14,dy-2,28,this.h+4,7); ctx.stroke();
+      ctx.setLineDash([]);
       ctx.restore();
     }
     if(this.debuff>0){
@@ -410,7 +441,6 @@ class Player {
     ctx.ellipse(-4,9,4,4.5,0,0,Math.PI*2); ctx.ellipse(4,9,4,4.5,0,0,Math.PI*2); ctx.fill();
     ctx.fillStyle='#1a1a2e'; ctx.beginPath();
     ctx.ellipse(-3.5,9.5,2.5,2.5,0,0,Math.PI*2); ctx.ellipse(4.5,9.5,2.5,2.5,0,0,Math.PI*2); ctx.fill();
-    if(this.speedy>0){ ctx.fillStyle='#ffd166'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center'; ctx.fillText('⚡',0,-4); }
     ctx.restore();
     ctx.fillStyle=GOLD; ctx.font='bold 10px sans-serif'; ctx.textAlign='center';
     ctx.fillText(PLAYER_NAME.length>10?PLAYER_INITIALS:PLAYER_NAME, cx, dy-6);
@@ -429,9 +459,9 @@ function spawnP(x,y,n,cols){ for(let i=0;i<n;i++) particles.push(new Particle(x,
 function generatePlatforms(fromY,toY){
   let y=fromY;
   while(y>toY){
-    const targetPlats=Math.max(42,50-checkpointCount); // 50 at start, -1 per checkpoint, floor 42
-    const gap=Math.min(130,2*(4000/targetPlats)-60);
-    y-=rf(60,gap);
+    const targetPlats=Math.max(50,75-checkpointCount); // 75 at start, -1 per checkpoint, floor 50
+    const gap=Math.min(130,2*(4000/targetPlats)-45);   // min spacing 45 supports dense early game
+    y-=rf(45,gap);
     platSpawnCount++;
     const hm=Math.round(Math.abs(y)/40); // current height in metres
     if(hm>=nextCheckpoint){
@@ -467,12 +497,13 @@ function initGame(){
   platSpawnCount=0;
   nextChallenge=CHALLENGE_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
   nextCheckpoint=CHECKPOINT_EVERY;
-  checkpointCount=0; theme=0; activePrompt=null;
+  checkpointCount=0; theme=0; activePrompt=null; nextTheme=CHECKPOINT_EVERY; autoDir=1;
   hazardY=800; hazardSpeed=HAZARD_START_SPEED; hazardPause=0;
   prestige=0; ngBannerTimer=0;
   scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
   platforms.push(new Platform(W/2-60,50,120,0,'normal'));
-  generatePlatforms(50,-2000);
+  generatePlatforms(50, 50-2200);  // full first batch
+  topReached = 50-2200;            // align so runtime call doesn't fire immediately
   player=new Player();
   player.y=10; player.vy=0; player.lastPlatY=0;
 }
@@ -511,13 +542,17 @@ function thumbX(){ return SGBX + skinToneT * SGW; }
 function specThumbX(){ return SGBX + specT * SGW; }
 
 // ── Draw helpers ──────────────────────────────────────────────────────────────
+let _bgGradCache=null, _bgGradTheme=-1;
 function drawBg(){
   const th=THEMES[theme];
-  const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,th.bgTop); g.addColorStop(1,th.bgBot);
-  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  if(theme!==_bgGradTheme||!_bgGradCache){
+    _bgGradCache=ctx.createLinearGradient(0,0,0,H);
+    _bgGradCache.addColorStop(0,th.bgTop); _bgGradCache.addColorStop(1,th.bgBot);
+    _bgGradTheme=theme;
+  }
+  ctx.fillStyle=_bgGradCache; ctx.fillRect(0,0,W,H);
   ctx.fillStyle='rgba(255,255,255,0.4)';
-  for(let i=0;i<40;i++){
+  for(let i=0;i<STAR_COUNT;i++){
     const sx=(i*137+frameCount*0.1)%W;
     const sy=(i*97+(camY%H)*0.3+frameCount*0.04*(i%3))%H;
     ctx.beginPath(); ctx.arc(sx,sy,i%3===0?1.4:0.6,0,Math.PI*2); ctx.fill();
@@ -706,6 +741,13 @@ function drawHUD(){
 }
 
 function drawTouchZones(){
+  if(IS_MOBILE){
+    ctx.save(); ctx.globalAlpha=0.22; ctx.fillStyle='#fff';
+    ctx.font='14px sans-serif'; ctx.textAlign='center';
+    ctx.fillText((autoDir===1?'▶ TAP TO FLIP ◀':'◀ TAP TO FLIP ▶'),W/2,H*0.93);
+    ctx.restore();
+    return;
+  }
   ctx.fillStyle=touched.left?'rgba(255,255,255,0.1)':'rgba(255,255,255,0.03)';
   ctx.fillRect(0,H*0.35,W*0.42,H*0.65);
   ctx.fillStyle=touched.right?'rgba(255,255,255,0.1)':'rgba(255,255,255,0.03)';
@@ -915,7 +957,8 @@ C.addEventListener('pointerdown',e=>{
     return;
   }
   if(state==='playing'&&cx>=8&&cx<=148&&cy>=8&&cy<=60){ gamePaused=!gamePaused; return; }
-  if(cx<W*0.45) touched.left =true;
+  if(IS_MOBILE){ autoDir=-autoDir; return; }  // tap anywhere reverses auto-run direction
+  if(cx<W*0.45) touched.left =true;           // desktop only
   if(cx>W*0.55) touched.right=true;
 },{passive:false});
 
