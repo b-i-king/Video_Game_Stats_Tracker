@@ -53,39 +53,111 @@ const THEMES = [
     hazTop:'rgba(255,140,0,0.85)', hazBot:'rgba(255,34,0,0.9)',    hazLabel:'🪙 GOLD RISING' },
 ];
 
-// ── Prompts ───────────────────────────────────────────────────────────────────
-const PROMPTS = [
-  { q:'2, 4, 8, ?',    correct:16, decoy:12  },
-  { q:'1, 3, 9, ?',    correct:27, decoy:18  },
-  { q:'5 × 4 = ?',     correct:20, decoy:25  },
-  { q:'25% of 80',     correct:20, decoy:30  },
-  { q:'3, 6, 12, ?',   correct:24, decoy:18  },
-  { q:'√64 = ?',       correct:8,  decoy:6   },
-  { q:'7 × 7 = ?',     correct:49, decoy:42  },
-  { q:'100 ÷ 4 = ?',   correct:25, decoy:20  },
-  { q:'5, 10, 20, ?',  correct:40, decoy:30  },
-  { q:'50% of 60',     correct:30, decoy:25  },
-  { q:'4² = ?',        correct:16, decoy:12  },
-  { q:'2, 6, 18, ?',   correct:54, decoy:36  },
-];
+// ── Dynamic prompt generators ─────────────────────────────────────────────────
+const SUP = ['⁰','¹','²','³','⁴','⁵','⁶','⁷','⁸','⁹'];
+function sup(n){ return SUP[n] ?? '^'+n; }
+function fact(n){ let r=1; for(let i=2;i<=n;i++) r*=i; return r; }
+function pickDecoy(correct, ...extras){
+  const cands=[...extras, correct+1, correct-1, correct+2, correct-2]
+    .filter(d=>d!==correct && d>=0 && Number.isInteger(d));
+  return cands.length ? cands[ri(0,cands.length)] : correct+1;
+}
 
-// ── NG+ harder prompts (prestige 1+) ──────────────────────────────────────────
-const PROMPTS_HARD = [
-  { q:'2³ + 1 = ?',      correct:9,  decoy:7   },
-  { q:'NOT(1 AND 0)=?',  correct:1,  decoy:0   },
-  { q:'0b1010 = ?',      correct:10, decoy:8   },
-  { q:'x²=49, x=?',      correct:7,  decoy:9   },
-  { q:'3! = ?',          correct:6,  decoy:9   },
-  { q:'log₂(8) = ?',     correct:3,  decoy:4   },
-  { q:'15 mod 4 = ?',    correct:3,  decoy:2   },
-  { q:'2⁴ = ?',          correct:16, decoy:14  },
-  { q:'GCD(12,8) = ?',   correct:4,  decoy:6   },
-  { q:'1 XOR 0 = ?',     correct:1,  decoy:0   },
-  { q:'5! ÷ 4! = ?',     correct:5,  decoy:20  },
-  { q:'∑1..5 = ?',       correct:15, decoy:10  },
-  { q:'⌊7.9⌋ = ?',       correct:7,  decoy:8   },
-  { q:'2⁰ + 2¹ + 2² =?', correct:7,  decoy:6   },
-];
+// Normal-tier generators (prestige 0)
+function genArithmetic(){
+  const a=ri(2,12), b=ri(2,12);
+  const ops=['+','-','×'], op=ops[ri(0,3)];
+  const correct = op==='+'?a+b : op==='-'?a-b : a*b;
+  return {q:`${a} ${op} ${b} = ?`, correct, decoy:pickDecoy(correct, op==='×'?a+b:correct+10)};
+}
+function genDivision(){
+  const b=ri(2,10), a=b*ri(2,9);
+  const correct=a/b;
+  return {q:`${a} ÷ ${b} = ?`, correct, decoy:pickDecoy(correct, a-b, correct+b)};
+}
+function genSequence(){
+  const start=ri(1,5), ratio=ri(2,4);
+  const s=[start, start*ratio, start*ratio**2];
+  const correct=start*ratio**3;
+  return {q:`${s[0]}, ${s[1]}, ${s[2]}, ?`, correct, decoy:pickDecoy(correct, correct-ratio, s[2])};
+}
+function genPercent(){
+  const pct=[10,20,25,50,75][ri(0,5)];
+  const base=[20,40,60,80,100,120,200][ri(0,7)];
+  const correct=Math.round(pct*base/100);
+  return {q:`${pct}% of ${base}`, correct, decoy:pickDecoy(correct, correct+pct, correct-pct)};
+}
+function genSquare(){
+  const n=ri(2,12);
+  const correct=n*n;
+  return {q:`${n}² = ?`, correct, decoy:pickDecoy(correct, (n-1)*(n-1), n*n+n)};
+}
+function genSqrt(){
+  const n=ri(2,10);
+  return {q:`√${n*n} = ?`, correct:n, decoy:pickDecoy(n, n+2)};
+}
+
+// Hard-tier generators (prestige 1+)
+function genPower(){
+  const base=ri(2,4), exp=ri(2,5);
+  const correct=base**exp;
+  return {q:`${base}${sup(exp)} = ?`, correct, decoy:pickDecoy(correct, base**(exp-1), correct-base)};
+}
+function genXOR(){
+  const a=ri(0,2), b=ri(0,2);
+  const correct=a^b;
+  return {q:`${a} XOR ${b} = ?`, correct, decoy:correct===0?1:0};
+}
+function genModulo(){
+  const b=ri(3,7); let a=ri(b+1, b*5);
+  const correct=a%b;
+  return {q:`${a} mod ${b} = ?`, correct, decoy:pickDecoy(correct, correct+1, b-correct)};
+}
+function genNOT_AND(){
+  const a=ri(0,2), b=ri(0,2);
+  const correct=(a&b)===1?0:1;
+  return {q:`NOT(${a} AND ${b})=?`, correct, decoy:correct===0?1:0};
+}
+function genFactorial(){
+  const n=ri(3,6);
+  const correct=fact(n);
+  return {q:`${n}! = ?`, correct, decoy:pickDecoy(correct, fact(n-1), fact(n)+n)};
+}
+function genFactRatio(){
+  const n=ri(4,7);
+  return {q:`${n}! ÷ ${n-1}! = ?`, correct:n, decoy:pickDecoy(n, n*(n-1), n+1)};
+}
+function genBinary(){
+  const n=ri(5,15);
+  const correct=n;
+  return {q:`0b${n.toString(2).padStart(4,'0')} = ?`, correct, decoy:pickDecoy(correct, n+2, n-2)};
+}
+function genLog2(){
+  const exp=ri(1,5);
+  const correct=exp;
+  return {q:`log₂(${2**exp}) = ?`, correct, decoy:pickDecoy(correct, exp+1)};
+}
+function genFloor(){
+  const n=ri(2,15), dec=ri(1,9);
+  return {q:`⌊${n}.${dec}⌋ = ?`, correct:n, decoy:n+1};
+}
+function genAlgebra(){
+  const n=ri(2,10);
+  return {q:`x²=${n*n}, x=?`, correct:n, decoy:pickDecoy(n, n+1, n+2)};
+}
+function genSum(){
+  const n=ri(3,8);
+  const correct=n*(n+1)/2;
+  return {q:`∑1..${n} = ?`, correct, decoy:pickDecoy(correct, correct+n, correct-n)};
+}
+function genGCD(){
+  const f=ri(2,6), a=f*ri(2,5), b=f*ri(2,5);
+  return {q:`GCD(${a},${b}) = ?`, correct:f, decoy:pickDecoy(f, f*2, f+1)};
+}
+
+const GENS_NORMAL = [genArithmetic, genDivision, genSequence, genPercent, genSquare, genSqrt];
+const GENS_HARD   = [genPower, genXOR, genModulo, genNOT_AND, genFactorial, genFactRatio,
+                     genBinary, genLog2, genFloor, genAlgebra, genSum, genGCD];
 
 // ── Skin gradient stops (light → deep) ────────────────────────────────────────
 const SKIN_STOPS = [
@@ -365,14 +437,14 @@ function generatePlatforms(fromY,toY){
       continue;
     }
     if(hm>=nextChallenge){
-      const pool = prestige===0 ? PROMPTS : prestige===1 ? [...PROMPTS,...PROMPTS_HARD] : PROMPTS_HARD;
-      const pr=pool[ri(0,pool.length)];
+      const gens = prestige===0 ? GENS_NORMAL : prestige===1 ? [...GENS_NORMAL,...GENS_HARD] : GENS_HARD;
+      const pr=gens[ri(0,gens.length)]();
       const cLeft=Math.random()<0.5;
       const pw=85, g2=20, tot=pw*2+g2, lx=W/2-tot/2;
       platforms.push(new Platform(lx,     y,pw,0, cLeft?'ch_correct':'ch_wrong',  String(cLeft?pr.correct:pr.decoy)));
       platforms.push(new Platform(lx+pw+g2,y,pw,0,!cLeft?'ch_correct':'ch_wrong', String(!cLeft?pr.correct:pr.decoy)));
       activePrompt=pr;
-      nextChallenge+=CHALLENGE_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
+      nextChallenge+=CHECKPOINT_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
       continue;
     }
     const t=Math.random()<0.15?'moving':'normal';
