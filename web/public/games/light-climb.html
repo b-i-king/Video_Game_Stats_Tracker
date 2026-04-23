@@ -183,7 +183,7 @@ const GOLD               = '#D4AF37';
 const CHECKPOINT_EVERY   = 100;   // metres between checkpoints
 const CHALLENGE_EVERY    = 50;    // metres between challenges
 const CHALLENGE_JITTER   = 8;
-const HAZARD_START_SPEED = 0.55;
+const HAZARD_START_SPEED = 0.5;  // matches cameraScrollSpeed baseline — both start in sync
 const HAZARD_MULT        = 1.08;  // speed multiplier per checkpoint
 const HAZARD_MAX_SPEED   = 2.5;   // cap so late game stays playable
 const PAUSE_FRAMES       = 180;   // hazard pause at checkpoint (3 s @ 60 fps)
@@ -603,14 +603,9 @@ function drawHazard(){
   const g=ctx.createLinearGradient(0,sy,0,H);
   g.addColorStop(0,th.hazTop); g.addColorStop(1,th.hazBot);
   ctx.fillStyle=g; ctx.fill();
-  if(sy>10&&sy<H-20){
-    ctx.fillStyle='#fff'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
-    ctx.globalAlpha=0.7+Math.sin(frameCount*0.1)*0.3;
-    ctx.fillText(th.hazLabel,W/2,sy+18); ctx.globalAlpha=1;
-  }
   if(hazardPause>0){
     ctx.fillStyle=GOLD; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('⏸ HAZARD PAUSED',W/2,Math.min(sy+36,H-10));
+    ctx.fillText('⏸ PAUSED',W/2,Math.min(sy+20,H-10));
   }
 }
 
@@ -858,7 +853,7 @@ function drawStart(){
   ctx.fillStyle='#fff'; ctx.font='bold 52px sans-serif'; ctx.fillText('LIGHT',W/2,H/2-80);
   ctx.fillStyle=GOLD; ctx.font='bold 52px sans-serif'; ctx.fillText('CLIMB',W/2,H/2-30);
   if(TG_USER){ ctx.fillStyle='#ccc'; ctx.font='15px sans-serif'; ctx.fillText('Welcome, '+PLAYER_NAME+'! 👋',W/2,H/2+8); }
-  else{ ctx.fillStyle='#888'; ctx.font='14px sans-serif'; ctx.fillText('Climb fast — the screen scrolls up!',W/2,H/2+8); }
+  else{ ctx.fillStyle='#888'; ctx.font='14px sans-serif'; ctx.fillText('Climb. Survive. Answer.',W/2,H/2+8); }
   ctx.fillStyle=GOLD; ctx.beginPath(); ctx.roundRect(W/2-80,H/2+28,160,50,12); ctx.fill();
   ctx.fillStyle='#000'; ctx.font='bold 20px sans-serif'; ctx.fillText('TAP TO PLAY',W/2,H/2+60);
   ctx.fillStyle='#555'; ctx.font='12px sans-serif';
@@ -874,7 +869,7 @@ function drawGameOver(){
   ctx.textAlign='center';
   ctx.fillStyle='#fff'; ctx.font='bold 30px sans-serif'; ctx.fillText('CAUGHT!',W/2,H/2-90);
   ctx.fillStyle='#ff6b6b'; ctx.font='bold 16px sans-serif';
-  ctx.fillText(THEMES[theme].hazLabel+' got you!',W/2,H/2-54);
+  ctx.fillText(THEMES[theme].hazLabel+' floor got you!',W/2,H/2-54);
   ctx.fillStyle=GOLD; ctx.font='16px sans-serif';
   ctx.fillText('Height: '+player.score+'m',W/2,H/2-8);
   ctx.fillStyle='#aaa'; ctx.fillText('Checkpoints: '+checkpointCount,W/2,H/2+18);
