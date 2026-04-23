@@ -39,10 +39,12 @@ Env vars:
   SOCIAL_DONATE_URL
   SOCIAL_LINKTREE_URL
   OWNER_EMAIL                       — scopes /lastsession to your account
+  DISPLAY_TIMEZONE                  — IANA tz name for caption timestamps (default: America/New_York)
 """
 
 import os
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 import requests as _requests
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -53,6 +55,7 @@ from api.core import database as _db
 router = APIRouter()
 
 _WEBHOOK_SECRET = os.getenv("TELEGRAM_BROADCAST_WEBHOOK_SECRET", "")
+_DISPLAY_TZ     = ZoneInfo(os.getenv("DISPLAY_TIMEZONE", "America/New_York"))
 
 # ── Social platform registry ──────────────────────────────────────────────────
 # (slug, emoji, display_name, env_var)
@@ -144,7 +147,11 @@ async def _fetch_last_session() -> str:
         mode_str    = f" · {first['game_mode']}" if first["game_mode"] else ""
 
         try:
-            played_str = first["played_at"].strftime("%b %d, %Y %H:%M")
+            played_at = first["played_at"]
+            if played_at.tzinfo is None:
+                played_at = played_at.replace(tzinfo=timezone.utc)
+            played_local = played_at.astimezone(_DISPLAY_TZ)
+            played_str = played_local.strftime("%b %d, %Y %I:%M %p %Z")
         except Exception:
             played_str = str(first["played_at"])
 

@@ -187,6 +187,8 @@ const HAZARD_START_SPEED = 0.55;
 const HAZARD_MULT        = 1.08;  // speed multiplier per checkpoint
 const HAZARD_MAX_SPEED   = 2.5;   // cap so late game stays playable
 const PAUSE_FRAMES       = 180;   // hazard pause at checkpoint (3 s @ 60 fps)
+const HURRY_INTERVAL    = 1800;  // 30 s at 60 fps between scroll speed bumps
+const HURRY_SPEED_INC   = 0.15;  // px/frame added to scroll speed per hurry
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = 'skin';
@@ -210,6 +212,11 @@ let scoreSubmitted = false;
 let gamePaused = false;
 let scorePops = [], cpStreak = 0, caughtTimer = 0;
 let lastPlatZone = 1; // 0=left, 1=center, 2=right — for organized x spread
+let cameraScrollSpeed = 0.5;  // px/frame forced upward scroll (Icy Tower style)
+let scrollHurryTimer  = 0;    // frames since last hurry-up event
+let scrollLevel       = 0;    // how many hurry-up events have fired
+let hurryUpDisplay    = 0;    // frames left to show "HURRY UP!" overlay
+let _ltTs = 0, _lacc  = 0;   // fixed-step loop: last timestamp, accumulator
 let keys = {}, touched = { left:false, right:false };
 
 function ri(a,b){ return Math.floor(Math.random()*(b-a))+a; }
@@ -345,7 +352,7 @@ class Player {
         this.vy=this.boosted>0?JUMP*1.4:JUMP;
         if(this.runFrames>=25){ this.vx=this.runDir*(spd+1.8); this.vy*=1.1; }
         this.squish=8; p.bounce=1.15;
-        if(p===this.lastLandedPlat){ combo=0; comboTimer=0; } else { combo++; comboTimer=90; }
+        if(p===this.lastLandedPlat){ combo=0; comboTimer=0; } else { combo++; comboTimer=180; }
         this.lastLandedPlat=p;
         spawnP(this.cx,this.bottom,4,[THEMES[theme].plat[p.ci%THEMES[theme].plat.length]||GOLD]);
         if(p.hasPow&&!p.powOk){ p.powOk=true; this.applyPow(p.powT); }
@@ -523,6 +530,7 @@ function initGame(){
   hazardY=800; hazardSpeed=HAZARD_START_SPEED; hazardPause=0;
   prestige=0; ngBannerTimer=0; themeFlash=0; caughtTimer=0; lastPlatZone=1;
   scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
+  cameraScrollSpeed=0.5; scrollHurryTimer=0; scrollLevel=0; hurryUpDisplay=0; _ltTs=0; _lacc=0;
   platforms.push(new Platform(W/2-60,50,120,0,'normal'));
   generatePlatforms(50, 50-2200);  // full first batch
   topReached = 50-2200;            // align so runtime call doesn't fire immediately
@@ -720,16 +728,13 @@ function drawHUD(){
     ctx.globalAlpha=0.8+Math.sin(frameCount*0.3)*0.2;
     ctx.fillText('🟫 MUD SLOW',W/2,H-74); ctx.globalAlpha=1;
   }
-  if(comboTimer>0){
-    comboTimer--;
-    if(combo>2){
-      ctx.globalAlpha=Math.min(1,comboTimer/30);
-      ctx.textAlign='center'; ctx.font='bold 18px sans-serif';
-      ctx.fillStyle='#ff6b6b';
-      ctx.fillText('x'+combo+' COMBO!',W/2,H-94);
-      ctx.globalAlpha=1;
-    }
-  } else combo=0;
+  if(comboTimer>0&&combo>2){
+    ctx.globalAlpha=Math.min(1,comboTimer/30);
+    ctx.textAlign='center'; ctx.font='bold 18px sans-serif';
+    ctx.fillStyle='#ff6b6b';
+    ctx.fillText('x'+combo+' COMBO!',W/2,H-94);
+    ctx.globalAlpha=1;
+  }
 
   if(hazardPause>PAUSE_FRAMES-100){
     const a=(hazardPause-(PAUSE_FRAMES-100))/100;
@@ -749,7 +754,6 @@ function drawHUD(){
 
   // Left-side toast: slides in from left when prestige increases
   if(ngBannerTimer>0){
-    ngBannerTimer--;
     const slideIn = Math.min(1,(220-ngBannerTimer)/25);
     const fadeOut = ngBannerTimer<40 ? ngBannerTimer/40 : 1;
     const tx = 8-(1-slideIn)*160;
@@ -760,6 +764,20 @@ function drawHUD(){
     ctx.fillText('NG+'+prestige+' · HARDER PROMPTS',tx+10,86);
     ctx.fillStyle='#aaa'; ctx.font='9px sans-serif';
     ctx.fillText('faster hazard · visual noise',tx+10,98);
+    ctx.restore();
+  }
+  // Right-side toast: slides in from right when scroll speed increases (mirrors NG+ banner)
+  if(hurryUpDisplay>0){
+    const slideIn = Math.min(1,(220-hurryUpDisplay)/25);
+    const fadeOut = hurryUpDisplay<40 ? hurryUpDisplay/40 : 1;
+    const tx = W-8-158+(1-slideIn)*166; // slides in from right edge
+    ctx.save(); ctx.globalAlpha=slideIn*fadeOut;
+    ctx.fillStyle='rgba(0,0,0,0.72)';
+    ctx.beginPath(); ctx.roundRect(tx,68,158,32,9); ctx.fill();
+    ctx.fillStyle='#ff9f43'; ctx.font='bold 10px sans-serif'; ctx.textAlign='left';
+    ctx.fillText('⚠ HURRY UP! · FASTER',tx+10,86);
+    ctx.fillStyle='#aaa'; ctx.font='9px sans-serif';
+    ctx.fillText('scroll speed increased',tx+10,98);
     ctx.restore();
   }
 }
@@ -778,7 +796,6 @@ function drawTouchZones(){
 
 // ── Skin picker screen ────────────────────────────────────────────────────────
 function drawSkinPicker(){
-  frameCount++;
   drawBg();
   ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,W,H);
   ctx.textAlign='center';
@@ -877,44 +894,77 @@ function drawGameOver(){
   }
 }
 
-// ── Game loop ─────────────────────────────────────────────────────────────────
-function gameLoop(){
-  requestAnimationFrame(gameLoop);
-  if(state==='skin')    { drawSkinPicker(); return; }
+// ── Physics tick (always runs at 60 fps equivalent via accumulator) ───────────
+function physicsFrame(){
   frameCount++;
-  if(state==='start')   { drawStart(); return; }
-  if(state==='gameover'){ drawGameOver(); return; }
+  if(gamePaused) return;
 
-  if(!gamePaused){
-    player.update();
-    const target=player.y-H*0.45;
-    camY+=(target-camY)*0.08;
+  player.update();
 
-    if(player.y<topReached+1200){ generatePlatforms(topReached,topReached-400); topReached-=400; }
-
-    platforms=platforms.filter(p=>!p.dead&&p.y-camY<H+100);
-    platforms.forEach(p=>p.update());
-    particles=particles.filter(p=>p.life>0);
-    particles.forEach(p=>p.update());
-
-    if(hazardPause>0) hazardPause--;
-    else              hazardY-=hazardSpeed;
+  // Hurry Up: every 30 s the forced scroll gets faster
+  scrollHurryTimer++;
+  if(scrollHurryTimer>=HURRY_INTERVAL){
+    scrollHurryTimer=0; scrollLevel++; cameraScrollSpeed+=HURRY_SPEED_INC; hurryUpDisplay=220;
   }
 
+  // Camera: smooth follow + forced upward scroll — standing still is fatal
+  const target=player.y-H*0.45;
+  camY=Math.min(camY+(target-camY)*0.08, camY-cameraScrollSpeed);
+
+  if(player.y<topReached+1200){ generatePlatforms(topReached,topReached-400); topReached-=400; }
+
+  platforms=platforms.filter(p=>!p.dead&&p.y-camY<H+100);
+  platforms.forEach(p=>p.update());
+  particles=particles.filter(p=>p.life>0);
+  particles.forEach(p=>p.update());
+
+  if(hazardPause>0) hazardPause--;
+  else              hazardY-=hazardSpeed;
+
+  // Decrement all animation timers here so they run at physics rate
+  if(comboTimer>0){ comboTimer--; } else { combo=0; }
+  if(themeFlash>0)    themeFlash--;
+  if(ngBannerTimer>0) ngBannerTimer--;
+  if(hurryUpDisplay>0)hurryUpDisplay--;
+
+  scorePops=scorePops.filter(p=>p.life>0);
+  scorePops.forEach(p=>{ p.sy-=1.2; p.life-=0.025; });
+
+  // Death: state transition after 48-frame animation
+  if(player.bottom>hazardY||player.y-camY>H+80){
+    if(!scoreSubmitted){ scoreSubmitted=true; submitScore(player.score); }
+    if(caughtTimer===0) spawnP(player.cx,player.bottom,50,['#ff4466','#ff0033','#fff','#ffd166']);
+    caughtTimer++;
+    if(caughtTimer>=48){ caughtTimer=0; state='gameover'; }
+  }
+}
+
+// ── Game loop (fixed-step physics ensures consistent speed on all devices) ────
+function gameLoop(ts=performance.now()){
+  requestAnimationFrame(gameLoop);
+  if(state==='skin')    { frameCount++; drawSkinPicker(); return; }
+  if(state==='start')   { frameCount++; drawStart();      return; }
+  if(state==='gameover'){ frameCount++; drawGameOver();   return; }
+
+  // Accumulate real time; run physics in fixed 16.67 ms steps
+  if(!_ltTs) _ltTs=ts;
+  _lacc+=Math.min(ts-_ltTs, 200); // cap at 200 ms to avoid spiral after tab switch
+  _ltTs=ts;
+  const STEP=1000/60;
+  while(_lacc>=STEP){ _lacc-=STEP; physicsFrame(); }
+
+  // ── Draw ──────────────────────────────────────────────────────────────────
   drawBg();
   if(themeFlash>0){
     ctx.save(); ctx.globalAlpha=(themeFlash/28)*0.55;
     ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,H);
-    ctx.restore(); themeFlash--;
+    ctx.restore();
   }
   drawHazard();
   platforms.forEach(p=>p.draw(camY));
   particles.forEach(p=>p.draw(camY));
   player.draw(camY);
-  // Score pops
-  scorePops=scorePops.filter(p=>p.life>0);
   scorePops.forEach(p=>{
-    p.sy-=1.2; p.life-=0.025;
     ctx.save(); ctx.globalAlpha=p.life;
     ctx.fillStyle=p.c??GOLD; ctx.font='bold 12px sans-serif'; ctx.textAlign='center';
     ctx.fillText(p.val,p.x,p.sy);
@@ -937,16 +987,13 @@ function gameLoop(){
     return;
   }
 
-  if(player.bottom>hazardY||player.y-camY>H+80){
-    if(!scoreSubmitted){ scoreSubmitted=true; submitScore(player.score); }
-    if(caughtTimer===0) spawnP(player.cx,player.bottom,50,['#ff4466','#ff0033','#fff','#ffd166']);
-    caughtTimer++;
+  // Death animation draw layer (state transition happens in physicsFrame)
+  if(caughtTimer>0){
     const cf=Math.min(1,caughtTimer/18);
     ctx.save(); ctx.globalAlpha=cf*0.72; ctx.fillStyle='#ff0033'; ctx.fillRect(0,0,W,H); ctx.restore();
     ctx.save(); ctx.globalAlpha=cf; ctx.textAlign='center';
     ctx.fillStyle='#fff'; ctx.font='bold 32px sans-serif'; ctx.fillText('CAUGHT!',W/2,H/2);
     ctx.restore();
-    if(caughtTimer>=48){ caughtTimer=0; state='gameover'; }
   }
 }
 
@@ -997,7 +1044,7 @@ C.addEventListener('pointermove',e=>{
 });
 C.addEventListener('pointerup',()=>{ skinDragging=false; specDragging=false; touched.left=false; touched.right=false; });
 
-gameLoop();
+requestAnimationFrame(gameLoop);
 </script>
 </body>
 </html>
