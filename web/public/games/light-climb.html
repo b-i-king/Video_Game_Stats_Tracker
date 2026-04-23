@@ -209,6 +209,7 @@ let activePrompt = null;   // { q, correct, decoy } — set when challenge gener
 let scoreSubmitted = false;
 let gamePaused = false;
 let scorePops = [], cpStreak = 0, caughtTimer = 0;
+let lastPlatZone = 1; // 0=left, 1=center, 2=right — for organized x spread
 let keys = {}, touched = { left:false, right:false };
 
 function ri(a,b){ return Math.floor(Math.random()*(b-a))+a; }
@@ -229,7 +230,7 @@ class Platform {
     this.label = label ?? null;
     this.vx    = this.type==='moving' ? rf(-1.5,1.5) : 0;
     this.bounce= 1;
-    this.hasPow= this.type==='normal' && Math.random()<0.10;
+    this.hasPow= false; // set by generatePlatforms based on gap clearance
     const _pr=Math.random();
     this.powT  = _pr<0.45 ? 0 : _pr<0.90 ? 1 : 2; // 45% speed, 45% boost, 10% shield
     this.powOk = false;
@@ -464,34 +465,51 @@ function spawnP(x,y,n,cols){ for(let i=0;i<n;i++) particles.push(new Particle(x,
 function generatePlatforms(fromY,toY){
   let y=fromY;
   while(y>toY){
-    const targetPlats=Math.max(50,75-checkpointCount); // 75 at start, -1 per checkpoint, floor 50
-    const gap=Math.min(130,2*(4000/targetPlats)-45);   // min spacing 45 supports dense early game
-    y-=rf(45,gap);
+    const targetPlats=Math.max(50,75-checkpointCount);
+    const gap=Math.min(130,2*(4000/targetPlats)-45);
+    const gapUsed=rf(45,gap); // capture for power-up clearance check
+    y-=gapUsed;
     platSpawnCount++;
-    const hm=Math.round(Math.abs(y)/40); // current height in metres
+    const hm=Math.round(Math.abs(y)/40);
+
     if(hm>=nextCheckpoint){
       platforms.push(new Platform(0,y,W,0,'checkpoint'));
       nextCheckpoint+=CHECKPOINT_EVERY;
-      y -= 125; // skip-safe zone: max reach from 60 below w/ momentum = 118 < 125
+      y -= 62; // 50% of original 125 — helper closer to checkpoint
       platSpawnCount++;
       const hw=Math.max(60,90-Math.abs(y)/1000);
-      platforms.push(new Platform(rf(0,W-hw),y,hw,null,'normal')); // guaranteed reachable from checkpoint (147 normal jump > 125)
+      const hx=rf(0,W-hw);
+      const hp=new Platform(hx,y,hw,null,'normal');
+      hp.hasPow=Math.random()<0.10; // checkpoint helper always has clearance
+      platforms.push(hp);
       continue;
     }
+
     if(hm>=nextChallenge){
-      const gens = prestige===0 ? GENS_NORMAL : prestige===1 ? [...GENS_NORMAL,...GENS_HARD] : GENS_HARD;
+      const gens=prestige===0?GENS_NORMAL:prestige===1?[...GENS_NORMAL,...GENS_HARD]:GENS_HARD;
       const pr=gens[ri(0,gens.length)]();
       const cLeft=Math.random()<0.5;
-      const pw=85, g2=20, tot=pw*2+g2, lx=W/2-tot/2;
-      platforms.push(new Platform(lx,     y,pw,0, cLeft?'ch_correct':'ch_wrong',  String(cLeft?pr.correct:pr.decoy)));
-      platforms.push(new Platform(lx+pw+g2,y,pw,0,!cLeft?'ch_correct':'ch_wrong', String(!cLeft?pr.correct:pr.decoy)));
+      const pw=85,g2=20,lx=W/2-(pw*2+g2)/2;
+      platforms.push(new Platform(lx,    y,pw,0,cLeft?'ch_correct':'ch_wrong', String(cLeft?pr.correct:pr.decoy)));
+      platforms.push(new Platform(lx+pw+g2,y,pw,0,!cLeft?'ch_correct':'ch_wrong',String(!cLeft?pr.correct:pr.decoy)));
       activePrompt=pr;
       nextChallenge+=CHECKPOINT_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
+      y -= 25; // 25-unit clear buffer above challenge pair before next platform
       continue;
     }
+
+    // Organized chaos: bias x toward a different screen third each step
     const t=Math.random()<0.15?'moving':'normal';
     const w=Math.max(48,88-Math.abs(y)/1000);
-    platforms.push(new Platform(rf(0,W-w),y,w,null,t));
+    let zone=ri(0,3);
+    if(zone===lastPlatZone && Math.random()>0.25) zone=(zone+1+ri(0,2))%3;
+    lastPlatZone=zone;
+    const zW=W/3;
+    const px=Math.max(0,Math.min(W-w, zone*zW+rf(0,Math.max(1,zW-w))));
+    const plat=new Platform(px,y,w,null,t);
+    // Power-up only when gap is large enough for orb to float without platform crowding
+    plat.hasPow=t==='normal' && gapUsed>=70 && Math.random()<0.15;
+    platforms.push(plat);
   }
 }
 
@@ -504,7 +522,7 @@ function initGame(){
   nextCheckpoint=CHECKPOINT_EVERY;
   checkpointCount=0; theme=0; activePrompt=null; nextTheme=CHECKPOINT_EVERY;
   hazardY=800; hazardSpeed=HAZARD_START_SPEED; hazardPause=0;
-  prestige=0; ngBannerTimer=0; themeFlash=0; caughtTimer=0;
+  prestige=0; ngBannerTimer=0; themeFlash=0; caughtTimer=0; lastPlatZone=1;
   scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
   platforms.push(new Platform(W/2-60,50,120,0,'normal'));
   generatePlatforms(50, 50-2200);  // full first batch
