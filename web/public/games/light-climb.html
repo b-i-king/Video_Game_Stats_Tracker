@@ -217,6 +217,7 @@ let scrollHurryTimer  = 0;    // frames since last hurry-up event
 let scrollLevel       = 0;    // how many hurry-up events have fired
 let hurryUpDisplay    = 0;    // frames left to show "HURRY UP!" overlay
 let _ltTs = 0, _lacc  = 0;   // fixed-step loop: last timestamp, accumulator
+let guaranteeShield   = false; // ensure one shield spawns within 30 m of each challenge
 let keys = {}, touched = { left:false, right:false };
 
 function ri(a,b){ return Math.floor(Math.random()*(b-a))+a; }
@@ -309,7 +310,7 @@ class Player {
     const C=[{c:'#ffd166',label:'⚡ SPEED'},{c:'#00cec9',label:'↑ BOOST JUMP'},{c:'#a29bfe',label:'🛡 SHIELD'}];
     if(t===0) this.speedy =120;
     if(t===1) this.boosted=60;
-    if(t===2) this.shielded=180;
+    if(t===2) this.shielded=300;
     const cfg=C[t%3];
     scorePops.push({x:this.cx,sy:this.y-camY-30,val:cfg.label,life:1,c:cfg.c});
     spawnP(this.cx,this.y+this.h/2,10,[cfg.c,'#fff']);
@@ -339,7 +340,7 @@ class Player {
     if(this.squish>0)  this.squish--;
     if(this.speedy>0)  this.speedy--;
     if(this.boosted>0) this.boosted--;
-    if(this.shielded>0)this.shielded--;
+    if(this.shielded>0 && !activePrompt) this.shielded--;
     if(this.debuff>0)  this.debuff--;
     this.trail.push({x:this.cx,y:this.y+this.h/2});
     if(this.trail.length>8) this.trail.shift();
@@ -500,6 +501,7 @@ function generatePlatforms(fromY,toY){
       platforms.push(new Platform(lx+pw+g2,y,pw,0,!cLeft?'ch_correct':'ch_wrong',String(!cLeft?pr.correct:pr.decoy)));
       activePrompt=pr;
       nextChallenge+=CHECKPOINT_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
+      guaranteeShield=true; // ensure a shield spawns before the next challenge
       y -= 25; // 25-unit clear buffer above challenge pair before next platform
       continue;
     }
@@ -514,6 +516,10 @@ function generatePlatforms(fromY,toY){
     const px=Math.max(0,Math.min(W-w, zone*zW+rf(0,Math.max(1,zW-w))));
     const plat=new Platform(px,y,w,null,t);
     plat.hasPow=t==='normal' && Math.random()<Math.max(0.04,0.12-checkpointCount*0.004);
+    if(plat.hasPow){
+      if(guaranteeShield && nextChallenge-hm<=30){ plat.powT=2; guaranteeShield=false; }
+      else if(plat.powT===2 && nextChallenge-hm>30){ plat.powT=ri(0,2); }
+    }
     platforms.push(plat);
   }
 }
@@ -529,7 +535,7 @@ function initGame(){
   hazardY=H-10; hazardSpeed=HAZARD_START_SPEED; hazardPause=0; // hazardY fixed screen-space floor
   prestige=0; ngBannerTimer=0; themeFlash=0; caughtTimer=0; lastPlatZone=1;
   scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
-  cameraScrollSpeed=0.5; scrollHurryTimer=-HURRY_INTERVAL; scrollLevel=0; hurryUpDisplay=0; _ltTs=0; _lacc=0;
+  cameraScrollSpeed=0.5; scrollHurryTimer=-HURRY_INTERVAL; scrollLevel=0; hurryUpDisplay=0; _ltTs=0; _lacc=0; guaranteeShield=false;
   platforms.push(new Platform(W/2-60,50,120,0,'normal'));
   generatePlatforms(50, 50-2200);  // full first batch
   topReached = 50-2200;            // align so runtime call doesn't fire immediately
@@ -667,7 +673,7 @@ function drawPowerUpHUD(){
   const pups=[];
   if(player.speedy>0)   pups.push({e:'⚡',c:'#ffd166',t:player.speedy,  max:120});
   if(player.boosted>0)  pups.push({e:'↑', c:'#00cec9',t:player.boosted, max:60});
-  if(player.shielded>0) pups.push({e:'🛡',c:'#a29bfe',t:player.shielded,max:180});
+  if(player.shielded>0) pups.push({e:'🛡',c:activePrompt?'#fff':'#a29bfe',t:player.shielded,max:300});
   if(!pups.length) return;
   const r=16, y=H-30;
   const sx=W/2-(pups.length-1)*42/2;
