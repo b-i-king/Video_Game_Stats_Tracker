@@ -208,7 +208,6 @@ let prestige = 0, ngBannerTimer = 0, themeFlash = 0;
 let activePrompt = null;   // { q, correct, decoy } — set when challenge generated
 let scoreSubmitted = false;
 let gamePaused = false;
-let autoDir = 1; // mobile auto-run direction: 1=right, -1=left
 let scorePops = [], cpStreak = 0, caughtTimer = 0;
 let keys = {}, touched = { left:false, right:false };
 
@@ -317,8 +316,8 @@ class Player {
   }
   update(){
     const spd = this.speedy>0?5.5 : this.debuff>0?1.8 : 3.8;
-    const goL  = keys['ArrowLeft'] ||keys['a']||keys['A']||(IS_MOBILE?autoDir===-1:touched.left);
-    const goR  = keys['ArrowRight']||keys['d']||keys['D']||(IS_MOBILE?autoDir===1 :touched.right);
+    const goL  = keys['ArrowLeft'] ||keys['a']||keys['A']||touched.left;
+    const goR  = keys['ArrowRight']||keys['d']||keys['D']||touched.right;
     const curDir=goL?-1:goR?1:0;
     if(curDir!==0&&curDir===this.runDir) this.runFrames=Math.min(this.runFrames+1,60);
     else{ this.runDir=curDir; this.runFrames=curDir!==0?1:0; }
@@ -475,7 +474,7 @@ function generatePlatforms(fromY,toY){
       nextCheckpoint+=CHECKPOINT_EVERY;
       y -= 125; // skip-safe zone: max reach from 60 below w/ momentum = 118 < 125
       platSpawnCount++;
-      const hw=Math.max(60,90-Math.abs(y)/400);
+      const hw=Math.max(60,90-Math.abs(y)/1000);
       platforms.push(new Platform(rf(0,W-hw),y,hw,null,'normal')); // guaranteed reachable from checkpoint (147 normal jump > 125)
       continue;
     }
@@ -491,7 +490,7 @@ function generatePlatforms(fromY,toY){
       continue;
     }
     const t=Math.random()<0.15?'moving':'normal';
-    const w=Math.max(48,88-Math.abs(y)/600);
+    const w=Math.max(48,88-Math.abs(y)/1000);
     platforms.push(new Platform(rf(0,W-w),y,w,null,t));
   }
 }
@@ -503,7 +502,7 @@ function initGame(){
   platSpawnCount=0;
   nextChallenge=CHALLENGE_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
   nextCheckpoint=CHECKPOINT_EVERY;
-  checkpointCount=0; theme=0; activePrompt=null; nextTheme=CHECKPOINT_EVERY; autoDir=1;
+  checkpointCount=0; theme=0; activePrompt=null; nextTheme=CHECKPOINT_EVERY;
   hazardY=800; hazardSpeed=HAZARD_START_SPEED; hazardPause=0;
   prestige=0; ngBannerTimer=0; themeFlash=0; caughtTimer=0;
   scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
@@ -749,20 +748,15 @@ function drawHUD(){
 }
 
 function drawTouchZones(){
-  if(IS_MOBILE){
-    ctx.save(); ctx.globalAlpha=0.22; ctx.fillStyle='#fff';
-    ctx.font='14px sans-serif'; ctx.textAlign='center';
-    ctx.fillText((autoDir===1?'▶ TAP TO FLIP ◀':'◀ TAP TO FLIP ▶'),W/2,H*0.93);
-    ctx.restore();
-    return;
-  }
-  ctx.fillStyle=touched.left?'rgba(255,255,255,0.1)':'rgba(255,255,255,0.03)';
-  ctx.fillRect(0,H*0.35,W*0.42,H*0.65);
-  ctx.fillStyle=touched.right?'rgba(255,255,255,0.1)':'rgba(255,255,255,0.03)';
-  ctx.fillRect(W*0.58,H*0.35,W*0.42,H*0.65);
-  ctx.fillStyle='rgba(255,255,255,0.18)';
-  ctx.font='26px sans-serif'; ctx.textAlign='center';
-  ctx.fillText('◀',W*0.21,H*0.93); ctx.fillText('▶',W*0.79,H*0.93);
+  if(!IS_MOBILE) return;
+  // Subtle half-screen tint, brighter on active side
+  ctx.fillStyle=touched.left?'rgba(255,255,255,0.07)':'rgba(255,255,255,0.02)';
+  ctx.fillRect(0,0,W/2,H);
+  ctx.fillStyle=touched.right?'rgba(255,255,255,0.07)':'rgba(255,255,255,0.02)';
+  ctx.fillRect(W/2,0,W/2,H);
+  ctx.fillStyle='rgba(255,255,255,0.14)';
+  ctx.font='22px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('◀',W*0.25,H*0.93); ctx.fillText('▶',W*0.75,H*0.93);
 }
 
 // ── Skin picker screen ────────────────────────────────────────────────────────
@@ -835,7 +829,7 @@ function drawStart(){
   ctx.fillStyle='#000'; ctx.font='bold 20px sans-serif'; ctx.fillText('TAP TO PLAY',W/2,H/2+60);
   ctx.fillStyle='#555'; ctx.font='12px sans-serif';
   ctx.fillText('← → Arrow keys / WASD',W/2,H/2+110);
-  ctx.fillText('Mobile: tap anywhere to flip direction',W/2,H/2+128);
+  ctx.fillText('Mobile: tap left / right half to move',W/2,H/2+128);
   ctx.fillStyle='#6c5ce7'; ctx.font='13px sans-serif';
   ctx.fillText('Two-color platforms = math challenge!',W/2,H/2+150);
 }
@@ -972,9 +966,7 @@ C.addEventListener('pointerdown',e=>{
     return;
   }
   if(state==='playing'&&cx>=8&&cx<=148&&cy>=8&&cy<=60){ gamePaused=!gamePaused; return; }
-  if(IS_MOBILE){ autoDir=-autoDir; return; }  // tap anywhere reverses auto-run direction
-  if(cx<W*0.45) touched.left =true;           // desktop only
-  if(cx>W*0.55) touched.right=true;
+  if(cx<W/2) touched.left=true; else touched.right=true;
 },{passive:false});
 
 C.addEventListener('pointermove',e=>{
@@ -984,7 +976,7 @@ C.addEventListener('pointermove',e=>{
   if(skinDragging){ skinToneT=tFromX(cx); skinColor=colorFromT(skinToneT); return; }
   if(specDragging){ specT=Math.max(0,Math.min(1,(cx-SGBX)/SGW)); skinColor=hslToHex(specT*360,90,55); return; }
   if(!touched.left&&!touched.right) return;
-  touched.left=cx<W*0.45; touched.right=cx>W*0.55;
+  touched.left=cx<W/2; touched.right=cx>=W/2;
 });
 C.addEventListener('pointerup',()=>{ skinDragging=false; specDragging=false; touched.left=false; touched.right=false; });
 
