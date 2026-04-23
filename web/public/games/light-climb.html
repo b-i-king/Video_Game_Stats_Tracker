@@ -527,10 +527,10 @@ function initGame(){
   nextChallenge=CHALLENGE_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
   nextCheckpoint=CHECKPOINT_EVERY;
   checkpointCount=0; theme=0; activePrompt=null; nextTheme=CHECKPOINT_EVERY;
-  hazardY=800; hazardSpeed=HAZARD_START_SPEED; hazardPause=0;
+  hazardY=H+80; hazardSpeed=HAZARD_START_SPEED; hazardPause=0; // hazardY is screen-space
   prestige=0; ngBannerTimer=0; themeFlash=0; caughtTimer=0; lastPlatZone=1;
   scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
-  cameraScrollSpeed=0.5; scrollHurryTimer=0; scrollLevel=0; hurryUpDisplay=0; _ltTs=0; _lacc=0;
+  cameraScrollSpeed=0.5; scrollHurryTimer=-HURRY_INTERVAL; scrollLevel=0; hurryUpDisplay=0; _ltTs=0; _lacc=0;
   platforms.push(new Platform(W/2-60,50,120,0,'normal'));
   generatePlatforms(50, 50-2200);  // full first batch
   topReached = 50-2200;            // align so runtime call doesn't fire immediately
@@ -591,7 +591,7 @@ function drawBg(){
 
 function drawHazard(){
   const th=THEMES[theme];
-  const sy=hazardY-camY;
+  const sy=hazardY; // screen-space — no cam offset needed
   if(sy>H) return;
   ctx.beginPath(); ctx.moveTo(0,sy);
   for(let x=0;x<=W;x+=8){
@@ -659,7 +659,7 @@ function drawPrestigeOverlay(){
 }
 
 function drawHazardWarning(){
-  const dist=hazardY-player.bottom;
+  const dist=hazardY-(player.bottom-camY); // screen-space gap between hazard and player feet
   if(dist>110||hazardPause>0) return;
   const a=(1-dist/110)*0.32*(0.7+Math.sin(frameCount*0.35)*0.3);
   ctx.save(); ctx.globalAlpha=a;
@@ -858,7 +858,7 @@ function drawStart(){
   ctx.fillStyle='#fff'; ctx.font='bold 52px sans-serif'; ctx.fillText('LIGHT',W/2,H/2-80);
   ctx.fillStyle=GOLD; ctx.font='bold 52px sans-serif'; ctx.fillText('CLIMB',W/2,H/2-30);
   if(TG_USER){ ctx.fillStyle='#ccc'; ctx.font='15px sans-serif'; ctx.fillText('Welcome, '+PLAYER_NAME+'! 👋',W/2,H/2+8); }
-  else{ ctx.fillStyle='#888'; ctx.font='14px sans-serif'; ctx.fillText('Climb. Survive. Answer.',W/2,H/2+8); }
+  else{ ctx.fillStyle='#888'; ctx.font='14px sans-serif'; ctx.fillText('Climb fast — the screen scrolls up!',W/2,H/2+8); }
   ctx.fillStyle=GOLD; ctx.beginPath(); ctx.roundRect(W/2-80,H/2+28,160,50,12); ctx.fill();
   ctx.fillStyle='#000'; ctx.font='bold 20px sans-serif'; ctx.fillText('TAP TO PLAY',W/2,H/2+60);
   ctx.fillStyle='#555'; ctx.font='12px sans-serif';
@@ -899,17 +899,35 @@ function physicsFrame(){
   frameCount++;
   if(gamePaused) return;
 
+  // Freeze all physics during death animation — only advance timers and counter
+  if(caughtTimer>0){
+    if(comboTimer>0){ comboTimer--; } else { combo=0; }
+    if(themeFlash>0)    themeFlash--;
+    if(ngBannerTimer>0) ngBannerTimer--;
+    if(hurryUpDisplay>0)hurryUpDisplay--;
+    caughtTimer++;
+    if(caughtTimer>=48){ caughtTimer=0; state='gameover'; }
+    return;
+  }
+
   player.update();
 
-  // Hurry Up: every 30 s the forced scroll gets faster
+  // Hurry Up: first fires 60 s in (grace period), then every 30 s after
   scrollHurryTimer++;
   if(scrollHurryTimer>=HURRY_INTERVAL){
     scrollHurryTimer=0; scrollLevel++; cameraScrollSpeed+=HURRY_SPEED_INC; hurryUpDisplay=220;
   }
 
-  // Camera: smooth follow + forced upward scroll — standing still is fatal
+  // Camera + hazard unified: both pause during checkpoint rest
   const target=player.y-H*0.45;
-  camY=Math.min(camY+(target-camY)*0.08, camY-cameraScrollSpeed);
+  if(hazardPause>0){
+    hazardPause--;
+    camY+=(target-camY)*0.08; // smooth follow only — forced scroll pauses at checkpoints
+  } else {
+    // hazardY is screen-space: creeps up toward player, floored at 15 % from top
+    hazardY=Math.max(hazardY-hazardSpeed, H*0.15);
+    camY=Math.min(camY+(target-camY)*0.08, camY-cameraScrollSpeed);
+  }
 
   if(player.y<topReached+1200){ generatePlatforms(topReached,topReached-400); topReached-=400; }
 
@@ -917,9 +935,6 @@ function physicsFrame(){
   platforms.forEach(p=>p.update());
   particles=particles.filter(p=>p.life>0);
   particles.forEach(p=>p.update());
-
-  if(hazardPause>0) hazardPause--;
-  else              hazardY-=hazardSpeed;
 
   // Decrement all animation timers here so they run at physics rate
   if(comboTimer>0){ comboTimer--; } else { combo=0; }
@@ -930,12 +945,11 @@ function physicsFrame(){
   scorePops=scorePops.filter(p=>p.life>0);
   scorePops.forEach(p=>{ p.sy-=1.2; p.life-=0.025; });
 
-  // Death: state transition after 48-frame animation
-  if(player.bottom>hazardY||player.y-camY>H+80){
+  // Death: hazard (screen-space) reaches player's feet
+  if(player.bottom-camY > hazardY){
     if(!scoreSubmitted){ scoreSubmitted=true; submitScore(player.score); }
-    if(caughtTimer===0) spawnP(player.cx,player.bottom,50,['#ff4466','#ff0033','#fff','#ffd166']);
-    caughtTimer++;
-    if(caughtTimer>=48){ caughtTimer=0; state='gameover'; }
+    spawnP(player.cx,player.bottom,50,['#ff4466','#ff0033','#fff','#ffd166']);
+    caughtTimer=1;
   }
 }
 
