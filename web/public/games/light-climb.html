@@ -507,8 +507,7 @@ function generatePlatforms(fromY,toY){
     const zW=W/3;
     const px=Math.max(0,Math.min(W-w, zone*zW+rf(0,Math.max(1,zW-w))));
     const plat=new Platform(px,y,w,null,t);
-    // Power-up only when gap is large enough for orb to float without platform crowding
-    plat.hasPow=t==='normal' && gapUsed>=70 && Math.random()<0.15;
+    plat.hasPow=t==='normal' && Math.random()<Math.max(0.04,0.12-checkpointCount*0.004);
     platforms.push(plat);
   }
 }
