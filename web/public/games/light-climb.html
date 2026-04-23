@@ -385,7 +385,6 @@ class Player {
             while(ns>=nextTheme){
               checkpointCount++;
               theme = checkpointCount % THEMES.length;
-              hazardSpeed = Math.min(HAZARD_MAX_SPEED, HAZARD_START_SPEED*Math.pow(HAZARD_MULT,checkpointCount));
               nextTheme += CHECKPOINT_EVERY;
               const newPrestige = Math.floor(checkpointCount / THEMES.length);
               if(newPrestige > prestige){ prestige = newPrestige; ngBannerTimer = 220; }
@@ -527,7 +526,7 @@ function initGame(){
   nextChallenge=CHALLENGE_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
   nextCheckpoint=CHECKPOINT_EVERY;
   checkpointCount=0; theme=0; activePrompt=null; nextTheme=CHECKPOINT_EVERY;
-  hazardY=H+80; hazardSpeed=HAZARD_START_SPEED; hazardPause=0; // hazardY is screen-space
+  hazardY=H-10; hazardSpeed=HAZARD_START_SPEED; hazardPause=0; // hazardY fixed screen-space floor
   prestige=0; ngBannerTimer=0; themeFlash=0; caughtTimer=0; lastPlatZone=1;
   scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
   cameraScrollSpeed=0.5; scrollHurryTimer=-HURRY_INTERVAL; scrollLevel=0; hurryUpDisplay=0; _ltTs=0; _lacc=0;
@@ -919,8 +918,6 @@ function physicsFrame(){
     hazardPause--;
     camY+=(target-camY)*0.08; // smooth follow only — forced scroll pauses at checkpoints
   } else {
-    // hazardY is screen-space: creeps up toward player, floored at 15 % from top
-    hazardY=Math.max(hazardY-hazardSpeed, H*0.15);
     camY=Math.min(camY+(target-camY)*0.08, camY-cameraScrollSpeed);
   }
 
