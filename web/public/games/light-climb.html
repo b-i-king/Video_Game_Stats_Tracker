@@ -239,8 +239,7 @@ class Platform {
     this.vx    = this.type==='moving' ? rf(-1.5,1.5) : 0;
     this.bounce= 1;
     this.hasPow= false; // set by generatePlatforms based on gap clearance
-    const _pr=Math.random();
-    this.powT  = _pr<0.45 ? 0 : _pr<0.90 ? 1 : 2; // 45% speed, 45% boost, 10% shield
+    this.powT  = Math.random()<0.5 ? 0 : 1; // 50% speed, 50% boost — shield only via guaranteeShield
     this.powOk = false;
     this.crumble=0;
     this.dead  = false;
@@ -310,7 +309,7 @@ class Player {
     const C=[{c:'#ffd166',label:'⚡ SPEED'},{c:'#00cec9',label:'↑ BOOST JUMP'},{c:'#a29bfe',label:'🛡 SHIELD'}];
     if(t===0) this.speedy =120;
     if(t===1) this.boosted=60;
-    if(t===2) this.shielded=300;
+    if(t===2) this.shielded=180;
     const cfg=C[t%3];
     scorePops.push({x:this.cx,sy:this.y-camY-30,val:cfg.label,life:1,c:cfg.c});
     spawnP(this.cx,this.y+this.h/2,10,[cfg.c,'#fff']);
@@ -361,7 +360,7 @@ class Player {
         if(p.type==='ch_correct' || p.type==='ch_wrong'){
           activePrompt=null;
           platforms.forEach(cp=>{ if(cp.type==='ch_correct'||cp.type==='ch_wrong') cp.dead=true; });
-          if(p.type==='ch_correct'){ this.springJump(); }
+          if(p.type==='ch_correct'){ this.shielded=0; this.springJump(); }
           else{
             if(this.shielded>0){
               this.shielded=0;
@@ -516,10 +515,7 @@ function generatePlatforms(fromY,toY){
     const px=Math.max(0,Math.min(W-w, zone*zW+rf(0,Math.max(1,zW-w))));
     const plat=new Platform(px,y,w,null,t);
     plat.hasPow=t==='normal' && Math.random()<Math.max(0.04,0.12-checkpointCount*0.004);
-    if(plat.hasPow){
-      if(guaranteeShield && nextChallenge-hm<=30){ plat.powT=2; guaranteeShield=false; }
-      else if(plat.powT===2 && nextChallenge-hm>30){ plat.powT=ri(0,2); }
-    }
+    if(plat.hasPow && guaranteeShield && nextChallenge-hm<=30){ plat.powT=2; guaranteeShield=false; }
     platforms.push(plat);
   }
 }
@@ -673,7 +669,7 @@ function drawPowerUpHUD(){
   const pups=[];
   if(player.speedy>0)   pups.push({e:'⚡',c:'#ffd166',t:player.speedy,  max:120});
   if(player.boosted>0)  pups.push({e:'↑', c:'#00cec9',t:player.boosted, max:60});
-  if(player.shielded>0) pups.push({e:'🛡',c:activePrompt?'#fff':'#a29bfe',t:player.shielded,max:300});
+  if(player.shielded>0) pups.push({e:'🛡',c:activePrompt?'#fff':'#a29bfe',t:player.shielded,max:180});
   if(!pups.length) return;
   const r=16, y=H-30;
   const sx=W/2-(pups.length-1)*42/2;
