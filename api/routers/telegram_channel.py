@@ -151,7 +151,13 @@ async def _fetch_last_session() -> str:
             if played_at.tzinfo is None:
                 played_at = played_at.replace(tzinfo=timezone.utc)
             played_local = played_at.astimezone(_DISPLAY_TZ)
-            played_str = played_local.strftime("%b %d, %Y %I:%M %p %Z")
+            h = played_local.hour
+            played_str = (
+                played_local.strftime("%b %d, %Y")
+                + f" {h % 12 or 12}:{played_local.minute:02d}"
+                + (" AM" if h < 12 else " PM")
+                + (f" {played_local.tzname()}" if played_local.tzname() else "")
+            )
         except Exception:
             played_str = str(first["played_at"])
 
