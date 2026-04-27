@@ -16,7 +16,30 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
 import requests
+
+_DISPLAY_TZ = ZoneInfo(os.getenv("DISPLAY_TIMEZONE", "America/New_York"))
+
+
+def _fmt_played_at(played_at_iso: str) -> str:
+    try:
+        dt = datetime.fromisoformat(played_at_iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        local = dt.astimezone(_DISPLAY_TZ)
+        h = local.hour
+        tz_name = local.tzname() or ""
+        return (
+            local.strftime("%b %d, %Y")
+            + f" {h % 12 or 12}:{local.minute:02d}"
+            + (" AM" if h < 12 else " PM")
+            + (f" {tz_name}" if tz_name else "")
+        )
+    except Exception:
+        return played_at_iso
 
 log = logging.getLogger(__name__)
 
@@ -76,12 +99,7 @@ class TelegramBroadcaster:
         ]
         stat_line = "  |  ".join(stat_parts[:3])
 
-        try:
-            from datetime import datetime
-            dt = datetime.fromisoformat(played_at_iso.replace("Z", "+00:00"))
-            played_str = dt.strftime("%b %d, %Y")
-        except Exception:
-            played_str = played_at_iso
+        played_str = _fmt_played_at(played_at_iso)
 
         lines = [
             f"🎮 <b>{title}</b>",
@@ -132,12 +150,7 @@ class TelegramBroadcaster:
             if s.get("stat_type") and s.get("stat_value") is not None
         ]
 
-        try:
-            from datetime import datetime
-            dt = datetime.fromisoformat(played_at_iso.replace("Z", "+00:00"))
-            played_str = dt.strftime("%b %d, %Y %H:%M")
-        except Exception:
-            played_str = played_at_iso
+        played_str = _fmt_played_at(played_at_iso)
 
         lines = [
             f"🎮 <b>{title}</b>{result_str}",

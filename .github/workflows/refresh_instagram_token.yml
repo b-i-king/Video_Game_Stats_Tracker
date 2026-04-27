@@ -1,16 +1,15 @@
 name: Refresh Instagram Access Token
 
-# Long-lived Instagram tokens expire every 60 days.
-# This workflow refreshes the token on the 1st of every month (~30-day cadence),
-# keeping it well within the 60-day window. On failure, GitHub sends an email
-# notification automatically so you're not surprised by an expired token.
+# NOTE: Automatic refresh is disabled — the current token is a never-expiring
+# Meta Business Suite system user token and does not need rotation.
+# Schedule trigger removed to prevent accidental overwrites.
+#
+# This workflow is kept as a reference for future use if per-user OAuth tokens
+# are needed (e.g. public users connecting their own Instagram accounts).
 #
 # Manual token check: https://developers.facebook.com/tools/debug/accesstoken/
 
 on:
-  schedule:
-    # 1st of every month at 8:00 AM UTC (12:00 AM PST / 1:00 AM PDT)
-    - cron: '0 8 1 * *'
   workflow_dispatch:
     inputs:
       dry_run:
