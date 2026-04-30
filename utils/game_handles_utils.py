@@ -854,6 +854,16 @@ GAME_SOCIAL_DATA = {
             'hashtags': ['#Dispatch', '#AdHocStudio']
         }
     },
+    'light climb': {
+        'instagram': {
+            'handle': '@the.bol.group',
+            'hashtags': ['#lightclimb', '#indiegame', '#webgame', '#gamedev']
+        },
+        'twitter': {
+            'handle': '@BOL_Biz',
+            'hashtags': ['#LightClimb', '#IndieGame', '#WebGame', '#GameDev']
+        }
+    },
 }
 
 

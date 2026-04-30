@@ -24,9 +24,54 @@
 const tg         = window.Telegram?.WebApp ?? null;
 const TG_USER    = tg?.initDataUnsafe?.user ?? null;
 if (tg) { tg.ready(); tg.expand(); }
-const PLAYER_NAME     = TG_USER?.first_name ?? 'YOU';
-const PLAYER_INITIALS = PLAYER_NAME.slice(0,2).toUpperCase();
-const TG_INIT_DATA    = tg?.initData ?? '';
+let PLAYER_NAME     = TG_USER?.first_name ?? 'YOU';
+let PLAYER_INITIALS = PLAYER_NAME.slice(0,2).toUpperCase();
+const TG_INIT_DATA  = tg?.initData ?? '';
+
+// ── Auth — obtain a short-lived JWT at load time ──────────────────────────────
+let _gameJwt       = null;
+let _pendingScore  = null; // {score, checkpoints} queued while auth was in-flight
+
+async function _postScore(score, checkpoints){
+  await fetch('/api/game/score',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+_gameJwt},
+    body:JSON.stringify({
+      game_name:   'Light Climb',
+      player_name: PLAYER_NAME,
+      score,
+      checkpoints,
+      platform:     IS_MOBILE ? 'Mobile' : 'PC',
+      input_device: IS_MOBILE ? 'Touch'  : 'Keyboard & Mouse',
+    }),
+    signal:AbortSignal.timeout(5000),
+  });
+}
+
+async function gameAuth(){
+  if(!TG_INIT_DATA) return;
+  try{
+    const r = await fetch('/api/game/auth',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({init_data:TG_INIT_DATA}),
+      signal:AbortSignal.timeout(5000),
+    });
+    if(r.ok){
+      const data = await r.json();
+      _gameJwt = data.token;
+      if(PLAYER_NAME === 'YOU' && data.display_name){
+        PLAYER_NAME     = data.display_name;
+        PLAYER_INITIALS = PLAYER_NAME.slice(0,2).toUpperCase();
+      }
+      if(_pendingScore){
+        const {score, checkpoints} = _pendingScore;
+        _pendingScore = null;
+        try{ await _postScore(score, checkpoints); }catch{}
+      }
+    }
+  }catch{}
+}
+gameAuth(); // fire-and-forget at load
 
 // ── Canvas ────────────────────────────────────────────────────────────────────
 const C   = document.getElementById('game');
@@ -546,15 +591,13 @@ function shareScore(){
 }
 
 // ── Score submission ──────────────────────────────────────────────────────────
-async function submitScore(score){
-  if(!TG_INIT_DATA) return;
-  try{
-    await fetch('/api/game/score',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({tg_init_data:TG_INIT_DATA,score,game:'light-climb'}),
-      signal:AbortSignal.timeout(5000),
-    });
-  }catch{}
+async function submitScore(score, checkpoints){
+  if(!TG_INIT_DATA) return; // not running inside Telegram — skip silently
+  if(!_gameJwt){
+    _pendingScore = {score, checkpoints}; // auth still in-flight; flush on resolve
+    return;
+  }
+  try{ await _postScore(score, checkpoints); }catch{}
 }
 
 // ── Skin helpers ──────────────────────────────────────────────────────────────
@@ -941,7 +984,7 @@ function physicsFrame(){
 
   // Death: hazard (screen-space) reaches player's feet
   if(player.bottom-camY > hazardY){
-    if(!scoreSubmitted){ scoreSubmitted=true; submitScore(player.score); }
+    if(!scoreSubmitted){ scoreSubmitted=true; submitScore(player.score, checkpointCount); }
     spawnP(player.cx,player.bottom,50,['#ff4466','#ff0033','#fff','#ffd166']);
     caughtTimer=1;
   }

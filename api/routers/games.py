@@ -1,6 +1,8 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 from api.core.deps import DynamicConn, CurrentUser, TrustedUser
-from api.models.games import AddGameRequest, UpdateGameRequest, RequestGameRequest
+from api.models.games import AddGameRequest, UpdateGameRequest, RequestGameRequest, GameScoreRequest
 
 router = APIRouter()
 
@@ -215,3 +217,98 @@ async def delete_game(game_id: int, conn: DynamicConn, user: TrustedUser):
 @router.get("/get_game_details/{game_id}")
 async def get_game_details(game_id: int, conn: DynamicConn, user: CurrentUser):
     raise HTTPException(status_code=501, detail="Not yet migrated")
+
+
+@router.post("/game/score", status_code=201)
+async def submit_game_score(
+    body: GameScoreRequest,
+    conn: DynamicConn,
+    user: CurrentUser,
+):
+    """
+    Record a single game session from a browser-hosted game (e.g. Light Climb).
+    Requires a Bearer JWT obtained via /api/game/auth.
+    DynamicConn routes owners to personal_pool and public users to public_pool.
+    """
+    user_id = user["user_id"]
+
+    # 1. Game lookup — NULL installment safe (ON CONFLICT won't fire for NULLs)
+    game_id = await conn.fetchval(
+        "SELECT game_id FROM dim.dim_games WHERE game_name = $1 AND game_installment IS NULL",
+        body.game_name,
+    )
+    if not game_id:
+        game_id = await conn.fetchval(
+            """INSERT INTO dim.dim_games (game_name, game_installment, game_genre, game_subgenre)
+               VALUES ($1, NULL, 'Platformer', 'Web Game') RETURNING game_id""",
+            body.game_name,
+        )
+
+    # 2. Player lookup / create
+    player_id = await conn.fetchval(
+        "SELECT player_id FROM dim.dim_players WHERE user_id = $1 ORDER BY created_at LIMIT 1",
+        user_id,
+    )
+    if not player_id:
+        player_id = await conn.fetchval(
+            "INSERT INTO dim.dim_players (player_name, user_id, created_at)"
+            " VALUES ($1, $2, NOW()) RETURNING player_id",
+            body.player_name, user_id,
+        )
+
+    # 3. first_session_of_day
+    played_today = await conn.fetchval(
+        """SELECT EXISTS(
+            SELECT 1 FROM fact.fact_game_stats gs
+            JOIN dim.dim_players p ON gs.player_id = p.player_id
+            WHERE p.user_id = $1 AND gs.game_id = $2
+              AND gs.played_at >= CURRENT_DATE
+        )""",
+        user_id, game_id,
+    )
+    first_session_of_day = 0 if played_today else 1
+
+    # 4. Insert stat row
+    played_at = await conn.fetchval("SELECT NOW()")
+    await conn.execute(
+        """INSERT INTO fact.fact_game_stats
+           (game_id, player_id, stat_type, stat_value, game_mode, solo_mode, party_size,
+            game_level, win, ranked, pre_match_rank_value, post_match_rank_value,
+            overtime, difficulty, input_device, platform, first_session_of_day,
+            was_streaming, source, is_editable, played_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        """,
+        game_id, player_id, "Height", float(body.score),
+        "Solo", 1, "1",
+        str(body.checkpoints), None, None,
+        None, None,
+        None, None,
+        body.input_device, body.platform,
+        first_session_of_day, 0, "vgst", False,
+        played_at,
+    )
+
+    # 5. Owner: fire full social pipeline (charts → GCS → Twitter/IFTTT + Telegram with photo)
+    if user.get("is_owner"):
+        from utils.social_pipeline import run_social_media_pipeline
+        asyncio.create_task(
+            asyncio.to_thread(
+                run_social_media_pipeline,
+                player_id=player_id,
+                player_name=body.player_name,
+                game_id=game_id,
+                game_name=body.game_name,
+                game_installment=None,
+                stats=[
+                    {"stat_type": "Height",      "stat_value": float(body.score),    "game_mode": "Solo"},
+                    {"stat_type": "Checkpoints", "stat_value": body.checkpoints,     "game_mode": "Solo"},
+                ],
+                is_live=False,
+                credit_style="made_by",
+                queue_platforms=[],
+                played_at_iso=played_at.isoformat(),
+                win=None,
+            )
+        )
+
+    return {"recorded": True, "first_session_of_day": bool(first_session_of_day)}

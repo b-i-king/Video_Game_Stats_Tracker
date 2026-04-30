@@ -64,29 +64,20 @@ class TelegramLoginBody(BaseModel):
     init_data: str
 
 
-@router.post("/telegram_login", dependencies=[Depends(require_api_key)])
-async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
+async def _process_telegram_auth(body: TelegramLoginBody, conn) -> dict:
     """
-    Exchange Telegram initData for a FastAPI JWT.
-    Called server-side from the NextAuth CredentialsProvider — never from the browser directly.
-
-    Pool routing:
-      - Owner Telegram IDs (TELEGRAM_OWNER_IDS) → personal_pool (same DB as Google login)
-      - All other users                          → public_pool via DynamicConn
-    DynamicConn always yields public_pool here because there is no Bearer JWT at login time,
-    so owner routing is handled explicitly below.
+    Core Telegram initData verification + user upsert, shared by both auth routes.
+    conn is the public-pool connection from DynamicConn (owner path uses personal_pool directly).
     """
     bot_token = os.getenv("TELEGRAM_BROADCAST_BOT_TOKEN", "")
     if not bot_token:
         raise HTTPException(status_code=503, detail="Telegram bot not configured.")
 
-    # Verify signature
     try:
         parsed = _verify_init_data(body.init_data, bot_token)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
 
-    # Extract Telegram user object
     try:
         tg_user = json.loads(parsed.get("user", "{}"))
     except Exception:
@@ -96,7 +87,7 @@ async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
     if not telegram_id:
         raise HTTPException(status_code=400, detail="No Telegram user ID in initData.")
 
-    # ── Owner path: use personal pool ─────────────────────────────────────────
+    # ── Owner path: personal pool ─────────────────────────────────────────────
     if telegram_id in _telegram_owner_id_set():
         async with _personal_pool.acquire() as pconn:
             owner_row = await pconn.fetchrow(
@@ -105,23 +96,22 @@ async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
             )
         if not owner_row:
             raise HTTPException(status_code=404, detail="Owner account not found in personal DB.")
-        user_id    = owner_row["user_id"]
-        email      = owner_row["user_email"]
-        is_owner   = True
-        is_trusted = True
-        plan       = "premium"
-        resolved_role = _resolve_role(email, is_trusted, is_owner, plan)
-        token         = _make_token(email, user_id, is_trusted, is_owner, resolved_role)
+        user_id       = owner_row["user_id"]
+        email         = owner_row["user_email"]
+        resolved_role = _resolve_role(email, True, True, "premium")
+        token         = _make_token(email, user_id, True, True, resolved_role)
+        display_name = tg_user.get("first_name") or email.split("@")[0]
         return {
-            "token":      token,
-            "user_id":    user_id,
-            "email":      email,
-            "role":       resolved_role,
-            "is_owner":   True,
-            "is_trusted": True,
+            "token":        token,
+            "user_id":      user_id,
+            "email":        email,
+            "role":         resolved_role,
+            "is_owner":     True,
+            "is_trusted":   True,
+            "display_name": display_name,
         }
 
-    # ── Public user path: use public pool (conn from DynamicConn) ─────────────
+    # ── Public user path ──────────────────────────────────────────────────────
     synthetic_email = f"tg_{telegram_id}@telegram.local"
 
     existing = await conn.fetchrow(
@@ -134,7 +124,6 @@ async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
         email      = existing["user_email"]
         is_trusted = bool(existing["is_trusted"])
     else:
-        # Check for an existing row with the synthetic email (handles retries)
         by_email = await conn.fetchrow(
             "SELECT user_id, is_trusted FROM dim.dim_users WHERE user_email = $1",
             synthetic_email,
@@ -142,13 +131,11 @@ async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
         if by_email:
             user_id    = by_email["user_id"]
             is_trusted = bool(by_email["is_trusted"])
-            # Back-fill telegram_user_id if it was missing
             await conn.execute(
                 "UPDATE dim.dim_users SET telegram_user_id = $1 WHERE user_id = $2",
                 telegram_id, user_id,
             )
         else:
-            # Brand-new Telegram user
             user_id = await conn.fetchval("""
                 INSERT INTO dim.dim_users (user_email, telegram_user_id, role)
                 VALUES ($1, $2, 'registered')
@@ -156,11 +143,9 @@ async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
             """, synthetic_email, telegram_id)
             is_trusted = False
             print(f"[telegram_auth] New Telegram user created: tg_id={telegram_id}")
-
         email = synthetic_email
 
     # Sync trust from env
-    is_owner = False
     should_be_trusted = email in _trusted_set()
     if should_be_trusted != is_trusted:
         role_val = "trusted" if should_be_trusted else "registered"
@@ -178,14 +163,34 @@ async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
             if sub:
                 plan = sub
 
-    resolved_role = _resolve_role(email, is_trusted, is_owner, plan)
-    token         = _make_token(email, user_id, is_trusted, is_owner, resolved_role)
-
+    resolved_role = _resolve_role(email, is_trusted, False, plan)
+    token         = _make_token(email, user_id, is_trusted, False, resolved_role)
+    display_name  = tg_user.get("first_name") or f"Player {str(telegram_id)[:6]}"
     return {
-        "token":      token,
-        "user_id":    user_id,
-        "email":      email,
-        "role":       resolved_role,
-        "is_owner":   is_owner,
-        "is_trusted": is_trusted or is_owner,
+        "token":        token,
+        "user_id":      user_id,
+        "email":        email,
+        "role":         resolved_role,
+        "is_owner":     False,
+        "is_trusted":   is_trusted,
+        "display_name": display_name,
     }
+
+
+@router.post("/telegram_login", dependencies=[Depends(require_api_key)])
+async def telegram_login(body: TelegramLoginBody, conn: DynamicConn):
+    """
+    Exchange Telegram initData for a JWT.
+    Called server-side from the NextAuth CredentialsProvider — not directly from the browser.
+    """
+    return await _process_telegram_auth(body, conn)
+
+
+@router.post("/game/auth")
+async def game_auth(body: TelegramLoginBody, conn: DynamicConn):
+    """
+    Browser-facing auth for Telegram Mini App games.
+    Same HMAC logic and upsert path as /telegram_login but no API-key gate —
+    the game iframe calls this directly at load time to obtain a short-lived JWT.
+    """
+    return await _process_telegram_auth(body, conn)

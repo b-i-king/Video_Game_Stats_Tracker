@@ -124,7 +124,8 @@ def generate_post_caption(player_name, game_name, game_installment, stat_data, g
         'powered': f"Powered by {game_handle}",
         'courtesy': f"Courtesy of {game_handle}",
         'ft': f"ft. {game_handle}",
-        'brought': f"Brought to you by {game_handle}"
+        'brought': f"Brought to you by {game_handle}",
+        'made_by': f"Made by {game_handle}",
     }
     
     # Get the credit line (fallback to 'shoutout' if invalid style)

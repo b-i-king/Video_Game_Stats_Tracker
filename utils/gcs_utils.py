@@ -626,6 +626,52 @@ def sanitize_filename(name):
     return name[:50].lower()
 
 
+def get_posted_hashes_from_gcs() -> set:
+    """Read the durable Instagram post-hash ledger from GCS.
+
+    Path: instagram/posters/posted_hashes.txt
+    Returns an empty set on any error so callers degrade gracefully.
+    """
+    bucket_name = os.environ.get('GCS_BUCKET_NAME')
+    client = get_gcs_client()
+    if not client or not bucket_name:
+        return set()
+    try:
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob('instagram/posters/posted_hashes.txt')
+        if not blob.exists():
+            return set()
+        content = blob.download_as_text(encoding='utf-8')
+        hashes = {line.strip() for line in content.splitlines() if line.strip()}
+        print(f"📝 Loaded {len(hashes)} posted hashes from GCS ledger")
+        return hashes
+    except Exception as e:
+        print(f"⚠️ Could not read GCS hash ledger: {e}")
+        return set()
+
+
+def save_hash_to_gcs(content_hash: str) -> None:
+    """Append a single hash to the durable GCS ledger (read-modify-write).
+
+    Path: instagram/posters/posted_hashes.txt
+    A duplicate line is harmless — the reader deduplicates via a set.
+    """
+    bucket_name = os.environ.get('GCS_BUCKET_NAME')
+    client = get_gcs_client()
+    if not client or not bucket_name:
+        print("⚠️ GCS not configured — hash not persisted to ledger")
+        return
+    try:
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob('instagram/posters/posted_hashes.txt')
+        existing = blob.download_as_text(encoding='utf-8') if blob.exists() else ''
+        updated = (existing.rstrip('\n') + f'\n{content_hash}\n') if existing else f'{content_hash}\n'
+        blob.upload_from_string(updated, content_type='text/plain; charset=utf-8')
+        print(f"✅ Hash saved to GCS ledger: {content_hash[:8]}...")
+    except Exception as e:
+        print(f"⚠️ Could not save hash to GCS ledger: {e}")
+
+
 def smart_cleanup(warning_gb=4.0, target_gb=3.5, min_days_old=90):
     """
     Storage-aware cleanup: only deletes when approaching the 5 GB free-tier cap.

@@ -38,7 +38,7 @@ from collections import defaultdict
 # Import utilities (these will be in the Lambda package)
 from utils.chart_utils import abbreviate_stat, abbreviate_game_mode, format_large_number, load_custom_fonts, should_use_log_scale
 from utils.holiday_themes import get_themed_colors, is_exact_holiday
-from utils.gcs_utils import upload_instagram_poster_to_gcs
+from utils.gcs_utils import upload_instagram_poster_to_gcs, get_posted_hashes_from_gcs, save_hash_to_gcs
 from utils.game_handles_utils import get_game_handle, get_game_hashtags
 
 import matplotlib.pyplot as plt
@@ -132,39 +132,58 @@ PLAYER_ID: int | None = _resolve_player_id(SOCIAL_PLAYER_NAME) if (SOCIAL_PLAYER
 # DUPLICATE PREVENTION (Lambda-compatible storage)
 # ============================================================================
 
-def get_posted_content_hash():
+# Session-level cache — GCS is read once per Lambda invocation, not on every call.
+_posted_hashes_cache: set | None = None
+
+
+def get_posted_content_hash() -> set:
     """
-    Get hash of previously posted content to prevent duplicates.
-    Uses /tmp directory in Lambda (persists during container lifetime).
+    Return the set of previously posted content hashes.
 
-    Returns:
-        set: Set of content hashes that have been posted
+    Primary store: GCS ledger (instagram/posters/posted_hashes.txt) — survives
+    Lambda cold starts and container recycling.
+    Fallback: /tmp session file — used only when GCS is unreachable.
     """
+    global _posted_hashes_cache
+    if _posted_hashes_cache is not None:
+        return _posted_hashes_cache
+
+    gcs_hashes = get_posted_hashes_from_gcs()
+    if gcs_hashes:
+        _posted_hashes_cache = gcs_hashes
+        logger.info(f"📝 Loaded {len(gcs_hashes)} posted hashes from GCS")
+        return _posted_hashes_cache
+
+    # GCS unavailable — fall back to /tmp (ephemeral but better than nothing)
     hash_file = '/tmp/instagram_post_hashes.txt'
+    if os.path.exists(hash_file):
+        try:
+            with open(hash_file, 'r') as f:
+                hashes = {line.strip() for line in f if line.strip()}
+            _posted_hashes_cache = hashes
+            logger.warning(f"⚠️ GCS unavailable — loaded {len(hashes)} hashes from /tmp")
+            return _posted_hashes_cache
+        except Exception as e:
+            logger.warning(f"⚠️ Could not load /tmp hashes: {e}")
 
-    if not os.path.exists(hash_file):
-        return set()
+    _posted_hashes_cache = set()
+    return _posted_hashes_cache
 
+
+def save_content_hash(content_hash: str) -> None:
+    """Persist a posted content hash to the GCS ledger and the in-process cache."""
+    global _posted_hashes_cache
+    if _posted_hashes_cache is not None:
+        _posted_hashes_cache.add(content_hash)
+
+    save_hash_to_gcs(content_hash)
+
+    # Mirror to /tmp so the fallback path stays consistent within this invocation
     try:
-        with open(hash_file, 'r') as f:
-            hashes = set(line.strip() for line in f if line.strip())
-        logger.info(f"📝 Loaded {len(hashes)} previously posted hashes")
-        return hashes
-    except Exception as e:
-        logger.warning(f"⚠️ Could not load hashes: {e}")
-        return set()
-
-
-def save_content_hash(content_hash):
-    """Save content hash to prevent future duplicates"""
-    hash_file = '/tmp/instagram_post_hashes.txt'
-
-    try:
-        with open(hash_file, 'a') as f:
+        with open('/tmp/instagram_post_hashes.txt', 'a') as f:
             f.write(f"{content_hash}\n")
-        logger.info(f"✅ Saved content hash: {content_hash[:8]}...")
-    except Exception as e:
-        logger.warning(f"⚠️ Could not save content hash: {e}")
+    except Exception:
+        pass
 
 
 def generate_content_hash(stats, game_name, date_str=None):
@@ -447,10 +466,32 @@ def detect_anomalies(player_id, game_id, target_date):
 
 def get_historical_records_all_games(player_id, posted_hashes, limit=10):
     """
-    Get interesting historical records across ALL games.
-    Excludes previously posted content to prevent duplicates.
+    Get historical records across ALL games, randomised to prevent repetition.
+
+    Single-game players: pool is all stat types for that game — each run
+    features a different stat (Best Kills, Best Score, Best Headshots, …).
+
+    Multi-game players: pool is all stat types across all games — each run
+    randomly picks from the full catalogue, weighted by game breadth.
+
+    Every row returned is a genuine all-time record (MAX per stat type), so
+    the "All-Time Records" caption is always accurate.
     """
-    fetch_limit = limit * 2
+    # Fetch pool size: single-game players need a wider pool so the hash
+    # filter has enough distinct stat types to choose from.
+    game_count_rows = execute_query(
+        """
+        SELECT COUNT(DISTINCT g.game_id)
+        FROM fact.fact_game_stats f
+        JOIN dim.dim_games g ON f.game_id = g.game_id
+        WHERE f.player_id = %s
+          AND f.played_at >= NOW() - INTERVAL '365 days'
+        """,
+        (player_id,)
+    )
+    game_count = int(get_field_value(game_count_rows[0][0])) if game_count_rows else 0
+    fetch_limit = limit * 4 if game_count == 1 else limit * 2
+
     records = execute_query(
         f"""
         WITH ranked_stats AS (
@@ -473,7 +514,7 @@ def get_historical_records_all_games(player_id, posted_hashes, limit=10):
             max_value,
             best_date
         FROM ranked_stats
-        ORDER BY max_value DESC
+        ORDER BY RANDOM()
         LIMIT {fetch_limit};
         """,
         (TIMEZONE_STR, player_id)
@@ -559,19 +600,43 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
 
     day_tag = day_hashtags.get(day_of_week, '#GamingUpdate')
 
-    # Build the main caption content
+    # Build the main caption content — rotate hooks so repeated post types
+    # don't feel identical when the underlying stats haven't changed.
     if post_type == 'daily':
-        emoji = "🔥"
-        hook = f"{emoji} {player_name}'s Today's {full_game_name} Session {emoji}"
+        hook = random.choice([
+            f"🔥 {player_name}'s Today's {full_game_name} Session 🔥",
+            f"🎯 {player_name} was playing {full_game_name} today 🎯",
+            f"⚡ Fresh stats just dropped — {player_name} on {full_game_name} ⚡",
+            f"🕹️ {player_name} put in work on {full_game_name} today 🕹️",
+        ])
     elif post_type == 'yesterday':
-        emoji = "📊"
-        hook = f"{emoji} {player_name}'s Yesterday's {full_game_name} Highlights {emoji}"
+        hook = random.choice([
+            f"📊 {player_name}'s Yesterday's {full_game_name} Highlights 📊",
+            f"🎮 How did {player_name} do yesterday on {full_game_name}? 🎮",
+            f"📅 {player_name}'s {full_game_name} recap from yesterday 📅",
+            f"🔁 Yesterday's {full_game_name} session from {player_name} 🔁",
+        ])
     elif post_type == 'recent':
-        emoji = "🎮"
-        hook = f"{emoji} {player_name}'s Recent {full_game_name} Performance {emoji}"
+        hook = random.choice([
+            f"🎮 {player_name}'s Recent {full_game_name} Performance 🎮",
+            f"📈 {player_name} has been grinding {full_game_name} lately 📈",
+            f"🕹️ Recent {full_game_name} stats from {player_name} 🕹️",
+            f"👾 {player_name}'s latest {full_game_name} numbers 👾",
+        ])
+    elif post_type == 'multi_game':
+        hook = random.choice([
+            f"🎮 {player_name} ran the full roster today 🎮",
+            f"⚡ Can't pick one game? Neither can {player_name}! ⚡",
+            f"🕹️ Multi-game madness — {player_name} brought it across the board 🕹️",
+            f"🔥 Different games, same energy — {player_name} delivers 🔥",
+        ])
     else:  # historical
-        emoji = "🏆"
-        hook = f"{emoji} {player_name}'s {full_game_name} All-Time Records {emoji}"
+        hook = random.choice([
+            f"🏆 {player_name}'s {full_game_name} All-Time Records 🏆",
+            f"👑 The best {full_game_name} has ever looked for {player_name} 👑",
+            f"📜 {player_name}'s {full_game_name} personal bests 📜",
+            f"🥇 Peak performance — {player_name} on {full_game_name} 🥇",
+        ])
 
     caption_lines = [hook, day_tag, ""]
 
@@ -609,7 +674,7 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
 
     # Add anomaly callouts if present
     if anomalies:
-        if post_type in ['daily', 'yesterday', 'recent']:
+        if post_type in ['daily', 'yesterday', 'recent', 'multi_game']:
             caption_lines.append("⚡ Notable:")
             for anomaly in anomalies[:2]:  # Limit to 2 for brevity
                 caption_lines.append(f"• {anomaly['description']}")
@@ -628,7 +693,7 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
         caption_lines.append(f"Playing {game_handle}")
         caption_lines.append("")
     else:
-        if post_type in ['daily', 'yesterday', 'recent']:
+        if post_type in ['daily', 'yesterday', 'recent', 'multi_game']:
             caption_lines.append(f"Playing {full_game_name}")
             caption_lines.append("")
         else:
@@ -645,6 +710,9 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     elif post_type == 'recent':
         caption_lines.append("💬 Can you top these recent stats? Drop it below 👇")
         caption_lines.append("❤️ Like if you're on the grind & 🔁 repost to see who can match it!")
+    elif post_type == 'multi_game':
+        caption_lines.append("💬 Which game did you grind today? Drop it below 👇")
+        caption_lines.append("❤️ Like if you're a multi-game player & 🔁 repost to compare your grind!")
     else:  # historical
         caption_lines.append("💬 Think you can top this all-time record? 👇")
         caption_lines.append("❤️ Like if you respect the grind & 🔁 repost to see if anyone can match it!")
@@ -656,7 +724,7 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
     base_hashtags = ['#gaming', '#esports', '#casual', '#gamer', '#gamingcommunity']
 
     # Add day-specific hashtags for daily/yesterday/recent posts
-    if post_type in ['daily', 'yesterday', 'recent']:
+    if post_type in ['daily', 'yesterday', 'recent', 'multi_game']:
         if day_of_week in ['Monday', 'Wednesday', 'Friday']:
             base_hashtags.append('#dailygamer')
 
@@ -1180,6 +1248,72 @@ def post_to_instagram(image_buffer, caption):
 
 
 # ============================================================================
+# SESSION RESOLVER  (shared by both poster functions)
+# ============================================================================
+
+def _resolve_game_for_date(target_date, all_games):
+    """
+    Pick the dominant game for target_date and return its stats.
+
+    When only one game was played: returns its aggregated stats as usual.
+    When multiple games were played in the same session: returns a 'Multi-Game'
+    aggregate with the single best stat from each game, prefixed by the game's
+    abbreviation (e.g. 'AL Damage Dealt', 'COD Eliminations').
+
+    Returns (game_info, game_id, game_mode, game_modes, stats, anomalies, match_count)
+    or None if no data exists for the date.
+    """
+    multi = get_stats_for_date_all_games(PLAYER_ID, target_date)
+    if not multi:
+        return None
+
+    _counts: dict = {}
+    for _r in multi:
+        _key = (_r['game'], _r['installment'])
+        _counts[_key] = _counts.get(_key, 0) + 1
+
+    # ── Multi-game session ────────────────────────────────────────────────────
+    if len(_counts) > 1:
+        game_best: dict = {}
+        for r in multi:
+            gkey = (r['game'], r['installment'])
+            try:
+                v = float(r['value']) if r['value'] is not None else 0.0
+            except (TypeError, ValueError):
+                v = 0.0
+            if gkey not in game_best or v > game_best[gkey][1]:
+                game_best[gkey] = (r['stat'], v)
+
+        sorted_games = sorted(game_best.items(), key=lambda x: x[1][1], reverse=True)
+        _stats = [
+            (f"{abbreviate_stat(gkey[0])} {stat}", val)
+            for gkey, (stat, val) in sorted_games[:3]
+        ]
+        _game_info  = {'game_name': 'Multi-Game', 'game_installment': None}
+        _anomalies  = [{'description': f"Played {len(_counts)} different games!"}]
+        return _game_info, None, None, [], _stats, _anomalies, sum(_counts.values())
+
+    # ── Single-game session ───────────────────────────────────────────────────
+    _top = max(_counts, key=_counts.get)
+    _game_info = {'game_name': _top[0], 'game_installment': _top[1]}
+    _game_id = next(
+        (g['game_id'] for g in all_games
+         if g['game_name'] == _top[0] and g['game_installment'] == _top[1]),
+        None
+    )
+    if not _game_id:
+        logger.warning(f"⚠️ game_id not found for {_top[0]} {_top[1]}")
+        return None
+    _mode     = get_game_mode_for_date(PLAYER_ID, _game_id, target_date)
+    _modes    = get_all_modes_for_date(PLAYER_ID, _game_id, target_date)
+    _count    = get_match_count_for_date(PLAYER_ID, _game_id, target_date, _mode)
+    _agg      = 'avg' if _count > 1 else 'max'
+    _stats    = get_stats_for_date(PLAYER_ID, _game_id, target_date, _mode, aggregate=_agg)
+    _anomalies = detect_anomalies(PLAYER_ID, _game_id, target_date)
+    return _game_info, _game_id, _mode, _modes, _stats, _anomalies, _count
+
+
+# ============================================================================
 # MAIN EXECUTION FUNCTION (Lambda entry point)
 # ============================================================================
 
@@ -1232,66 +1366,43 @@ def run_instagram_poster():
     subtitle = None
     content_hash = None
 
-    def _resolve_game_for_date(target_date):
-        """
-        Shared helper: pick the game with the most stat rows on target_date,
-        resolve its game_id, mode, stats, and match count.
-        Returns (game_info, game_id, game_mode, game_modes, stats, anomalies, match_count)
-        or None if no data found.
-        """
-        multi = get_stats_for_date_all_games(PLAYER_ID, target_date)
-        if not multi:
-            return None
-        _counts: dict = {}
-        for _r in multi:
-            _key = (_r['game'], _r['installment'])
-            _counts[_key] = _counts.get(_key, 0) + 1
-        _top = max(_counts, key=_counts.get)
-        _game_info = {'game_name': _top[0], 'game_installment': _top[1]}
-        _game_id = next(
-            (g['game_id'] for g in all_games
-             if g['game_name'] == _top[0] and g['game_installment'] == _top[1]),
-            None
-        )
-        if not _game_id:
-            logger.warning(f"⚠️ game_id not found for {_top[0]} {_top[1]}")
-            return None
-        _mode = get_game_mode_for_date(PLAYER_ID, _game_id, target_date)
-        _modes = get_all_modes_for_date(PLAYER_ID, _game_id, target_date)
-        _count = get_match_count_for_date(PLAYER_ID, _game_id, target_date, _mode)
-        # Use AVG when multiple sessions; MAX when single session
-        _agg = 'avg' if _count > 1 else 'max'
-        _stats = get_stats_for_date(PLAYER_ID, _game_id, target_date, _mode, aggregate=_agg)
-        _anomalies = detect_anomalies(PLAYER_ID, _game_id, target_date)
-        return _game_info, _game_id, _mode, _modes, _stats, _anomalies, _count
-
     # PRIORITY 1: Games played today
     if check_games_on_date(PLAYER_ID, today):
         logger.info(f"✅ Games found today ({today})")
-        result = _resolve_game_for_date(today)
+        result = _resolve_game_for_date(today, all_games)
         if result:
             game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
             is_averaged = match_count > 1
-            if match_count > 1:
-                logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
-            post_type = 'daily'
+            if game_info['game_name'] == 'Multi-Game':
+                post_type = 'multi_game'
+                title = "Multi-Game Session"
+                logger.info(f"🎮 Multi-game session detected today")
+            else:
+                if match_count > 1:
+                    logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
+                post_type = 'daily'
+                title = "Today's Performance"
             date_str = today.strftime('%A, %B %d')
-            title = "Today's Performance"
             subtitle = date_str
             content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
 
     # PRIORITY 2: Games played yesterday
     elif check_games_on_date(PLAYER_ID, yesterday):
         logger.info(f"✅ Games found yesterday ({yesterday})")
-        result = _resolve_game_for_date(yesterday)
+        result = _resolve_game_for_date(yesterday, all_games)
         if result:
             game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
             is_averaged = match_count > 1
-            if match_count > 1:
-                logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
-            post_type = 'yesterday'
+            if game_info['game_name'] == 'Multi-Game':
+                post_type = 'multi_game'
+                title = "Multi-Game Session"
+                logger.info(f"🎮 Multi-game session detected yesterday")
+            else:
+                if match_count > 1:
+                    logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
+                post_type = 'yesterday'
+                title = "Yesterday's Performance"
             date_str = yesterday.strftime('%A, %B %d')
-            title = "Yesterday's Performance"
             subtitle = date_str
             content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
 
@@ -1302,17 +1413,31 @@ def run_instagram_poster():
         recent_date = get_most_recent_date_in_range(PLAYER_ID, week_min, week_max)
         if recent_date:
             logger.info(f"✅ Recent games found on {recent_date}")
-            result = _resolve_game_for_date(recent_date)
+            result = _resolve_game_for_date(recent_date, all_games)
             if result:
                 game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
                 is_averaged = match_count > 1
-                if match_count > 1:
-                    logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
-                post_type = 'recent'
+                if game_info['game_name'] == 'Multi-Game':
+                    post_type = 'multi_game'
+                    title = "Multi-Game Session"
+                    logger.info(f"🎮 Multi-game session detected on {recent_date}")
+                else:
+                    if match_count > 1:
+                        logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
+                    post_type = 'recent'
+                    title = "Recent Performance"
                 date_str = recent_date.strftime('%A, %B %d')
-                title = "Recent Performance"
                 subtitle = date_str
                 content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
+
+    # If the chosen content was already posted, fall back to historical instead of halting
+    if post_type and content_hash and content_hash in posted_hashes:
+        logger.warning(f"⚠️ {post_type} content already posted — pivoting to historical records")
+        post_type = None
+        stats = []
+        game_info = {}
+        content_hash = None
+        anomalies = []
 
     # PRIORITY 4: Historical records (past 365 days, MAX)
     if not post_type:
@@ -1324,19 +1449,21 @@ def run_instagram_poster():
             raise Exception("No new historical content available (all posted)")
 
         selected_records = records[:3]
-        first_record = selected_records[0]
-
-        game_info = {
-            'game_name': first_record['game'],
-            'game_installment': first_record['installment']
-        }
+        games_in_selection = {(r['game'], r['installment']) for r in selected_records}
+        if len(games_in_selection) == 1:
+            game_info = {
+                'game_name': selected_records[0]['game'],
+                'game_installment': selected_records[0]['installment'],
+            }
+        else:
+            game_info = {'game_name': 'Cross-Game', 'game_installment': None}
 
         stats = [(r['stat'], r['value']) for r in selected_records]
         post_type = 'historical'
         is_averaged = False
         title = "Historical Records"
-        subtitle = "Past Year Bests"
-        content_hash = first_record['hash']
+        subtitle = "All-Time Bests"
+        content_hash = selected_records[0]['hash']
 
         anomalies = [{
             'description': f"Best {r['stat']}: {r['value']} ({r['date'].strftime('%b %d, %Y') if r['date'] else 'N/A'})"
@@ -1344,11 +1471,6 @@ def run_instagram_poster():
 
     if not stats:
         raise Exception("No stats to post")
-
-    # Check if already posted
-    if content_hash and content_hash in posted_hashes:
-        logger.warning(f"⚠️ Content already posted (hash: {content_hash[:8]}...)")
-        raise Exception("Content already posted - need alternative content")
 
     logger.info(f"📊 Post type: {post_type}")
     logger.info(f"📈 Stats: {stats}")
@@ -1468,55 +1590,43 @@ def run_instagram_poster_for_queue():
     subtitle = None
     content_hash = None
 
-    def _resolve_game_for_date(target_date):
-        multi = get_stats_for_date_all_games(PLAYER_ID, target_date)
-        if not multi:
-            return None
-        _counts: dict = {}
-        for _r in multi:
-            _key = (_r['game'], _r['installment'])
-            _counts[_key] = _counts.get(_key, 0) + 1
-        _top = max(_counts, key=_counts.get)
-        _game_info = {'game_name': _top[0], 'game_installment': _top[1]}
-        _game_id = next(
-            (g['game_id'] for g in all_games
-             if g['game_name'] == _top[0] and g['game_installment'] == _top[1]),
-            None
-        )
-        if not _game_id:
-            logger.warning(f"⚠️ game_id not found for {_top[0]} {_top[1]}")
-            return None
-        _mode = get_game_mode_for_date(PLAYER_ID, _game_id, target_date)
-        _modes = get_all_modes_for_date(PLAYER_ID, _game_id, target_date)
-        _count = get_match_count_for_date(PLAYER_ID, _game_id, target_date, _mode)
-        _agg = 'avg' if _count > 1 else 'max'
-        _stats = get_stats_for_date(PLAYER_ID, _game_id, target_date, _mode, aggregate=_agg)
-        _anomalies = detect_anomalies(PLAYER_ID, _game_id, target_date)
-        return _game_info, _game_id, _mode, _modes, _stats, _anomalies, _count
-
     # PRIORITY 1: Games played today
     if check_games_on_date(PLAYER_ID, today):
         logger.info(f"✅ Games found today ({today})")
-        result = _resolve_game_for_date(today)
+        result = _resolve_game_for_date(today, all_games)
         if result:
             game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
             is_averaged = match_count > 1
-            post_type = 'daily'
+            if game_info['game_name'] == 'Multi-Game':
+                post_type = 'multi_game'
+                title = "Multi-Game Session"
+                logger.info(f"🎮 Multi-game session detected today")
+            else:
+                if match_count > 1:
+                    logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
+                post_type = 'daily'
+                title = "Today's Performance"
             date_str = today.strftime('%A, %B %d')
-            title = "Today's Performance"
             subtitle = date_str
             content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
 
     # PRIORITY 2: Games played yesterday
     elif check_games_on_date(PLAYER_ID, yesterday):
         logger.info(f"✅ Games found yesterday ({yesterday})")
-        result = _resolve_game_for_date(yesterday)
+        result = _resolve_game_for_date(yesterday, all_games)
         if result:
             game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
             is_averaged = match_count > 1
-            post_type = 'yesterday'
+            if game_info['game_name'] == 'Multi-Game':
+                post_type = 'multi_game'
+                title = "Multi-Game Session"
+                logger.info(f"🎮 Multi-game session detected yesterday")
+            else:
+                if match_count > 1:
+                    logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
+                post_type = 'yesterday'
+                title = "Yesterday's Performance"
             date_str = yesterday.strftime('%A, %B %d')
-            title = "Yesterday's Performance"
             subtitle = date_str
             content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
 
@@ -1527,15 +1637,31 @@ def run_instagram_poster_for_queue():
         recent_date = get_most_recent_date_in_range(PLAYER_ID, week_min, week_max)
         if recent_date:
             logger.info(f"✅ Recent games found on {recent_date}")
-            result = _resolve_game_for_date(recent_date)
+            result = _resolve_game_for_date(recent_date, all_games)
             if result:
                 game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
                 is_averaged = match_count > 1
-                post_type = 'recent'
+                if game_info['game_name'] == 'Multi-Game':
+                    post_type = 'multi_game'
+                    title = "Multi-Game Session"
+                    logger.info(f"🎮 Multi-game session detected on {recent_date}")
+                else:
+                    if match_count > 1:
+                        logger.info(f"🔁 {match_count} sessions → using AVG stats for {game_info['game_name']}")
+                    post_type = 'recent'
+                    title = "Recent Performance"
                 date_str = recent_date.strftime('%A, %B %d')
-                title = "Recent Performance"
                 subtitle = date_str
                 content_hash = generate_content_hash(stats, game_info['game_name'], date_str)
+
+    # If the chosen content was already posted, fall back to historical instead of halting
+    if post_type and content_hash and content_hash in posted_hashes:
+        logger.warning(f"⚠️ {post_type} content already posted — pivoting to historical records")
+        post_type = None
+        stats = []
+        game_info = {}
+        content_hash = None
+        anomalies = []
 
     # PRIORITY 4: Historical records (past 365 days, MAX)
     if not post_type:
@@ -1546,19 +1672,21 @@ def run_instagram_poster_for_queue():
             raise Exception("No new historical content available (all posted)")
 
         selected_records = records[:3]
-        first_record = selected_records[0]
-
-        game_info = {
-            'game_name': first_record['game'],
-            'game_installment': first_record['installment']
-        }
+        games_in_selection = {(r['game'], r['installment']) for r in selected_records}
+        if len(games_in_selection) == 1:
+            game_info = {
+                'game_name': selected_records[0]['game'],
+                'game_installment': selected_records[0]['installment'],
+            }
+        else:
+            game_info = {'game_name': 'Cross-Game', 'game_installment': None}
 
         stats = [(r['stat'], r['value']) for r in selected_records]
         post_type = 'historical'
         is_averaged = False
         title = "Historical Records"
-        subtitle = "Past Year Bests"
-        content_hash = first_record['hash']
+        subtitle = "All-Time Bests"
+        content_hash = selected_records[0]['hash']
 
         anomalies = [{
             'description': f"Best {r['stat']}: {r['value']} ({r['date'].strftime('%b %d, %Y') if r['date'] else 'N/A'})"
@@ -1566,11 +1694,6 @@ def run_instagram_poster_for_queue():
 
     if not stats:
         raise Exception("No stats to post")
-
-    # Check if already posted
-    if content_hash and content_hash in posted_hashes:
-        logger.warning(f"⚠️ Content already posted (hash: {content_hash[:8]}...)")
-        raise Exception("Content already posted - need alternative content")
 
     logger.info(f"📊 Post type: {post_type}")
     logger.info(f"📈 Stats: {stats}")

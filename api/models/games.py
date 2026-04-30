@@ -31,3 +31,13 @@ class RequestGameRequest(BaseModel):
 
 class UpdatePlayerRequest(BaseModel):
     player_name: str | None = None
+
+
+class GameScoreRequest(BaseModel):
+    """Payload sent by a browser-hosted game after a session ends."""
+    game_name:    str
+    player_name:  str
+    score:        float
+    checkpoints:  int = 0
+    platform:     str = 'PC'
+    input_device: str = 'Keyboard & Mouse'
