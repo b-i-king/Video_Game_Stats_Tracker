@@ -5,6 +5,15 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const FLASK_API = process.env.NEXT_PUBLIC_FLASK_API_URL ?? "";
 
 const nextConfig = {
+  async rewrites() {
+    if (!FLASK_API) return [];
+    return [
+      {
+        source:      "/api/:path*",
+        destination: `${FLASK_API}/api/:path*`,
+      },
+    ];
+  },
   async headers() {
     return [
       {
@@ -14,7 +23,7 @@ const nextConfig = {
             key: "Content-Security-Policy",
             value: [
               // Only load scripts from self and the Flask API origin
-              `script-src 'self' 'unsafe-inline' ${FLASK_API} https://cdn.plot.ly`,
+              `script-src 'self' 'unsafe-inline' ${FLASK_API} https://cdn.plot.ly https://telegram.org`,
               // Iframes may only embed content from self (Plotly srcdoc = same origin)
               `frame-src 'self'`,
               // Stylesheets from self only
