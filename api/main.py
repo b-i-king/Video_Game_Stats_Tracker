@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 from api.core.config import get_settings as _get_settings
@@ -45,6 +46,8 @@ app.include_router(referrals.router,        prefix="/api", tags=["referrals"])
 app.include_router(telegram_channel.router, prefix="/api", tags=["telegram"])
 app.include_router(telegram_auth.router,    prefix="/api", tags=["telegram"])
 app.include_router(telegram_stars.router,   prefix="/api", tags=["telegram"])
+
+app.mount("/games", StaticFiles(directory="web/public/games"), name="games")
 
 
 @app.get("/health", tags=["health"])

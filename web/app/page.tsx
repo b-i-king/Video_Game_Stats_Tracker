@@ -149,7 +149,7 @@ export default async function HomePage() {
               {
                 "@type": "Question",
                 name: "What is a video game stats tracker?",
-                acceptedAnswer: { "@type": "Answer", text: "A video game stats tracker is a web app that lets you log, store, and analyze your in-game performance data — score, eliminationsnat, win rate, KPIs — across multiple sessions and games. VGST tracks all your games in one place without requiring any app download." },
+                acceptedAnswer: { "@type": "Answer", text: "A video game stats tracker is a web app that lets you log, store, and analyze your in-game performance data — score, eliminations, win rate, KPIs — across multiple sessions and games. VGST tracks all your games in one place without requiring any app download." },
               },
               {
                 "@type": "Question",

@@ -73,6 +73,54 @@ async function gameAuth(){
 }
 gameAuth(); // fire-and-forget at load
 
+// ── Audio ─────────────────────────────────────────────────────────────────────
+let _ac = null;
+function _getAC(){
+  if(!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+  if(_ac.state === 'suspended') _ac.resume();
+  return _ac;
+}
+function _tone(freq, type, dur, vol, fEnd, t0){
+  try{
+    const ac=_getAC(), now=ac.currentTime+(t0||0);
+    const o=ac.createOscillator(), g=ac.createGain();
+    o.connect(g); g.connect(ac.destination);
+    o.type=type; o.frequency.setValueAtTime(freq,now);
+    if(fEnd!=null) o.frequency.linearRampToValueAtTime(fEnd,now+dur);
+    g.gain.setValueAtTime(vol,now);
+    g.gain.exponentialRampToValueAtTime(0.001,now+dur);
+    o.start(now); o.stop(now+dur);
+  }catch{}
+}
+function _noise(dur, fLow, fHigh, vol, t0){
+  try{
+    const ac=_getAC(), now=ac.currentTime+(t0||0);
+    const len=Math.ceil(ac.sampleRate*dur);
+    const buf=ac.createBuffer(1,len,ac.sampleRate);
+    const d=buf.getChannelData(0); for(let i=0;i<len;i++) d[i]=Math.random()*2-1;
+    const src=ac.createBufferSource(); src.buffer=buf;
+    const flt=ac.createBiquadFilter(); flt.type='bandpass';
+    flt.frequency.setValueAtTime(fLow,now);
+    flt.frequency.linearRampToValueAtTime(fHigh,now+dur);
+    flt.Q.setValueAtTime(0.7,now);
+    const g=ac.createGain(); g.gain.setValueAtTime(vol,now);
+    g.gain.exponentialRampToValueAtTime(0.001,now+dur);
+    src.connect(flt); flt.connect(g); g.connect(ac.destination);
+    src.start(now); src.stop(now+dur);
+  }catch{}
+}
+const SFX={
+  jump(){           _tone(280,'sine',0.12,0.16,520); },
+  checkpoint(){     _tone(261,'sine',0.10,0.22); _tone(329,'sine',0.10,0.22,null,0.12); _tone(392,'sine',0.14,0.22,null,0.24); },
+  challengeCorrect(){ _tone(523,'sine',0.08,0.20); _tone(659,'sine',0.08,0.20,null,0.09); _tone(784,'sine',0.08,0.20,null,0.18); _tone(1047,'sine',0.20,0.28,null,0.27); },
+  challengeWrong(){ _tone(300,'sawtooth',0.22,0.22,110); },
+  powerSpeed(){     _noise(0.55,400,2800,0.22); _noise(0.55,700,1600,0.10,0.05); }, // wind
+  powerJump(){      _tone(1400,'sine',0.28,0.20,220); _tone(900,'sine',0.18,0.10,180,0.05); }, // rain drop
+  powerShield(){    _tone(80,'sawtooth',0.55,0.18,900); _tone(130,'sine',0.55,0.15,1400); }, // repulsor charge
+  caught(){         _tone(120,'sawtooth',0.65,0.25,35); _noise(0.65,50,220,0.18); },
+  hurryUp(){        for(let i=0;i<3;i++) _tone(880,'square',0.09,0.20,null,i*0.14); },
+};
+
 // ── Canvas ────────────────────────────────────────────────────────────────────
 const C   = document.getElementById('game');
 const ctx = C.getContext('2d');
@@ -228,10 +276,8 @@ const GOLD               = '#D4AF37';
 const CHECKPOINT_EVERY   = 100;   // metres between checkpoints
 const CHALLENGE_EVERY    = 50;    // metres between challenges
 const CHALLENGE_JITTER   = 8;
-const HAZARD_START_SPEED = 0.5;  // matches cameraScrollSpeed baseline — both start in sync
-const HAZARD_MULT        = 1.08;  // speed multiplier per checkpoint
-const HAZARD_MAX_SPEED   = 2.5;   // cap so late game stays playable
 const PAUSE_FRAMES       = 180;   // hazard pause at checkpoint (3 s @ 60 fps)
+const MIN_SCORE_TO_RECORD = 10;   // metres — filters AFK and trivial non-attempts
 const HURRY_INTERVAL    = 1800;  // 30 s at 60 fps between scroll speed bumps
 const HURRY_SPEED_INC   = 0.15;  // px/frame added to scroll speed per hurry
 
@@ -249,7 +295,7 @@ let player;
 
 let platSpawnCount = 0, nextChallenge = 0, nextCheckpoint = CHECKPOINT_EVERY;
 let nextTheme = CHECKPOINT_EVERY; // height-based mechanics trigger, independent of platform generation
-let hazardY = 0, hazardSpeed = HAZARD_START_SPEED, hazardPause = 0;
+let hazardY = 0, hazardPause = 0;
 let checkpointCount = 0, theme = 0;
 let prestige = 0, ngBannerTimer = 0, themeFlash = 0;
 let activePrompt = null;   // { q, correct, decoy } — set when challenge generated
@@ -259,7 +305,6 @@ let scorePops = [], cpStreak = 0, caughtTimer = 0;
 let lastPlatZone = 1; // 0=left, 1=center, 2=right — for organized x spread
 let cameraScrollSpeed = 0.5;  // px/frame forced upward scroll (Icy Tower style)
 let scrollHurryTimer  = 0;    // frames since last hurry-up event
-let scrollLevel       = 0;    // how many hurry-up events have fired
 let hurryUpDisplay    = 0;    // frames left to show "HURRY UP!" overlay
 let _ltTs = 0, _lacc  = 0;   // fixed-step loop: last timestamp, accumulator
 let guaranteeShield   = false; // ensure one shield spawns within 30 m of each challenge
@@ -352,9 +397,9 @@ class Player {
   get bottom(){ return this.y+this.h; }
   applyPow(t){
     const C=[{c:'#ffd166',label:'⚡ SPEED'},{c:'#00cec9',label:'↑ BOOST JUMP'},{c:'#a29bfe',label:'🛡 SHIELD'}];
-    if(t===0) this.speedy =120;
-    if(t===1) this.boosted=60;
-    if(t===2) this.shielded=180;
+    if(t===0){ this.speedy =120; SFX.powerSpeed();  }
+    if(t===1){ this.boosted=60;  SFX.powerJump();   }
+    if(t===2){ this.shielded=180;SFX.powerShield(); }
     const cfg=C[t%3];
     scorePops.push({x:this.cx,sy:this.y-camY-30,val:cfg.label,life:1,c:cfg.c});
     spawnP(this.cx,this.y+this.h/2,10,[cfg.c,'#fff']);
@@ -396,7 +441,7 @@ class Player {
         this.y =p.y-this.h;
         this.vy=this.boosted>0?JUMP*1.4:JUMP;
         if(this.runFrames>=25){ this.vx=this.runDir*(spd+1.8); this.vy*=1.1; }
-        this.squish=8; p.bounce=1.15;
+        this.squish=8; p.bounce=1.15; SFX.jump();
         if(p===this.lastLandedPlat){ combo=0; comboTimer=0; } else { combo++; comboTimer=180; }
         this.lastLandedPlat=p;
         spawnP(this.cx,this.bottom,4,[THEMES[theme].plat[p.ci%THEMES[theme].plat.length]||GOLD]);
@@ -405,8 +450,9 @@ class Player {
         if(p.type==='ch_correct' || p.type==='ch_wrong'){
           activePrompt=null;
           platforms.forEach(cp=>{ if(cp.type==='ch_correct'||cp.type==='ch_wrong') cp.dead=true; });
-          if(p.type==='ch_correct'){ this.shielded=0; this.springJump(); }
+          if(p.type==='ch_correct'){ this.shielded=0; this.springJump(); SFX.challengeCorrect(); }
           else{
+            SFX.challengeWrong();
             if(this.shielded>0){
               this.shielded=0;
               spawnP(this.cx,this.bottom,12,['#a29bfe','#fff','#c8b0ff']);
@@ -421,6 +467,7 @@ class Player {
           hazardPause = PAUSE_FRAMES; // rest point: only granted if player lands on platform
           themeFlash = 28;
           spawnP(this.cx,this.bottom,35,[GOLD,'#fff','#ffd166']);
+          SFX.checkpoint();
         }
         if(p.y<this.lastPlatY){
           const ns=Math.round(Math.abs(p.y)/40);
@@ -573,10 +620,10 @@ function initGame(){
   nextChallenge=CHALLENGE_EVERY+ri(-CHALLENGE_JITTER,CHALLENGE_JITTER);
   nextCheckpoint=CHECKPOINT_EVERY;
   checkpointCount=0; theme=0; activePrompt=null; nextTheme=CHECKPOINT_EVERY;
-  hazardY=H-10; hazardSpeed=HAZARD_START_SPEED; hazardPause=0; // hazardY fixed screen-space floor
+  hazardY=H-10; hazardPause=0;
   prestige=0; ngBannerTimer=0; themeFlash=0; caughtTimer=0; lastPlatZone=1;
   scoreSubmitted=false; gamePaused=false; scorePops=[]; cpStreak=0;
-  cameraScrollSpeed=0.5; scrollHurryTimer=-HURRY_INTERVAL; scrollLevel=0; hurryUpDisplay=0; _ltTs=0; _lacc=0; guaranteeShield=false;
+  cameraScrollSpeed=0.5; scrollHurryTimer=-HURRY_INTERVAL; hurryUpDisplay=0; _ltTs=0; _lacc=0; guaranteeShield=false;
   platforms.push(new Platform(W/2-60,50,120,0,'normal'));
   generatePlatforms(50, 50-2200);  // full first batch
   topReached = 50-2200;            // align so runtime call doesn't fire immediately
@@ -954,7 +1001,7 @@ function physicsFrame(){
   // Hurry Up: first fires 60 s in (grace period), then every 30 s after
   scrollHurryTimer++;
   if(scrollHurryTimer>=HURRY_INTERVAL){
-    scrollHurryTimer=0; scrollLevel++; cameraScrollSpeed+=HURRY_SPEED_INC; hurryUpDisplay=220;
+    scrollHurryTimer=0; cameraScrollSpeed+=HURRY_SPEED_INC; hurryUpDisplay=220; SFX.hurryUp();
   }
 
   // Camera + hazard unified: both pause during checkpoint rest
@@ -984,9 +1031,9 @@ function physicsFrame(){
 
   // Death: hazard (screen-space) reaches player's feet
   if(player.bottom-camY > hazardY){
-    if(!scoreSubmitted){ scoreSubmitted=true; submitScore(player.score, checkpointCount); }
+    if(!scoreSubmitted){ scoreSubmitted=true; if(player.score>=MIN_SCORE_TO_RECORD) submitScore(player.score, checkpointCount); }
     spawnP(player.cx,player.bottom,50,['#ff4466','#ff0033','#fff','#ffd166']);
-    caughtTimer=1;
+    SFX.caught(); caughtTimer=1;
   }
 }
 

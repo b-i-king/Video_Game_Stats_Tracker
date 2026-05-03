@@ -1,4 +1,5 @@
 import asyncio
+from datetime import timezone, datetime
 
 from fastapi import APIRouter, HTTPException
 from api.core.deps import DynamicConn, CurrentUser, TrustedUser
@@ -230,6 +231,12 @@ async def submit_game_score(
     Requires a Bearer JWT obtained via /api/game/auth.
     DynamicConn routes owners to personal_pool and public users to public_pool.
     """
+    _MIN_SCORE   = 10   # metres — must match MIN_SCORE_TO_RECORD in light-climb.html
+    _COOLDOWN_S  = 60   # seconds — minimum gap between recorded runs per user per game
+
+    if body.score < _MIN_SCORE:
+        raise HTTPException(status_code=400, detail="Score too low to record.")
+
     user_id = user["user_id"]
 
     # 1. Game lookup — NULL installment safe (ON CONFLICT won't fire for NULLs)
@@ -256,7 +263,19 @@ async def submit_game_score(
             body.player_name, user_id,
         )
 
-    # 3. first_session_of_day
+    # 3. Rate limit — reject if a run was already recorded within the cooldown window
+    last_run = await conn.fetchval(
+        """SELECT played_at FROM fact.fact_game_stats
+           WHERE player_id = $1 AND game_id = $2
+           ORDER BY played_at DESC LIMIT 1""",
+        player_id, game_id,
+    )
+    if last_run:
+        elapsed = (datetime.now(timezone.utc) - last_run).total_seconds()
+        if elapsed < _COOLDOWN_S:
+            raise HTTPException(status_code=429, detail="Run submitted too soon — please finish a full attempt.")
+
+    # 4. first_session_of_day
     played_today = await conn.fetchval(
         """SELECT EXISTS(
             SELECT 1 FROM fact.fact_game_stats gs
@@ -268,7 +287,7 @@ async def submit_game_score(
     )
     first_session_of_day = 0 if played_today else 1
 
-    # 4. Insert stat row
+    # 5. Insert stat row
     played_at = await conn.fetchval("SELECT NOW()")
     await conn.execute(
         """INSERT INTO fact.fact_game_stats
@@ -288,7 +307,7 @@ async def submit_game_score(
         played_at,
     )
 
-    # 5. Owner: fire full social pipeline (charts → GCS → Twitter/IFTTT + Telegram with photo)
+    # 6. Owner: fire full social pipeline (charts → GCS → Twitter/IFTTT + Telegram with photo)
     if user.get("is_owner"):
         from utils.social_pipeline import run_social_media_pipeline
         asyncio.create_task(
