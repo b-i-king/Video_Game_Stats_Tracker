@@ -984,7 +984,7 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
         # SORT stats by value (descending) — largest at top
         sorted_stats = sorted(stats, key=lambda x: x[1], reverse=True)
         stat_names = [abbreviate_stat(stat[0]) for stat in sorted_stats]
-        stat_values = [stat[1] for stat in sorted_stats]
+        stat_values = [float(stat[1]) for stat in sorted_stats]
         # REVERSE for matplotlib (barh plots bottom-to-top, we want largest on top)
         stat_names.reverse()
         stat_values.reverse()
@@ -2509,13 +2509,13 @@ def get_weekly_summary_data(player_id, week_start, week_end):
     top_day_raw = execute_query(
         """
         SELECT (played_at AT TIME ZONE %s)::DATE AS play_date,
-               COUNT(*) AS cnt
+               COUNT(DISTINCT played_at) AS session_count
         FROM fact.fact_game_stats
         WHERE player_id = %s
           AND (played_at AT TIME ZONE %s)::DATE
               BETWEEN %s AND %s
-        GROUP BY played_at, (played_at AT TIME ZONE %s)::DATE
-        ORDER BY cnt DESC, play_date ASC
+        GROUP BY (played_at AT TIME ZONE %s)::DATE
+        ORDER BY session_count DESC, play_date ASC
         LIMIT 1;
         """,
         (TIMEZONE_STR, player_id, TIMEZONE_STR, week_start, week_end, TIMEZONE_STR)

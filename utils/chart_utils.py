@@ -223,8 +223,16 @@ def should_use_log_scale(values):
     else:
         numeric_values = values
     
-    non_zero_values = [v for v in numeric_values if isinstance(v, (int, float)) and v > 0]
-    
+    _non_zero = []
+    for v in numeric_values:
+        try:
+            fv = float(v)
+            if fv > 0:
+                _non_zero.append(fv)
+        except (TypeError, ValueError):
+            pass
+    non_zero_values = _non_zero
+
     if not non_zero_values or len(non_zero_values) < 2:
         return False
     
