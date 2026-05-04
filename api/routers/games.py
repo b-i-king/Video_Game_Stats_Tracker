@@ -299,7 +299,7 @@ async def submit_game_score(
         """,
         game_id, player_id, "Height", float(body.score),
         "Solo", 1, "1",
-        str(body.checkpoints), None, None,
+        body.checkpoints, None, None,
         None, None,
         None, None,
         body.input_device, body.platform,
