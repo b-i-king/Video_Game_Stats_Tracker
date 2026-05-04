@@ -933,13 +933,27 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     
     # Format x-axis dates with year if needed
     date_format = format_date_label(dates)
+    # One tick per calendar day; interval scales so we never show more than ~8 labels.
+    import math as _math
+    import datetime as _dt
+    _day_set = {d.date() if hasattr(d, 'date') else d for d in dates}
+    unique_days = len(_day_set)
+    day_interval = max(1, _math.ceil(unique_days / 8))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=day_interval))
     ax.xaxis.set_major_formatter(mdates.DateFormatter(date_format))
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    # Expand xlim to midnight-to-midnight so DayLocator ticks land inside the visible range.
+    _first_day = min(_day_set)
+    _last_day  = max(_day_set)
+    ax.set_xlim(
+        _dt.datetime(_first_day.year, _first_day.month, _first_day.day),
+        _dt.datetime(_last_day.year,  _last_day.month,  _last_day.day, 23, 59, 59),
+    )
     # Dynamic date label size: space per label divided by rotated-label footprint.
     # At 35° rotation horizontal footprint ≈ fontsize × 3.5 (width × cos + height × sin).
     # Capped at 20pt (phone-readable) and floored at 12pt (still legible when dense).
     _axis_w_pts = fig_width_pts * 0.80  # ~80% of figure width used by axes
-    _space_per_date = _axis_w_pts / max(len(dates), 1)
+    _tick_count = max(unique_days // day_interval, 1)
+    _space_per_date = _axis_w_pts / _tick_count
     date_fontsize = max(12, min(int(_space_per_date / 3.5), 20))
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=35, ha='right', fontsize=date_fontsize)
     
