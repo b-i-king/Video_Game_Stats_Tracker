@@ -122,10 +122,15 @@ def abbreviate_stat(stat_name):
     """
     if not stat_name:
         return "XXXX"
-    
+
     # Clean up the stat name
     clean = stat_name.strip()
-    
+
+    # Known abbreviations — checked before the generic rules
+    _KNOWN = {"Checkpoints": "CP", "Checkpoint": "CP"}
+    if clean in _KNOWN:
+        return _KNOWN[clean]
+
     # Split into words (handles spaces, dashes, underscores)
     # Note: / is kept as-is (for K/D, E/R ratios)
     words = clean.replace('-', ' ').replace('_', ' ').split()
@@ -1115,47 +1120,29 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
     # MAX would show the highest value from all matches on a given day, which doesn't
     # match what the user just submitted when a later match has a lower value (e.g.,
     # match 1: 9 elims, match 2: 7 elims → MAX=9 but latest=7).
+    # Each session's played_at (converted to local time) is used as the x-axis key.
+    # Multiple stat types within the same session share the same played_at, so the
+    # seen_dates deduplication below groups them into one x position automatically.
+    # Same-day sessions become separate dots rather than collapsing to one per day.
     if days_back is not None:
         cur.execute(f"""
-            SELECT play_date, stat_type, stat_value AS latest_value
-            FROM (
-                SELECT
-                    (played_at AT TIME ZONE %s)::DATE AS play_date,
-                    stat_type,
-                    stat_value,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY (played_at AT TIME ZONE %s)::DATE, stat_type
-                        ORDER BY played_at DESC
-                    ) AS rn
-                FROM fact.fact_game_stats
-                WHERE player_id = %s
-                  AND game_id = %s
-                  AND stat_type IN ({placeholders})
-                  AND played_at >= NOW() - (%s || ' days')::INTERVAL
-            ) t
-            WHERE rn = 1
-            ORDER BY play_date;
-        """, (timezone_str, timezone_str, player_id, game_id, *top_stat_types[:3], days_back))
+            SELECT (played_at AT TIME ZONE %s) AS play_ts, stat_type, stat_value
+            FROM fact.fact_game_stats
+            WHERE player_id = %s
+              AND game_id = %s
+              AND stat_type IN ({placeholders})
+              AND played_at >= NOW() - (%s || ' days')::INTERVAL
+            ORDER BY play_ts;
+        """, (timezone_str, player_id, game_id, *top_stat_types[:3], days_back))
     else:
         cur.execute(f"""
-            SELECT play_date, stat_type, stat_value AS latest_value
-            FROM (
-                SELECT
-                    (played_at AT TIME ZONE %s)::DATE AS play_date,
-                    stat_type,
-                    stat_value,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY (played_at AT TIME ZONE %s)::DATE, stat_type
-                        ORDER BY played_at DESC
-                    ) AS rn
-                FROM fact.fact_game_stats
-                WHERE player_id = %s
-                  AND game_id = %s
-                  AND stat_type IN ({placeholders})
-            ) t
-            WHERE rn = 1
-            ORDER BY play_date;
-        """, (timezone_str, timezone_str, player_id, game_id, *top_stat_types[:3]))
+            SELECT (played_at AT TIME ZONE %s) AS play_ts, stat_type, stat_value
+            FROM fact.fact_game_stats
+            WHERE player_id = %s
+              AND game_id = %s
+              AND stat_type IN ({placeholders})
+            ORDER BY play_ts;
+        """, (timezone_str, player_id, game_id, *top_stat_types[:3]))
 
     # Pivot results into the expected stat_history structure
     stat_values_map = {st: {} for st in top_stat_types[:3]}
@@ -1163,12 +1150,12 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
     seen_dates = set()
 
     for row in cur.fetchall():
-        play_date, stat_type, best_value = row
-        if play_date not in seen_dates:
-            seen_dates.add(play_date)
-            dates_ordered.append(play_date)
+        play_ts, stat_type, best_value = row
+        if play_ts not in seen_dates:
+            seen_dates.add(play_ts)
+            dates_ordered.append(play_ts)
         if stat_type in stat_values_map:
-            stat_values_map[stat_type][play_date] = int(float(best_value)) if best_value is not None else 0
+            stat_values_map[stat_type][play_ts] = int(float(best_value)) if best_value is not None else 0
 
     stat_history['dates'] = dates_ordered
 
@@ -1179,7 +1166,7 @@ def get_stat_history_from_db(cur, player_id, game_id, top_stat_types, timezone_s
         stat_key = f'stat{i}'
         stat_history[stat_key]['label'] = stat_type
         stat_history[stat_key]['values'] = [
-            stat_values_map[stat_type].get(date, 0) for date in dates_ordered
+            stat_values_map[stat_type].get(ts, 0) for ts in dates_ordered
         ]
 
     return stat_history

@@ -46,6 +46,7 @@ def run_social_media_pipeline(
         queue_platforms:  Platforms to enqueue rather than immediately post
                           e.g. ['twitter', 'instagram']. Empty list = post now.
     """
+    import os
     import psycopg2
     from api.core.config import get_settings
     from utils.chart_utils import (
@@ -123,7 +124,11 @@ def run_social_media_pipeline(
             )
             sessions_30d: int = cur.fetchone()[0]
 
-            stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats, days_back=30)
+            tz_str = os.getenv("TIMEZONE", "America/Los_Angeles")
+            stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats, timezone_str=tz_str, days_back=30)
+            if not stat_history.get('dates'):
+                print(f"⚠️  [bg] No sessions in last 30 days for {player_name} / {game_name} — post skipped.")
+                return
             buf_tw = generate_line_chart(stat_history, player_name, game_name, game_installment, size="twitter",   game_mode=batch_game_mode)
             buf_ig = generate_line_chart(stat_history, player_name, game_name, game_installment, size="instagram", game_mode=batch_game_mode)
             chart_type = "line"
