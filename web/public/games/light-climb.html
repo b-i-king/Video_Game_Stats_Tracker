@@ -29,11 +29,12 @@ let PLAYER_INITIALS = PLAYER_NAME.slice(0,2).toUpperCase();
 const TG_INIT_DATA  = tg?.initData ?? '';
 
 // ── Auth — obtain a short-lived JWT at load time ──────────────────────────────
-let _gameJwt       = null;
-let _pendingScore  = null; // {score, checkpoints} queued while auth was in-flight
+let _gameJwt      = null;
+let _pendingScore = null; // {score, checkpoints} queued while auth was in-flight
+let _authState    = 'idle'; // 'idle' | 'pending' | 'ok' | 'failed'
 
 async function _postScore(score, checkpoints){
-  await fetch('/api/game/score',{
+  const r = await fetch('/api/game/score',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+_gameJwt},
     body:JSON.stringify({
@@ -46,10 +47,13 @@ async function _postScore(score, checkpoints){
     }),
     signal:AbortSignal.timeout(5000),
   });
+  if(!r.ok){ const t=await r.text(); console.warn('[LC] score submit',r.status,t); }
+  else console.log('[LC] score recorded',score+'m',checkpoints,'cp');
 }
 
 async function gameAuth(){
-  if(!TG_INIT_DATA) return;
+  if(!TG_INIT_DATA || _authState==='ok') return;
+  _authState = 'pending';
   try{
     const r = await fetch('/api/game/auth',{
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -58,7 +62,8 @@ async function gameAuth(){
     });
     if(r.ok){
       const data = await r.json();
-      _gameJwt = data.token;
+      _gameJwt   = data.token;
+      _authState = 'ok';
       if(PLAYER_NAME === 'YOU' && data.display_name){
         PLAYER_NAME     = data.display_name;
         PLAYER_INITIALS = PLAYER_NAME.slice(0,2).toUpperCase();
@@ -66,10 +71,13 @@ async function gameAuth(){
       if(_pendingScore){
         const {score, checkpoints} = _pendingScore;
         _pendingScore = null;
-        try{ await _postScore(score, checkpoints); }catch{}
+        try{ await _postScore(score, checkpoints); }catch(e){ console.error('[LC] pending flush',e); }
       }
+    } else {
+      _authState = 'failed';
+      console.warn('[LC] auth failed', r.status, await r.text());
     }
-  }catch{}
+  }catch(e){ _authState='failed'; console.error('[LC] auth error',e); }
 }
 gameAuth(); // fire-and-forget at load
 
@@ -467,7 +475,6 @@ class Player {
           hazardPause = PAUSE_FRAMES; // rest point: only granted if player lands on platform
           themeFlash = 28;
           spawnP(this.cx,this.bottom,35,[GOLD,'#fff','#ffd166']);
-          SFX.checkpoint();
         }
         if(p.y<this.lastPlatY){
           const ns=Math.round(Math.abs(p.y)/40);
@@ -480,6 +487,7 @@ class Player {
               nextTheme += CHECKPOINT_EVERY;
               const newPrestige = Math.floor(checkpointCount / THEMES.length);
               if(newPrestige > prestige){ prestige = newPrestige; ngBannerTimer = 220; }
+              SFX.checkpoint();
             }
           }
           this.score=ns; this.lastPlatY=p.y;
@@ -639,12 +647,13 @@ function shareScore(){
 
 // ── Score submission ──────────────────────────────────────────────────────────
 async function submitScore(score, checkpoints){
-  if(!TG_INIT_DATA) return; // not running inside Telegram — skip silently
+  if(!TG_INIT_DATA) return;
   if(!_gameJwt){
-    _pendingScore = {score, checkpoints}; // auth still in-flight; flush on resolve
+    _pendingScore = {score, checkpoints};
+    if(_authState !== 'pending') await gameAuth(); // retry if initial auth failed
     return;
   }
-  try{ await _postScore(score, checkpoints); }catch{}
+  try{ await _postScore(score, checkpoints); }catch(e){ console.error('[LC] submit error',e); }
 }
 
 // ── Skin helpers ──────────────────────────────────────────────────────────────

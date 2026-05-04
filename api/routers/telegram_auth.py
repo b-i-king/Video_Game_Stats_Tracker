@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.core.deps import DynamicConn, require_api_key
-from api.core.database import public_pool, personal_pool as _personal_pool
+from api.core import database as _db
 from api.routers.auth import _make_token, _resolve_role, _owner_set, _trusted_set
 
 
@@ -89,7 +89,7 @@ async def _process_telegram_auth(body: TelegramLoginBody, conn) -> dict:
 
     # ── Owner path: personal pool ─────────────────────────────────────────────
     if telegram_id in _telegram_owner_id_set():
-        async with _personal_pool.acquire() as pconn:
+        async with _db.personal_pool.acquire() as pconn:
             owner_row = await pconn.fetchrow(
                 "SELECT user_id, user_email FROM dim.dim_users WHERE user_email = ANY($1::text[])",
                 list(_owner_set()),
@@ -155,13 +155,11 @@ async def _process_telegram_auth(body: TelegramLoginBody, conn) -> dict:
         is_trusted = should_be_trusted
 
     plan = "free"
-    if public_pool:
-        async with public_pool.acquire() as pub:
-            sub = await pub.fetchval(
-                "SELECT plan FROM app.subscriptions WHERE user_id = $1", user_id
-            )
-            if sub:
-                plan = sub
+    sub = await conn.fetchval(
+        "SELECT plan FROM app.subscriptions WHERE user_id = $1", user_id
+    )
+    if sub:
+        plan = sub
 
     resolved_role = _resolve_role(email, is_trusted, False, plan)
     token         = _make_token(email, user_id, is_trusted, False, resolved_role)
