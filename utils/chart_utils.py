@@ -274,7 +274,7 @@ def format_date_label(dates):
     return '%b %d'
 
 
-def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, theme, game_mode=None):
+def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, theme, game_mode=None, title_label="First Game Stats"):
     """
     Generate a KPI scoreboard visual for a single stat.
     Shows the abbreviated stat name in large text with the value as a huge
@@ -283,7 +283,7 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
     colors = theme['colors']
 
     # Pre-compute title line for dynamic font sizing
-    _line1 = f"{player_name}'s First Game Stats"
+    _line1 = f"{player_name}'s {title_label}"
     _char_ratio = 0.60
     _fill = 0.88
 
@@ -387,7 +387,7 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
     y_position = 0.96
     line_spacing = (title_fontsize / fig_height_pts) * 1.30
 
-    fig.text(0.5, y_position, f"{player_name}'s First Game Stats", ha='center', va='top',
+    fig.text(0.5, y_position, f"{player_name}'s {title_label}", ha='center', va='top',
              fontsize=title_fontsize, fontweight='bold', color='white',
              transform=fig.transFigure)
     y_position -= line_spacing
@@ -444,7 +444,7 @@ def _generate_kpi_chart(stat, player_name, game_name, game_installment, size, th
     return buf
 
 
-def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter', game_mode=None, tz=None):
+def generate_bar_chart(stat_data, player_name, game_name, game_installment=None, size='twitter', game_mode=None, tz=None, title_label="First Game Stats"):
     """
     Generate a HORIZONTAL bar chart for first-time game stats.
     
@@ -502,13 +502,13 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     colors = theme['colors']
 
     if num_stats == 1:
-        return _generate_kpi_chart(stats[0], player_name, game_name, game_installment, size, theme, game_mode=game_mode)
+        return _generate_kpi_chart(stats[0], player_name, game_name, game_installment, size, theme, game_mode=game_mode, title_label=title_label)
 
     # Determine if we should use log scale
     use_log = should_use_log_scale(values)
 
     # Pre-compute title line for dynamic font sizing (used in both size branches)
-    _line1_preview = f"{player_name}'s First Game Stats"
+    _line1_preview = f"{player_name}'s {title_label}"
     _char_ratio = 0.60
     _fill = 0.88
 
@@ -641,8 +641,8 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     # Line spacing proportional to font height in figure-fraction coordinates
     line_spacing = (title_fontsize / fig_height_pts) * 1.30
 
-    # Line 1: "{Player}'s First Game Stats" - WHITE
-    line1 = f"{player_name}'s First Game Stats"
+    # Line 1: "{Player}'s {title_label}" - WHITE
+    line1 = f"{player_name}'s {title_label}"
     fig.text(0.5, y_position, line1, ha='center', va='top',
              fontsize=title_fontsize, fontweight='bold', color='white',
              transform=fig.transFigure)

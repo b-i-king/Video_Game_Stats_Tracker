@@ -89,13 +89,13 @@ def run_social_media_pipeline(
         """, (game_id, player_id))
         top_stats: list[str] = [r[0] for r in cur.fetchall()]
 
-        if games_played == 1:
-            stat_data: dict = {}
+        def _build_bar_data() -> dict:
+            sd: dict = {}
             for i, s in enumerate(stats[:3], 1):
                 st = s.get("stat_type")
                 if not st:
                     continue
-                stat_data[f"stat{i}"] = {
+                sd[f"stat{i}"] = {
                     "label": st,
                     "value": s.get("stat_value", 0),
                     "prev_value": None,
@@ -107,8 +107,11 @@ def run_social_media_pipeline(
                 """, (player_id, game_id, st))
                 prev_rows = cur.fetchall()
                 if len(prev_rows) > 1:
-                    stat_data[f"stat{i}"]["prev_value"] = prev_rows[1][0]
+                    sd[f"stat{i}"]["prev_value"] = prev_rows[1][0]
+            return sd
 
+        if games_played == 1:
+            stat_data = _build_bar_data()
             buf_tw = generate_bar_chart(stat_data, player_name, game_name, game_installment, size="twitter",   game_mode=batch_game_mode)
             buf_ig = generate_bar_chart(stat_data, player_name, game_name, game_installment, size="instagram", game_mode=batch_game_mode)
             chart_type = "bar"
@@ -126,30 +129,37 @@ def run_social_media_pipeline(
 
             tz_str = os.getenv("TIMEZONE", "America/Los_Angeles")
             stat_history = get_stat_history_from_db(cur, player_id, game_id, top_stats, timezone_str=tz_str, days_back=30)
-            if not stat_history.get('dates'):
-                print(f"⚠️  [bg] No sessions in last 30 days for {player_name} / {game_name} — post skipped.")
-                return
-            buf_tw = generate_line_chart(stat_history, player_name, game_name, game_installment, size="twitter",   game_mode=batch_game_mode)
-            buf_ig = generate_line_chart(stat_history, player_name, game_name, game_installment, size="instagram", game_mode=batch_game_mode)
-            chart_type = "line"
-            stat_data_for_caption = {}
-            for i in range(1, 4):
-                key = f"stat{i}"
-                if key in stat_history and stat_history[key]:
-                    vals  = stat_history[key].get("values", [])
-                    label = stat_history[key].get("label", "")
-                    cur.execute("""
-                        SELECT stat_value FROM fact.fact_game_stats
-                        WHERE player_id = %s AND game_id = %s AND stat_type = %s
-                        ORDER BY played_at DESC LIMIT 2
-                    """, (player_id, game_id, label))
-                    prev_rows = cur.fetchall()
-                    stat_data_for_caption[key] = {
-                        "label": label,
-                        "value": vals[-1] if vals else 0,
-                        "prev_value": prev_rows[1][0] if len(prev_rows) > 1 else None,
-                    }
-            interactive_data = stat_history
+
+            if len(stat_history.get('dates', [])) < 2:
+                print(f"⚠️  [bg] Only {len(stat_history.get('dates', []))} session(s) in last 30 days for {player_name} / {game_name} — falling back to bar chart.")
+                stat_data = _build_bar_data()
+                buf_tw = generate_bar_chart(stat_data, player_name, game_name, game_installment, size="twitter",   game_mode=batch_game_mode, title_label="Latest Game Stats")
+                buf_ig = generate_bar_chart(stat_data, player_name, game_name, game_installment, size="instagram", game_mode=batch_game_mode, title_label="Latest Game Stats")
+                chart_type = "bar"
+                stat_data_for_caption = stat_data
+                interactive_data = stat_data
+            else:
+                buf_tw = generate_line_chart(stat_history, player_name, game_name, game_installment, size="twitter",   game_mode=batch_game_mode)
+                buf_ig = generate_line_chart(stat_history, player_name, game_name, game_installment, size="instagram", game_mode=batch_game_mode)
+                chart_type = "line"
+                stat_data_for_caption = {}
+                for i in range(1, 4):
+                    key = f"stat{i}"
+                    if key in stat_history and stat_history[key]:
+                        vals  = stat_history[key].get("values", [])
+                        label = stat_history[key].get("label", "")
+                        cur.execute("""
+                            SELECT stat_value FROM fact.fact_game_stats
+                            WHERE player_id = %s AND game_id = %s AND stat_type = %s
+                            ORDER BY played_at DESC LIMIT 2
+                        """, (player_id, game_id, label))
+                        prev_rows = cur.fetchall()
+                        stat_data_for_caption[key] = {
+                            "label": label,
+                            "value": vals[-1] if vals else 0,
+                            "prev_value": prev_rows[1][0] if len(prev_rows) > 1 else None,
+                        }
+                interactive_data = stat_history
 
         else:
             print("⚠️  [bg] No sessions found — pipeline aborted.")
