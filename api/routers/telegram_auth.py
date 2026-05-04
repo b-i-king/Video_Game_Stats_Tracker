@@ -94,8 +94,12 @@ async def _process_telegram_auth(body: TelegramLoginBody, conn) -> dict:
                 "SELECT user_id, user_email FROM dim.dim_users WHERE user_email = ANY($1::text[])",
                 list(_owner_set()),
             )
-        if not owner_row:
-            raise HTTPException(status_code=404, detail="Owner account not found in personal DB.")
+            if not owner_row:
+                raise HTTPException(status_code=404, detail="Owner account not found in personal DB.")
+            player_rows = await pconn.fetch(
+                "SELECT player_id, player_name FROM dim.dim_players WHERE user_id = $1 ORDER BY created_at",
+                owner_row["user_id"],
+            )
         user_id       = owner_row["user_id"]
         email         = owner_row["user_email"]
         resolved_role = _resolve_role(email, True, True, "premium")
@@ -109,6 +113,7 @@ async def _process_telegram_auth(body: TelegramLoginBody, conn) -> dict:
             "is_owner":     True,
             "is_trusted":   True,
             "display_name": display_name,
+            "players":      [{"player_id": r["player_id"], "player_name": r["player_name"]} for r in player_rows],
         }
 
     # ── Public user path ──────────────────────────────────────────────────────
@@ -161,6 +166,10 @@ async def _process_telegram_auth(body: TelegramLoginBody, conn) -> dict:
     if sub:
         plan = sub
 
+    player_rows = await conn.fetch(
+        "SELECT player_id, player_name FROM dim.dim_players WHERE user_id = $1 ORDER BY created_at",
+        user_id,
+    )
     resolved_role = _resolve_role(email, is_trusted, False, plan)
     token         = _make_token(email, user_id, is_trusted, False, resolved_role)
     display_name  = tg_user.get("first_name") or f"Player {str(telegram_id)[:6]}"
@@ -172,6 +181,7 @@ async def _process_telegram_auth(body: TelegramLoginBody, conn) -> dict:
         "is_owner":     False,
         "is_trusted":   is_trusted,
         "display_name": display_name,
+        "players":      [{"player_id": r["player_id"], "player_name": r["player_name"]} for r in player_rows],
     }
 
 

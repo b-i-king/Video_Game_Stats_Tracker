@@ -41,3 +41,4 @@ class GameScoreRequest(BaseModel):
     checkpoints:  int = 0
     platform:     str = 'PC'
     input_device: str = 'Keyboard & Mouse'
+    player_id:    int | None = None

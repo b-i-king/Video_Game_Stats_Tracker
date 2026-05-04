@@ -29,9 +29,11 @@ let PLAYER_INITIALS = PLAYER_NAME.slice(0,2).toUpperCase();
 const TG_INIT_DATA  = tg?.initData ?? '';
 
 // ── Auth — obtain a short-lived JWT at load time ──────────────────────────────
-let _gameJwt      = null;
-let _pendingScore = null; // {score, checkpoints} queued while auth was in-flight
-let _authState    = 'idle'; // 'idle' | 'pending' | 'ok' | 'failed'
+let _gameJwt         = null;
+let _pendingScore    = null; // {score, checkpoints} queued while auth was in-flight
+let _authState       = 'idle'; // 'idle' | 'pending' | 'ok' | 'failed'
+let _players         = [];    // [{player_id, player_name}] from auth response
+let _selectedPlayerId = null; // player to record scores against
 
 async function _postScore(score, checkpoints){
   const r = await fetch('/api/game/score',{
@@ -44,6 +46,7 @@ async function _postScore(score, checkpoints){
       checkpoints,
       platform:     IS_MOBILE ? 'Mobile' : 'PC',
       input_device: IS_MOBILE ? 'Touch'  : 'Keyboard & Mouse',
+      player_id:   _selectedPlayerId,
     }),
     signal:AbortSignal.timeout(5000),
   });
@@ -68,6 +71,8 @@ async function gameAuth(){
         PLAYER_NAME     = data.display_name;
         PLAYER_INITIALS = PLAYER_NAME.slice(0,2).toUpperCase();
       }
+      _players = data.players || [];
+      if(_players.length >= 1) _selectedPlayerId = _players[0].player_id;
       if(_pendingScore){
         const {score, checkpoints} = _pendingScore;
         _pendingScore = null;
@@ -899,6 +904,25 @@ function drawSkinPicker(){
   ctx.fillStyle=GOLD; ctx.font='bold 52px sans-serif'; ctx.fillText('CLIMB',W/2,H/2-50);
   ctx.fillStyle='#bbb'; ctx.font='14px sans-serif'; ctx.fillText('Choose your look',W/2,H/2-8);
 
+  // ── Player picker (only when multiple players exist) ────────────────────────
+  if(_players.length > 1){
+    const pyLabel = H/2+10, btnH = 22, btnY = H/2+16;
+    const btnW = (SGW - (_players.length-1)*8) / _players.length;
+    ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.font='bold 9px sans-serif'; ctx.textAlign='left';
+    ctx.fillText('PLAYER',SGBX,pyLabel);
+    _players.forEach((p,i)=>{
+      const bx=SGBX+i*(btnW+8);
+      const sel=p.player_id===_selectedPlayerId;
+      ctx.fillStyle=sel?GOLD:'rgba(255,255,255,0.12)';
+      ctx.beginPath(); ctx.roundRect(bx,btnY,btnW,btnH,6); ctx.fill();
+      ctx.strokeStyle=sel?GOLD:'rgba(255,255,255,0.3)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.roundRect(bx,btnY,btnW,btnH,6); ctx.stroke();
+      ctx.fillStyle=sel?'#000':'#fff'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
+      const lbl=p.player_name.length>12?p.player_name.slice(0,11)+'…':p.player_name;
+      ctx.fillText(lbl,bx+btnW/2,btnY+btnH/2+4);
+    });
+  }
+
   // ── Skin tone bar (primary) ──────────────────────────────────────────────────
   const sgby=H/2+SGBY_OFF;
   ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.font='bold 9px sans-serif'; ctx.textAlign='left';
@@ -1120,6 +1144,15 @@ C.addEventListener('pointerdown',e=>{
   const sgby=H/2+SGBY_OFF;
   const specby=H/2+SPEC_Y_OFF;
   if(state==='skin'){
+    if(_players.length>1){
+      const btnH=22, btnY=H/2+16, btnW=(SGW-(_players.length-1)*8)/_players.length;
+      if(cy>=btnY&&cy<=btnY+btnH){
+        for(let i=0;i<_players.length;i++){
+          const bx=SGBX+i*(btnW+8);
+          if(cx>=bx&&cx<=bx+btnW){ _selectedPlayerId=_players[i].player_id; return; }
+        }
+      }
+    }
     if(cy>=sgby-12&&cy<=sgby+SGH+12){
       skinDragging=true; skinToneT=tFromX(cx); skinColor=colorFromT(skinToneT); return;
     }

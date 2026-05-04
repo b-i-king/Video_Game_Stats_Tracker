@@ -252,10 +252,17 @@ async def submit_game_score(
         )
 
     # 2. Player lookup / create
-    player_id = await conn.fetchval(
-        "SELECT player_id FROM dim.dim_players WHERE user_id = $1 ORDER BY created_at LIMIT 1",
-        user_id,
-    )
+    player_id = None
+    if body.player_id:
+        player_id = await conn.fetchval(
+            "SELECT player_id FROM dim.dim_players WHERE player_id = $1 AND user_id = $2",
+            body.player_id, user_id,
+        )
+    if not player_id:
+        player_id = await conn.fetchval(
+            "SELECT player_id FROM dim.dim_players WHERE user_id = $1 ORDER BY created_at LIMIT 1",
+            user_id,
+        )
     if not player_id:
         player_id = await conn.fetchval(
             "INSERT INTO dim.dim_players (player_name, user_id, created_at)"
@@ -310,11 +317,14 @@ async def submit_game_score(
     # 6. Owner: fire full social pipeline (charts → GCS → Twitter/IFTTT + Telegram with photo)
     if user.get("is_owner"):
         from utils.social_pipeline import run_social_media_pipeline
+        db_player_name = await conn.fetchval(
+            "SELECT player_name FROM dim.dim_players WHERE player_id = $1", player_id
+        ) or body.player_name
         asyncio.create_task(
             asyncio.to_thread(
                 run_social_media_pipeline,
                 player_id=player_id,
-                player_name=body.player_name,
+                player_name=db_player_name,
                 game_id=game_id,
                 game_name=body.game_name,
                 game_installment=None,
