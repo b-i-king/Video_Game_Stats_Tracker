@@ -247,7 +247,7 @@ async def submit_game_score(
     if not game_id:
         game_id = await conn.fetchval(
             """INSERT INTO dim.dim_games (game_name, game_installment, game_genre, game_subgenre)
-               VALUES ($1, NULL, 'Platformer', 'Web Game') RETURNING game_id""",
+               VALUES ($1, NULL, 'Platformer', 'Endless Runner') RETURNING game_id""",
             body.game_name,
         )
 
@@ -301,7 +301,7 @@ async def submit_game_score(
         "Solo", 1, "1",
         body.checkpoints, None, None,
         None, None,
-        None, None,
+        0, None,
         body.input_device, body.platform,
         first_session_of_day, 0, "vgst", False,
         played_at,
