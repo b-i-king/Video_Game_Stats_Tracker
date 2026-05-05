@@ -300,6 +300,16 @@ let skinColor = '#E8A87C';
 let skinDragging = false, specDragging = false;
 let skinToneT = 0.30, specT = 0.5;
 
+// Restore persisted skin choice from previous session
+{
+  const _st = localStorage.getItem('lc_skin_tone_t');
+  const _ss = localStorage.getItem('lc_spec_t');
+  const _mode = localStorage.getItem('lc_skin_mode');
+  if (_st !== null) skinToneT = parseFloat(_st);
+  if (_ss !== null) specT    = parseFloat(_ss);
+  skinColor = _mode === 'spec' ? hslToHex(specT*360,90,55) : colorFromT(skinToneT);
+}
+
 let frameCount = 0, highScore = parseInt(localStorage.getItem('lc_hs')||'0');
 let camY = 0, topReached = 50;
 let combo = 0, comboTimer = 0;
@@ -578,7 +588,7 @@ function generatePlatforms(fromY,toY){
   while(y>toY){
     const targetPlats=Math.max(50,75-checkpointCount);
     const gap=Math.min(130,2*(4000/targetPlats)-45);
-    const gapUsed=rf(45,gap); // capture for power-up clearance check
+    const gapUsed=rf(55,gap); // capture for power-up clearance check
     y-=gapUsed;
     platSpawnCount++;
     const hm=Math.round(Math.abs(y)/40);
@@ -614,7 +624,7 @@ function generatePlatforms(fromY,toY){
     const t=Math.random()<0.15?'moving':'normal';
     const w=Math.max(48,88-Math.abs(y)/1000);
     let zone=ri(0,3);
-    if(zone===lastPlatZone && Math.random()>0.25) zone=(zone+1+ri(0,2))%3;
+    if(zone===lastPlatZone && Math.random()>0.05) zone=(zone+1+ri(0,2))%3;
     lastPlatZone=zone;
     const zW=W/3;
     const px=Math.max(0,Math.min(W-w, zone*zW+rf(0,Math.max(1,zW-w))));
@@ -1154,11 +1164,13 @@ C.addEventListener('pointerdown',e=>{
       }
     }
     if(cy>=sgby-12&&cy<=sgby+SGH+12){
-      skinDragging=true; skinToneT=tFromX(cx); skinColor=colorFromT(skinToneT); return;
+      skinDragging=true; skinToneT=tFromX(cx); skinColor=colorFromT(skinToneT);
+      localStorage.setItem('lc_skin_tone_t',skinToneT); localStorage.setItem('lc_skin_mode','tone'); return;
     }
     if(cy>=specby-10&&cy<=specby+SPEC_H+10){
       specDragging=true; specT=Math.max(0,Math.min(1,(cx-SGBX)/SGW));
-      skinColor=hslToHex(specT*360,90,55); return;
+      skinColor=hslToHex(specT*360,90,55);
+      localStorage.setItem('lc_spec_t',specT); localStorage.setItem('lc_skin_mode','spec'); return;
     }
     if(cy>specby+SPEC_H+96&&cy<specby+SPEC_H+148&&cx>W/2-80&&cx<W/2+80){ state='start'; return; }
     return;
@@ -1177,8 +1189,8 @@ C.addEventListener('pointermove',e=>{
   const rect=C.getBoundingClientRect();
   const cx=(e.clientX-rect.left)*(W/rect.width);
   const cy=(e.clientY-rect.top)*(H/rect.height);
-  if(skinDragging){ skinToneT=tFromX(cx); skinColor=colorFromT(skinToneT); return; }
-  if(specDragging){ specT=Math.max(0,Math.min(1,(cx-SGBX)/SGW)); skinColor=hslToHex(specT*360,90,55); return; }
+  if(skinDragging){ skinToneT=tFromX(cx); skinColor=colorFromT(skinToneT); localStorage.setItem('lc_skin_tone_t',skinToneT); localStorage.setItem('lc_skin_mode','tone'); return; }
+  if(specDragging){ specT=Math.max(0,Math.min(1,(cx-SGBX)/SGW)); skinColor=hslToHex(specT*360,90,55); localStorage.setItem('lc_spec_t',specT); localStorage.setItem('lc_skin_mode','spec'); return; }
   if(!touched.left&&!touched.right) return;
   touched.left=cx<W/2; touched.right=cx>=W/2;
 });

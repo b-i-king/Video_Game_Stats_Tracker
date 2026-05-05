@@ -689,12 +689,13 @@ def generate_trendy_caption(post_type, stats, game_info, player_name, day_of_wee
         caption_lines.append("")
 
     # Add game mention if available
+    _action = "Made by" if game_name.lower() == 'light climb' else "Playing"
     if game_handle:
-        caption_lines.append(f"Playing {game_handle}")
+        caption_lines.append(f"{_action} {game_handle}")
         caption_lines.append("")
     else:
         if post_type in ['daily', 'yesterday', 'recent', 'multi_game']:
-            caption_lines.append(f"Playing {full_game_name}")
+            caption_lines.append(f"{_action} {full_game_name}")
             caption_lines.append("")
         else:
             caption_lines.append(f"{full_game_name} Analyzed")
@@ -2384,7 +2385,7 @@ def generate_comparison_caption(game_info, mode_1, mode_2, stats, player_name, d
 
     lines += [
         "",
-        f"Playing {game_handle}" if game_handle else f"Playing {full_game_name}",
+        f"{'Made by' if game_info['game_name'].lower() == 'light climb' else 'Playing'} {game_handle}" if game_handle else f"{'Made by' if game_info['game_name'].lower() == 'light climb' else 'Playing'} {full_game_name}",
         "",
         "💬 Which mode do YOU prefer? Drop your take below 👇",
         "❤️ Like if you're messsing with the winning mode & 🔁 repost to settle the debate!",
@@ -2605,10 +2606,12 @@ def create_no_weekly_recap_chart(player_name, use_holiday_theme=False):
 def generate_no_weekly_recap_caption(player_name):
     """Return a randomized engagement caption for a no-recap week."""
     base = random.choice(_NO_RECAP_CAPTIONS)
+    youtube_handle = os.environ.get('YOUTUBE_HANDLE', 'TheBOLBroadcast')
     return (
         f"📊 {player_name}'s Weekly Recap 📊\n\n"
         f"{base}\n\n"
-        f"#gaming #stats #gamingcommunity #WeeklyRecap #gamer"
+        f"#gaming #stats #gamingcommunity #WeeklyRecap #gamer\n\n"
+        f"📺 YouTube: {youtube_handle} | Link in bio"
     )
 
 
@@ -3060,7 +3063,7 @@ def generate_yearly_recap_caption(recap, player_name):
         "",
     ]
     base_hashtags = [
-        'GamingThreads', '#gaming', '#NewYearsDay', '#GamingRecap', '#YearInReview',
+        '#GamingThreads', '#gaming', '#NewYearsDay', '#GamingRecap', '#YearInReview',
         f'#{year}Wrapped', '#gamer', '#esports', '#gamingcommunity',
     ]
     lines.append(' '.join(base_hashtags))
