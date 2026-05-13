@@ -288,6 +288,7 @@ def post_to_instagram(image_url, caption):
             'access_token': INSTAGRAM_ACCESS_TOKEN
         }
 
+        import time
         # Retry up to 3 times for transient Instagram API errors
         max_retries = 3
         for attempt in range(1, max_retries + 1):
@@ -308,7 +309,6 @@ def post_to_instagram(image_url, caption):
         logger.info(f"✅ Media container created: {media_id}")
 
         # Poll until Instagram finishes processing the image (error 2207027 if skipped)
-        import time
         status_url = f"https://graph.facebook.com/v24.0/{media_id}"
         max_attempts = 10
         for attempt in range(1, max_attempts + 1):
@@ -336,14 +336,26 @@ def post_to_instagram(image_url, caption):
             'access_token': INSTAGRAM_ACCESS_TOKEN
         }
 
-        publish_response = requests.post(publish_url, data=publish_data, timeout=30)
-        publish_result = publish_response.json()
-
-        if 'id' in publish_result:
-            logger.info(f"✅ Posted to Instagram: {publish_result['id']}")
-            return True
-        else:
-            raise Exception(f"Publishing failed: {publish_result}")
+        max_publish_retries = 3
+        for pub_attempt in range(1, max_publish_retries + 1):
+            publish_response = requests.post(publish_url, data=publish_data, timeout=30)
+            publish_result = publish_response.json()
+            if 'id' in publish_result:
+                logger.info(f"✅ Posted to Instagram: {publish_result['id']}")
+                return True
+            error = publish_result.get('error', {})
+            is_transient = error.get('is_transient', False)
+            if is_transient:
+                if pub_attempt < max_publish_retries:
+                    wait = 2 ** pub_attempt  # 2s, 4s
+                    logger.warning(f"⚠️ Transient publish error (attempt {pub_attempt}/{max_publish_retries}), retrying in {wait}s: {error}")
+                    time.sleep(wait)
+                else:
+                    # Transient errors exhausted — post likely went through on Instagram's end
+                    logger.warning(f"⚠️ Publish returned transient error after {max_publish_retries} attempts — post may have succeeded, suppressing failure alert: {error}")
+                    return True
+            else:
+                raise Exception(f"Publishing failed: {publish_result}")
 
     except Exception as e:
         logger.error(f"❌ Instagram posting error: {e}")

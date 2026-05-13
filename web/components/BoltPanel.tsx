@@ -59,14 +59,12 @@ export default function BoltPanel({
       setTimeout(() => {
         getAiUsage(jwt, simulateRole).then(setUsage).catch(() => {});
       }, 1000);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "bolt",
-          text: "I couldn't reach the server right now. Try again in a moment.",
-        },
-      ]);
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "I couldn't reach the server right now. Try again in a moment.";
+      setMessages((prev) => [...prev, { role: "bolt", text: msg }]);
     } finally {
       setLoading(false);
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);

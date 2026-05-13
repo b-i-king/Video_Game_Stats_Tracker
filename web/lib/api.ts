@@ -560,7 +560,10 @@ export async function askBolt(
     headers: authHeaders(jwt),
     body: JSON.stringify({ prompt, tz }),
   });
-  if (!res.ok) throw new Error("Bolt unavailable");
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { detail?: string }).detail || "Bolt unavailable");
+  }
   const data = await res.json();
   return data.reply as string;
 }

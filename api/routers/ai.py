@@ -110,7 +110,12 @@ async def ask(body: AskRequest, conn: DynamicConn, user: CurrentUser):
         reply = await asyncio.to_thread(ask_agent, prompt, context, model, body.tz or "UTC")
     except Exception as e:
         print(f"[ai] Gemini error: {e}")
-        return {"reply": "Something went wrong on my end. Try again in a moment."}
+        err_lower = str(e).lower()
+        if any(kw in err_lower for kw in ("overload", "quota", "resource_exhausted", "429", "too many")):
+            detail = "Bolt is busy right now — the AI model is overloaded. Try again in a moment."
+        else:
+            detail = "Something went wrong on Bolt's end. Try again in a moment."
+        raise HTTPException(status_code=503, detail=detail)
 
     # --- Record usage ---
     try:
