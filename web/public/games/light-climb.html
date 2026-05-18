@@ -34,20 +34,70 @@ let _pendingScore    = null; // {score, checkpoints} queued while auth was in-fl
 let _authState       = 'idle'; // 'idle' | 'pending' | 'ok' | 'failed'
 let _players         = [];    // [{player_id, player_name}] from auth response
 let _selectedPlayerId = null; // player to record scores against
+let _useLocalStorageQueue = false; // set true on non-SW devices (iOS/Safari)
+
+// Restore JWT + player_id from localStorage if still valid (enables offline-first play)
+{
+  const _lc = localStorage.getItem('lc_jwt');
+  if (_lc) {
+    try {
+      const { token, expiry, player_id } = JSON.parse(_lc);
+      if (expiry > Date.now()) {
+        _gameJwt = token;
+        if (player_id) _selectedPlayerId = player_id;
+      }
+    } catch {}
+  }
+}
+
+function _buildScoreBody(score, checkpoints) {
+  return {
+    game_name:    'Light Climb',
+    player_name:  PLAYER_NAME,
+    score,
+    checkpoints,
+    platform:     IS_MOBILE ? 'Mobile' : 'PC',
+    input_device: IS_MOBILE ? 'Touch'  : 'Keyboard & Mouse',
+    player_id:    _selectedPlayerId,
+  };
+}
+
+function _queueScoreLocally(score, checkpoints) {
+  try {
+    const q = JSON.parse(localStorage.getItem('lc_score_queue') || '[]');
+    q.push({ body: _buildScoreBody(score, checkpoints), ts: Date.now() });
+    localStorage.setItem('lc_score_queue', JSON.stringify(q));
+    console.log('[LC] Score queued locally:', score + 'm');
+  } catch(e) { console.error('[LC] Local queue error:', e); }
+}
+
+async function _flushLocalQueue() {
+  const raw = localStorage.getItem('lc_score_queue');
+  if (!raw) return;
+  const q = JSON.parse(raw);
+  if (!q.length) return;
+  const remaining = [];
+  for (const item of q) {
+    try {
+      const r = await fetch('/api/game/score', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _gameJwt },
+        body:    JSON.stringify(item.body),
+        signal:  AbortSignal.timeout(8000),
+      });
+      if (r.ok) { console.log('[LC] Flushed queued score:', item.body.score + 'm'); }
+      else if (r.status === 401) { console.warn('[LC] JWT rejected — dropping queued score'); }
+      else remaining.push(item);
+    } catch(e) { console.error('[LC] Flush error:', e); remaining.push(item); }
+  }
+  localStorage.setItem('lc_score_queue', JSON.stringify(remaining));
+}
 
 async function _postScore(score, checkpoints){
   const r = await fetch('/api/game/score',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+_gameJwt},
-    body:JSON.stringify({
-      game_name:   'Light Climb',
-      player_name: PLAYER_NAME,
-      score,
-      checkpoints,
-      platform:     IS_MOBILE ? 'Mobile' : 'PC',
-      input_device: IS_MOBILE ? 'Touch'  : 'Keyboard & Mouse',
-      player_id:   _selectedPlayerId,
-    }),
+    body:JSON.stringify(_buildScoreBody(score, checkpoints)),
     signal:AbortSignal.timeout(5000),
   });
   if(!r.ok){ const t=await r.text(); console.warn('[LC] score submit',r.status,t); }
@@ -73,6 +123,7 @@ async function gameAuth(){
       }
       _players = data.players || [];
       if(_players.length >= 1) _selectedPlayerId = _players[0].player_id;
+      try{ localStorage.setItem('lc_jwt', JSON.stringify({ token: data.token, expiry: Date.now() + 12*60*60*1000, player_id: _selectedPlayerId })); }catch{}
       if(_pendingScore){
         const {score, checkpoints} = _pendingScore;
         _pendingScore = null;
@@ -81,8 +132,21 @@ async function gameAuth(){
     } else {
       _authState = 'failed';
       console.warn('[LC] auth failed', r.status, await r.text());
+      if(_useLocalStorageQueue && _pendingScore){ _queueScoreLocally(_pendingScore.score, _pendingScore.checkpoints); _pendingScore = null; }
     }
-  }catch(e){ _authState='failed'; console.error('[LC] auth error',e); }
+  }catch(e){
+    _authState='failed'; console.error('[LC] auth error',e);
+    if(_useLocalStorageQueue && _pendingScore){ _queueScoreLocally(_pendingScore.score, _pendingScore.checkpoints); _pendingScore = null; }
+  }
+}
+// Feature detect: SW path (Chrome/Android/Telegram Desktop) vs localStorage path (iOS/Safari)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(e => {
+    console.warn('[LC] SW registration failed — falling back to localStorage queue', e);
+    _useLocalStorageQueue = true;
+  });
+} else {
+  _useLocalStorageQueue = true;
 }
 gameAuth(); // fire-and-forget at load
 
@@ -668,7 +732,7 @@ async function submitScore(score, checkpoints){
     if(_authState !== 'pending') await gameAuth(); // retry if initial auth failed
     return;
   }
-  try{ await _postScore(score, checkpoints); }catch(e){ console.error('[LC] submit error',e); }
+  try{ await _postScore(score, checkpoints); }catch(e){ console.error('[LC] submit error',e); if(_useLocalStorageQueue) _queueScoreLocally(score, checkpoints); }
 }
 
 // ── Skin helpers ──────────────────────────────────────────────────────────────
@@ -1195,6 +1259,16 @@ C.addEventListener('pointermove',e=>{
   touched.left=cx<W/2; touched.right=cx>=W/2;
 });
 C.addEventListener('pointerup',()=>{ skinDragging=false; specDragging=false; touched.left=false; touched.right=false; });
+
+// Non-SW path: flush queued scores when connectivity returns
+window.addEventListener('online', async () => {
+  if (!_useLocalStorageQueue) return;
+  const raw = localStorage.getItem('lc_score_queue');
+  if (!raw || !JSON.parse(raw).length) return;
+  console.log('[LC] Back online — flushing score queue');
+  if (!_gameJwt && TG_INIT_DATA) { _authState = 'idle'; await gameAuth(); }
+  if (_gameJwt) await _flushLocalQueue();
+});
 
 requestAnimationFrame(gameLoop);
 </script>
