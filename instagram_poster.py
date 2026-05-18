@@ -528,8 +528,8 @@ def get_historical_records_all_games(player_id, posted_hashes, limit=10):
         max_value = get_field_value(row[3])
         best_date_str = get_field_value(row[4])
 
-        # Parse date string returned by Data API (format: 'YYYY-MM-DD')
-        best_date = datetime.strptime(best_date_str[:10], '%Y-%m-%d').date() if best_date_str else None
+        # psycopg2 returns datetime.date; str() normalises both date objects and strings
+        best_date = datetime.strptime(str(best_date_str)[:10], '%Y-%m-%d').date() if best_date_str else None
 
         content_hash = generate_content_hash(
             [(stat_name, max_value)],
