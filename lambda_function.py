@@ -298,9 +298,16 @@ def post_to_instagram(image_url, caption):
                 break
             error = response_data.get('error', {})
             is_transient = error.get('is_transient', False)
+            error_subcode = error.get('error_subcode')
             if is_transient and attempt < max_retries:
                 wait = 2 ** attempt  # 2s, 4s
                 logger.warning(f"⚠️ Transient error on attempt {attempt}/{max_retries}, retrying in {wait}s: {error}")
+                time.sleep(wait)
+            elif error_subcode == 2207052 and attempt < max_retries:
+                # Instagram could not fetch the image from GCS — can be a brief propagation
+                # delay right after upload even though Instagram reports is_transient=False.
+                wait = 12 * attempt  # 12s, 24s — give GCS time to fully propagate
+                logger.warning(f"⚠️ Media download failed (2207052) on attempt {attempt}/{max_retries}, retrying in {wait}s")
                 time.sleep(wait)
             else:
                 raise Exception(f"Failed to create container: {response_data}")

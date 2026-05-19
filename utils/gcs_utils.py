@@ -245,6 +245,7 @@ def upload_instagram_poster_to_gcs(image_buffer, player_name, game_name, post_ty
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
+            import requests as _requests
             bucket = client.bucket(bucket_name)
             blob = bucket.blob(full_path)
             image_buffer.seek(0)  # Reset buffer position before each attempt
@@ -254,6 +255,19 @@ def upload_instagram_poster_to_gcs(image_buffer, player_name, game_name, post_ty
             blob.make_public()
 
             public_url = blob.public_url
+
+            # Verify the URL is actually publicly accessible before returning it.
+            # blob.public_url is computed from the path — it doesn't confirm access.
+            # If GCS Uniform Bucket-Level Access or Public Access Prevention is active,
+            # make_public() has no effect and Instagram will get a 403 when it tries
+            # to download the image. Catching this here triggers proper retry/skip logic.
+            verify = _requests.head(public_url, timeout=8)
+            if verify.status_code not in (200, 206):
+                raise Exception(
+                    f"Uploaded image not publicly accessible (HTTP {verify.status_code}). "
+                    f"Check GCS bucket public access settings."
+                )
+
             if attempt > 1:
                 print(f"✅ Instagram poster uploaded (attempt {attempt}/{max_retries}): {full_path}")
             else:

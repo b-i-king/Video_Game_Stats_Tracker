@@ -3,14 +3,20 @@
 A full-stack application built to **log, track, and analyze video game statistics** — with automated social media posting, live stream overlays, and a mobile companion app.
 
 This app uses:
-- **Web Frontend:** Streamlit (Python)
-- **Mobile App:** React Native + Expo (iOS, Android, Web)
-- **Backend:** Flask API (hosted on Render)
-- **Database:** AWS Redshift Serverless (star schema)
-- **Queue Storage:** Neon Serverless Postgres (post queue)
+- **Web Frontend:** Next.js (deployed on Vercel)
+- **Mobile App:** React Native + Expo (iOS, Android, Web) *(in progress)*
+- **Mobile Game:** Light Climb — Telegram Mini App (HTML5 Canvas)
+- **Backend:** FastAPI (Python)
+- **Database:** Supabase (PostgreSQL)
 - **File Storage:** Google Cloud Storage (chart images, interactive charts)
+- **Social Media Automation:** AWS Lambda + SQS → Instagram Graph API
+- **AI Assistant:** Bolt — Google Gemini (natural language stat queries)
 - **Overlay Dashboard:** GitHub Pages (HTML/CSS/JS)
-- **Social Media:** IFTTT webhooks → Twitter & Instagram
+
+> **Archived** *(preserved for reference)*
+> - Web Frontend: [Streamlit (Python)](archive/streamlit/)
+> - Backend: [Flask API (hosted on Render)](archive/backend/)
+> - Database: [AWS Redshift Serverless (star schema)](archive/backend/)
 
 ---
 
