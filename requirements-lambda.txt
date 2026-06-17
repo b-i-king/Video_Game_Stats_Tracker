@@ -5,7 +5,7 @@ psycopg2-binary==2.9.10
 matplotlib==3.10.7
 seaborn==0.13.2
 numpy>=2.2.6
-pillow==12.1.1
+pillow==12.2.0
 
 google-cloud-storage==3.7.0
 google-crc32c==1.8.0
