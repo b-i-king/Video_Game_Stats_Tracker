@@ -821,6 +821,7 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
         theme_name = None
 
     all_colors = theme['colors']
+    _is_gaming = (theme['theme_name'] == 'Gaming')
     num_stats = len(stats)
     colors = all_colors[:max(num_stats, 1)]
 
@@ -995,6 +996,22 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
 
         bars = ax.barh(stat_names, plot_values, color=colors[:len(stat_names)])
 
+        # Option C: neon glow (gaming) or raised-slab shadow (holiday)
+        if _is_gaming:
+            for _bar, _bcol in zip(bars, colors[:len(stat_names)]):
+                _bar.set_path_effects([pe.withStroke(linewidth=8, foreground=_bcol)])
+        else:
+            from matplotlib.patches import Rectangle as _Rect3D
+            for _bar in bars:
+                _bx, _by, _bw, _bh = _bar.get_x(), _bar.get_y(), _bar.get_width(), _bar.get_height()
+                _sd = _bh * 0.12
+                ax.add_patch(_Rect3D((_bx + _bw*0.01, _by - _sd), _bw*0.99, _sd,
+                                     facecolor='#000000', alpha=0.40,
+                                     zorder=_bar.get_zorder()-0.5, clip_on=True))
+                ax.add_patch(_Rect3D((_bx, _by + _bh*0.78), _bw*0.94, _bh*0.22,
+                                     facecolor='#ffffff', alpha=0.08,
+                                     zorder=_bar.get_zorder()+0.5, clip_on=True))
+
         # Log scale with nice_max and intermediate ticks (matches chart_utils)
         if use_log:
             ax.set_xscale('log')
@@ -1081,9 +1098,18 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
     y_position = 0.97
 
     # Line 1: main title ("Today's Performance", etc.) — FIRST COLOR
-    fig.text(0.5, y_position, title, ha='center', va='top',
-             fontsize=title_fontsize, fontweight='bold', color=title_color,
-             transform=fig.transFigure)
+    if _is_gaming:
+        fig.text(0.5, y_position, title, ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color=title_color,
+                 transform=fig.transFigure,
+                 path_effects=[pe.withStroke(linewidth=4, foreground=title_color)])
+    else:
+        fig.text(0.503, y_position - 0.003, title, ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color='#000000',
+                 alpha=0.45, transform=fig.transFigure)
+        fig.text(0.5, y_position, title, ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color=title_color,
+                 transform=fig.transFigure)
     y_position -= line_spacing
 
     # Line 2: player — game — WHITE (secondary fontsize)

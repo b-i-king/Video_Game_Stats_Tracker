@@ -500,6 +500,7 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     num_stats = len(stats)
     theme = get_themed_colors(tz)
     colors = theme['colors']
+    _is_gaming = (theme['theme_name'] == 'Gaming')
 
     if num_stats == 1:
         return _generate_kpi_chart(stats[0], player_name, game_name, game_installment, size, theme, game_mode=game_mode, title_label=title_label)
@@ -550,6 +551,22 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
     
     # Create horizontal bar chart
     bars = ax.barh(labels, plot_values, color=colors[:len(labels)])
+
+    # Option C: neon glow (gaming) or raised-slab shadow (holiday)
+    if _is_gaming:
+        for _bar, _bcol in zip(bars, colors[:len(labels)]):
+            _bar.set_path_effects([pe.withStroke(linewidth=8, foreground=_bcol)])
+    else:
+        from matplotlib.patches import Rectangle as _Rect3D
+        for _bar in bars:
+            _bx, _by, _bw, _bh = _bar.get_x(), _bar.get_y(), _bar.get_width(), _bar.get_height()
+            _sd = _bh * 0.12
+            ax.add_patch(_Rect3D((_bx + _bw*0.01, _by - _sd), _bw*0.99, _sd,
+                                 facecolor='#000000', alpha=0.40,
+                                 zorder=_bar.get_zorder()-0.5, clip_on=True))
+            ax.add_patch(_Rect3D((_bx, _by + _bh*0.78), _bw*0.94, _bh*0.22,
+                                 facecolor='#ffffff', alpha=0.08,
+                                 zorder=_bar.get_zorder()+0.5, clip_on=True))
 
     # Apply log scale before label positioning so xlim reflects the log axis range
     if use_log:
@@ -643,9 +660,18 @@ def generate_bar_chart(stat_data, player_name, game_name, game_installment=None,
 
     # Line 1: "{Player}'s {title_label}" - WHITE
     line1 = f"{player_name}'s {title_label}"
-    fig.text(0.5, y_position, line1, ha='center', va='top',
-             fontsize=title_fontsize, fontweight='bold', color='white',
-             transform=fig.transFigure)
+    if _is_gaming:
+        fig.text(0.5, y_position, line1, ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color='white',
+                 transform=fig.transFigure,
+                 path_effects=[pe.withStroke(linewidth=4, foreground=colors[0])])
+    else:
+        fig.text(0.503, y_position - 0.003, line1, ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color='#000000',
+                 alpha=0.45, transform=fig.transFigure)
+        fig.text(0.5, y_position, line1, ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color='white',
+                 transform=fig.transFigure)
     y_position -= line_spacing
 
     # Line 2: "Game: Installment" - WHITE
@@ -762,6 +788,7 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
     # Get themed colors
     theme = get_themed_colors(tz)
     colors = theme['colors']
+    _is_gaming = (theme['theme_name'] == 'Gaming')
 
     # Count active stats for font sizing
     num_stats = sum(
@@ -833,10 +860,12 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
                 else:
                     plot_values = values
                 
-                # Glow effect: wide low-alpha strokes behind the main line
-                # (no fill_between — fills stack badly when stats span orders of magnitude)
-                ax.plot(dates, plot_values, color=colors[i-1], linewidth=18, alpha=0.08, zorder=1)
-                ax.plot(dates, plot_values, color=colors[i-1], linewidth=10, alpha=0.14, zorder=2)
+                # Glow effect — gaming: full neon; holiday: single faint shadow
+                if _is_gaming:
+                    ax.plot(dates, plot_values, color=colors[i-1], linewidth=18, alpha=0.08, zorder=1)
+                    ax.plot(dates, plot_values, color=colors[i-1], linewidth=10, alpha=0.14, zorder=2)
+                else:
+                    ax.plot(dates, plot_values, color='#000000', linewidth=5, alpha=0.22, zorder=1)
 
                 line, = ax.plot(dates, plot_values,
                        color=colors[i-1],
@@ -907,17 +936,26 @@ def generate_line_chart(stat_history, player_name, game_name, game_installment=N
 
     # Line 1: "{Player}'s  Performance Over Time" - WHITE
     line1 = f"{player_name}'s Performance Over Time"
-    fig.text(0.5, y_position, line1, ha='center', va='top',
-             fontsize=title_fontsize, fontweight='bold', color='white',
-             transform=fig.transFigure)
+    if _is_gaming:
+        fig.text(0.5, y_position, line1, ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color='white',
+                 transform=fig.transFigure,
+                 path_effects=[pe.withStroke(linewidth=4, foreground=colors[0])])
+    else:
+        fig.text(0.503, y_position - 0.003, line1, ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color='#000000',
+                 alpha=0.45, transform=fig.transFigure)
+        fig.text(0.5, y_position, line1, ha='center', va='top',
+                 fontsize=title_fontsize, fontweight='bold', color='white',
+                 transform=fig.transFigure)
     y_position -= line_spacing
-    
+
     # Line 2: "Game: Installment" - WHITE
     fig.text(0.5, y_position, full_game_name, ha='center', va='top',
              fontsize=title_fontsize, fontweight='bold', color='white',
              transform=fig.transFigure)
     y_position -= line_spacing
-    
+
     # Line 3 (OPTIONAL): Heritage month/holiday name - THIRD COLOR
     if theme['show_in_title']:
         theme_color = colors[2] if len(colors) > 2 else colors[0]
