@@ -2,6 +2,7 @@
 FastAPI dependency injection helpers.
 """
 
+import logging
 from typing import Annotated
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -10,6 +11,8 @@ import asyncpg
 
 from api.core.config import get_settings
 from api.core import database
+
+logger = logging.getLogger(__name__)
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -115,14 +118,12 @@ async def get_dynamic_conn(
         try:
             async with database.public_pool.acquire() as conn:
                 yield conn
-        except asyncpg.PostgresError as e:
-            raise HTTPException(status_code=503, detail="Public database unavailable") from e
         except Exception as e:
-            raise HTTPException(status_code=503, detail="Public database unavailable") from e
+            logger.warning("Public pool unavailable, falling back to personal pool: %s", e)
+            async with database.personal_pool.acquire() as conn:
+                yield conn
     else:
-        # PUBLIC_DB_URL not yet configured — fall back to personal during transition.
-        # Once the public Supabase project is live, set PUBLIC_DB_URL on Render and
-        # this branch will stop being reached.
+        # PUBLIC_DB_URL not configured — fall back to personal during transition.
         async with database.personal_pool.acquire() as conn:
             yield conn
 
