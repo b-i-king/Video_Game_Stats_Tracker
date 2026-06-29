@@ -7,7 +7,10 @@ Both are initialised at startup via the FastAPI lifespan hook in main.py.
 """
 
 import asyncpg
+import logging
 from api.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 personal_pool: asyncpg.Pool | None = None
 public_pool:   asyncpg.Pool | None = None
@@ -26,13 +29,17 @@ async def init_pools() -> None:
     )
 
     if settings.public_db_url:
-        public_pool = await asyncpg.create_pool(
-            dsn=settings.public_db_url,
-            min_size=1,
-            max_size=5,
-            statement_cache_size=0,
-            max_inactive_connection_lifetime=300,
-        )
+        try:
+            public_pool = await asyncpg.create_pool(
+                dsn=settings.public_db_url,
+                min_size=1,
+                max_size=5,
+                statement_cache_size=0,
+                max_inactive_connection_lifetime=300,
+            )
+        except Exception as e:
+            logger.warning("Public DB unavailable at startup — public_pool disabled: %s", e)
+            public_pool = None
 
 
 async def close_pools() -> None:

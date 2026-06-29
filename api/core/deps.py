@@ -112,8 +112,13 @@ async def get_dynamic_conn(
         async with database.personal_pool.acquire() as conn:
             yield conn
     elif database.public_pool is not None:
-        async with database.public_pool.acquire() as conn:
-            yield conn
+        try:
+            async with database.public_pool.acquire() as conn:
+                yield conn
+        except asyncpg.PostgresError as e:
+            raise HTTPException(status_code=503, detail="Public database unavailable") from e
+        except Exception as e:
+            raise HTTPException(status_code=503, detail="Public database unavailable") from e
     else:
         # PUBLIC_DB_URL not yet configured — fall back to personal during transition.
         # Once the public Supabase project is live, set PUBLIC_DB_URL on Render and
