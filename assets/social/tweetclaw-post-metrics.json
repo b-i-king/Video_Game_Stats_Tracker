@@ -1,0 +1,20 @@
+[
+  {
+    "tweet_text": "New leaderboard overlay makes ranked sessions easier to follow.",
+    "created_at": "2026-07-09T12:00:00Z",
+    "like_count": 12,
+    "reply_count": 2,
+    "retweet_count": 1,
+    "view_count": 640,
+    "url": "https://x.com/example/status/2001"
+  },
+  {
+    "tweet_text": "Tonight's stream recap highlights the best elimination streaks.",
+    "created_at": "2026-07-09T12:10:00Z",
+    "like_count": 20,
+    "reply_count": 5,
+    "retweet_count": 4,
+    "view_count": 980,
+    "url": "https://x.com/example/status/2002"
+  }
+]

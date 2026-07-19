@@ -1,16 +1,16 @@
 # 🎮 Video Game Stats Tracker (Full Stack)
 
-A full-stack application built to **log, track, and analyze video game statistics** — with automated social media posting, live stream overlays, and a mobile companion app.
+A full-stack application built to **log, track, and analyze video game statistics** - with automated social media posting, live stream overlays, and a mobile companion app.
 
 This app uses:
 - **Web Frontend:** Next.js (deployed on Vercel)
 - **Mobile App:** React Native + Expo (iOS, Android, Web) *(in progress)*
-- **Mobile Game:** Light Climb — Telegram Mini App (HTML5 Canvas)
+- **Mobile Game:** Light Climb - Telegram Mini App (HTML5 Canvas)
 - **Backend:** FastAPI (Python)
 - **Database:** Supabase (PostgreSQL)
 - **File Storage:** Google Cloud Storage (chart images, interactive charts)
 - **Social Media Automation:** AWS Lambda + SQS → Instagram Graph API
-- **AI Assistant:** Bolt — Google Gemini (natural language stat queries)
+- **AI Assistant:** Bolt - Google Gemini (natural language stat queries)
 - **Overlay Dashboard:** GitHub Pages (HTML/CSS/JS)
 
 > **Archived** *(preserved for reference)*
@@ -121,12 +121,13 @@ Watch the ESPN-style overlay in action during a live stream or recording:
 ## ✨ Key Features
 
 - 🔑 **Google Authentication** (with JWT + API Key security)
-- 📱 **Mobile App** — React Native + Expo for iOS, Android, and web
+- 📱 **Mobile App** - React Native + Expo for iOS, Android, and web
 - 🧩 **CRUD for Admins:** Add/edit/delete players, games, and stats
 - 📊 **Auto-Generated Charts:** Matplotlib bar/line charts + Plotly interactive charts uploaded to GCS
 - 📬 **Smart Post Queue:** Business-hours gating with 30-minute release intervals after 5pm PST
 - 🐦 **Twitter & Instagram Automation** via IFTTT webhooks with holiday-themed captions
 - 📈 **Interactive Stats Link** appended to every Twitter post (Plotly HTML on GCS)
+- 📥 **TweetClaw/Xquik Social Metrics Import** via an offline converter for reviewing post engagement exports
 - 💫 **Star Schema Design** for analytics efficiency
 - ⚡ **Fast Backend Connections** with psycopg2 connection pooling
 - 🧠 **Smart UI:**
@@ -324,12 +325,28 @@ Game_Tracker/
 │   ├── refresh_instagram_token.yml # Cron: refresh Instagram token monthly
 │   └── gcs_cleanup.yml           # Cron: clean up old GCS chart files
 ├── docs/                         # Implementation guides and references
-│   └── bar_chart_race.md         # Animated stats visualization (Flourish / Power BI)
+│   ├── bar_chart_race.md         # Animated stats visualization (Flourish / Power BI)
+│   └── tweetclaw_social_metrics.md # Offline TweetClaw/Xquik social metric import
 ├── assets/                       # README images, SQL, captions
 └── requirements.txt              # Python dependencies
 ```
 
 ---
+
+### TweetClaw/Xquik Social Metrics
+
+Use the offline converter when you want to compare generated chart posts with
+engagement exported from TweetClaw or Xquik:
+
+```bash
+python scripts/tweetclaw_social_metrics.py \
+  assets/social/tweetclaw-post-metrics.json \
+  assets/social/tweetclaw-post-metrics.csv
+```
+
+The converter validates text rows, accepts common count aliases, skips blank
+posts, and writes `engagement_total` plus `engagement_rate` for review. See
+[`docs/tweetclaw_social_metrics.md`](docs/tweetclaw_social_metrics.md).
 
 ## 🧩 Entity Relationship Diagram (ERD)
 
