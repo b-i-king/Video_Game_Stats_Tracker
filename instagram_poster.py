@@ -1097,19 +1097,12 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
 
     y_position = 0.97
 
-    # Line 1: main title ("Today's Performance", etc.) — FIRST COLOR
-    if _is_gaming:
-        fig.text(0.5, y_position, title, ha='center', va='top',
-                 fontsize=title_fontsize, fontweight='bold', color=title_color,
-                 transform=fig.transFigure,
-                 path_effects=[pe.withStroke(linewidth=4, foreground=title_color)])
-    else:
-        fig.text(0.503, y_position - 0.003, title, ha='center', va='top',
-                 fontsize=title_fontsize, fontweight='bold', color='#000000',
-                 alpha=0.45, transform=fig.transFigure)
-        fig.text(0.5, y_position, title, ha='center', va='top',
-                 fontsize=title_fontsize, fontweight='bold', color=title_color,
-                 transform=fig.transFigure)
+    # Line 1: main title ("Today's Performance", etc.) — white text, theme-colored border
+    _title_lw = 6 if _is_gaming else 4
+    fig.text(0.5, y_position, title, ha='center', va='top',
+             fontsize=title_fontsize, fontweight='bold', color=title_color,
+             transform=fig.transFigure,
+             path_effects=[pe.withStroke(linewidth=_title_lw, foreground='white')])
     y_position -= line_spacing
 
     # Line 2: player — game — WHITE (secondary fontsize)
@@ -1119,10 +1112,12 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
     y_position -= secondary_line_spacing
 
     # Line 3: subtitle (date, "All-Time Bests", etc.) — SECOND COLOR (secondary fontsize)
+    _subtitle_lw = 4 if _is_gaming else 2
     if subtitle:
         fig.text(0.5, y_position, subtitle, ha='center', va='top',
                  fontsize=secondary_fontsize, fontweight='bold', color=subtitle_color,
-                 transform=fig.transFigure)
+                 transform=fig.transFigure,
+                 path_effects=[pe.withStroke(linewidth=_subtitle_lw, foreground='white')])
         y_position -= secondary_line_spacing
 
     # Line 4: heritage/holiday theme — THIRD COLOR (secondary fontsize)
@@ -1135,7 +1130,8 @@ def create_instagram_portrait_chart(stats, player_name, game_name, game_installm
     if theme_to_display:
         fig.text(0.5, y_position, theme_to_display, ha='center', va='top',
                  fontsize=secondary_fontsize, fontweight='bold', color=holiday_theme_color,
-                 transform=fig.transFigure)
+                 transform=fig.transFigure,
+                 path_effects=[pe.withStroke(linewidth=_subtitle_lw, foreground='white')])
         y_position -= secondary_line_spacing
 
     top_margin = y_position
@@ -1437,11 +1433,16 @@ def run_instagram_poster():
     else:
         week_min = today - timedelta(days=7)
         week_max = today - timedelta(days=2)
+        logger.info(f"🔍 Priority 3: searching for games between {week_min} and {week_max}")
         recent_date = get_most_recent_date_in_range(PLAYER_ID, week_min, week_max)
-        if recent_date:
+        if not recent_date:
+            logger.info(f"📭 Priority 3: no games found in window {week_min}–{week_max} — falling back to historical")
+        else:
             logger.info(f"✅ Recent games found on {recent_date}")
             result = _resolve_game_for_date(recent_date, all_games)
-            if result:
+            if not result:
+                logger.warning(f"⚠️ Priority 3: games on {recent_date} found but could not resolve (game_id missing from all_games?) — falling back to historical")
+            else:
                 game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
                 is_averaged = match_count > 1
                 if game_info['game_name'] == 'Multi-Game':
@@ -1661,11 +1662,16 @@ def run_instagram_poster_for_queue():
     else:
         week_min = today - timedelta(days=7)
         week_max = today - timedelta(days=2)
+        logger.info(f"🔍 Priority 3: searching for games between {week_min} and {week_max}")
         recent_date = get_most_recent_date_in_range(PLAYER_ID, week_min, week_max)
-        if recent_date:
+        if not recent_date:
+            logger.info(f"📭 Priority 3: no games found in window {week_min}–{week_max} — falling back to historical")
+        else:
             logger.info(f"✅ Recent games found on {recent_date}")
             result = _resolve_game_for_date(recent_date, all_games)
-            if result:
+            if not result:
+                logger.warning(f"⚠️ Priority 3: games on {recent_date} found but could not resolve (game_id missing from all_games?) — falling back to historical")
+            else:
                 game_info, _, game_mode, game_modes, stats, anomalies, match_count = result
                 is_averaged = match_count > 1
                 if game_info['game_name'] == 'Multi-Game':
