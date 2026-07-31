@@ -1,6 +1,6 @@
 """
 utils/queue_utils.py
-post_queue CRUD helpers — reads from app.post_queue on personal Supabase.
+post_queue CRUD helpers - reads from app.post_queue on personal Supabase.
 Uses the same DB env vars as flask_app.py (no separate QUEUE_DATABASE_URL needed).
 """
 import os
@@ -23,7 +23,7 @@ def _get_conn():
 
 def ensure_post_queue_table():
     """
-    Skipped on Supabase — table managed via supabase_schema.sql.
+    Skipped on Supabase - table managed via supabase_schema.sql.
     Kept for Redshift/legacy compatibility only.
     """
     if os.environ.get("DB_TYPE") == "supabase":
@@ -164,7 +164,7 @@ def reset_stale_processing(minutes=10):
                 UPDATE app.post_queue
                 SET status = 'pending'
                 WHERE status = 'processing'
-                  AND created_at < NOW() - INTERVAL '%s minutes';
+                  AND created_at < NOW() - (%s * INTERVAL '1 minute');
             """, (minutes,))
             count = cur.rowcount
         conn.commit()
@@ -181,7 +181,7 @@ def purge_old_sent(days=7):
             cur.execute("""
                 DELETE FROM app.post_queue
                 WHERE status = 'sent'
-                  AND created_at < NOW() - INTERVAL '%s days';
+                  AND created_at < NOW() - (%s * INTERVAL '1 day');
             """, (days,))
             count = cur.rowcount
         conn.commit()

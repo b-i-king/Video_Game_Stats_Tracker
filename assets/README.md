@@ -29,6 +29,7 @@ assets/
 │   ├── test_instagram_caption_multi_game_4.txt
 │   ├── test_instagram_square_caption_bar.txt
 │   └── test_instagram_square_caption_line.txt
+├── social/                 # Sample social metrics exports and converted CSVs
 └── sql/                    # Redshift test queries for manual validation
     └── test_queries.sql    # SQL for each Instagram poster type
 ```
@@ -43,6 +44,14 @@ python test_charts.py
 ```
 
 The output files written to `assets/images/` and `assets/captions/` are committed to the repo so the README renders previews on GitHub without needing a live database connection.
+
+TweetClaw and Xquik social metrics can be normalized into review CSVs:
+
+```bash
+python scripts/tweetclaw_social_metrics.py \
+  assets/social/tweetclaw-post-metrics.json \
+  assets/social/tweetclaw-post-metrics.csv
+```
 
 ## Usage in README
 
@@ -60,7 +69,7 @@ These files are referenced directly in the root `README.md`:
 
 1. Open **AWS Redshift Query Editor v2** and connect to your serverless workgroup.
 2. Open `test_queries.sql` and run each section independently.
-3. Values marked `-- ← CHANGE ME` are placeholders — substitute your own `player_id`, `timezone`, dates, etc.
+3. Values marked `-- ← CHANGE ME` are placeholders - substitute your own `player_id`, `timezone`, dates, etc.
 
 ### Sections
 
@@ -80,6 +89,6 @@ These files are referenced directly in the root `README.md`:
 
 ## Notes
 
-- These are **sample outputs only** — no real player data is included
+- These are **sample outputs only** - no real player data is included
 - To regenerate chart images and captions, run the test scripts with your local environment configured
 - Do not commit images with sensitive or personal data
